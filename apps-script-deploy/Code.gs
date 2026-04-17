@@ -346,12 +346,15 @@ const DAYS_MAP = {
 };
 
 // ── 1900H: Next-day preview + location reminder (to MAIN chat) ──
-function sendDailyReminder() {
+// Pass `forceDate` (e.g. '2026-04-26') to bypass the trip-day check for testing.
+function sendDailyReminder(forceDate) {
   const bkk = bkkNow();
-  const tmr = new Date(bkk.getTime() + 24*60*60*1000);
-  const tmrDate = Utilities.formatDate(tmr, 'Asia/Bangkok', 'yyyy-MM-dd');
+  const tmr = forceDate
+    ? new Date(forceDate + 'T00:00:00+07:00')
+    : new Date(bkk.getTime() + 24*60*60*1000);
+  const tmrDate = forceDate || Utilities.formatDate(tmr, 'Asia/Bangkok', 'yyyy-MM-dd');
   const d = DAYS_MAP[tmrDate];
-  if (!d) { logAction('reminder_skip', 'server', 'not trip day: ' + tmrDate); return 'Not a trip day'; }
+  if (!d) { logAction('reminder_skip', 'server', 'not trip day: ' + tmrDate); return 'Not a trip day: ' + tmrDate; }
 
   const cal = SPREADSHEET.getSheetByName('Calendar');
   if (!cal) { tgSend('⚠️ Calendar sheet not found', MAIN_CHAT); return 'No sheet'; }
@@ -391,6 +394,13 @@ function sendDailyReminder() {
   return 'Sent reminder for ' + tmrDate;
 }
 
+// Force-test for any specific date (ignores the "is tomorrow a trip day" gate)
+function testDailyReminderFor_D1() { return sendDailyReminder('2026-04-26'); }
+function testDailyReminderFor_D2() { return sendDailyReminder('2026-04-27'); }
+function testDailyReminderFor_D3() { return sendDailyReminder('2026-04-28'); }
+function testDailyReminderFor_D4() { return sendDailyReminder('2026-04-29'); }
+function testDailyReminderFor_D5() { return sendDailyReminder('2026-04-30'); }
+
 // ── 2300H: Syn 1 SITREP (actual status) ──
 function sendEveningSitrep() {
   const membersAll = readSheet(SHEETS.MEMBERS);
@@ -407,25 +417,28 @@ function sendEveningSitrep() {
   const inCount = total - out.length;
 
   const bkk = bkkNow();
-  const dateLabel = Utilities.formatDate(bkk, 'Asia/Bangkok', 'EEE, d MMM');
+  const dateLabel = Utilities.formatDate(bkk, 'Asia/Bangkok', 'd MMMM EEEE');
 
-  let msg = '📍 <b>2300H SITREP · ' + dateLabel + '</b>\n';
-  msg += '57 SYN 1: ' + inCount + '/' + total + ' in Hotel, ' + out.length + '/' + total + ' Out\n';
+  let msg = '<b>2300H SITREP - ' + dateLabel + '</b>\n';
+  msg += '<b>57 SYN 1</b>\n';
+  msg += 'IN HOTEL: ' + inCount + '\n';
+  msg += 'OUT: ' + out.length + '\n';
+  msg += 'TOTAL: ' + total + '\n';
   if (out.length > 0) {
-    msg += 'Location\n';
+    msg += '\nLocation\n';
     out.forEach(m => {
       const st = statusMap[m.id] || {};
       const loc = (st.locationText || '').toString().trim() || 'Vicinity of Hotel';
       msg += (m.shortName || m.name) + ' - ' + loc + '\n';
     });
   }
-  msg += 'End of status update';
+  msg += '\nEnd of SITREP';
   tgSend(msg, SYN1_CHAT);
   logAction('sitrep_2300', 'server', inCount + '/' + total);
   return 'Sent 2300H';
 }
 
-// ── 0200H: EOD (always-in per spec) ──
+// ── 0200H: Curfew Report (always-in per spec) ──
 function sendMidnightSitrep() {
   const membersAll = readSheet(SHEETS.MEMBERS);
   const members = membersAll.filter(m =>
@@ -435,15 +448,18 @@ function sendMidnightSitrep() {
   const total = members.length;
 
   const bkk = bkkNow();
+  // Curfew covers the previous day's night, so use yesterday's date
   const yesterday = new Date(bkk.getTime() - 24*60*60*1000);
-  const yLabel = Utilities.formatDate(yesterday, 'Asia/Bangkok', 'EEE, d MMM');
+  const yLabel = Utilities.formatDate(yesterday, 'Asia/Bangkok', 'd MMMM EEEE');
 
-  let msg = '✅ <b>EOD Report · ' + yLabel + ' (0200H cutoff)</b>\n';
-  msg += '57 SYN 1: ' + total + '/' + total + ' in Hotel, 0/' + total + ' Out\n';
-  msg += 'End of status update';
+  let msg = '<b>Curfew Report - ' + yLabel + '</b>\n';
+  msg += '<b>57 SYN 1</b>\n';
+  msg += 'IN HOTEL: ' + total + '\n';
+  msg += 'OUT: 0\n';
+  msg += '\nEnd of Curfew Report';
   tgSend(msg, SYN1_CHAT);
   logAction('sitrep_0200', 'server', total + '/' + total);
-  return 'Sent 0200H';
+  return 'Sent 0200H Curfew';
 }
 
 // ── Setup: run this ONCE from Apps Script editor ──

@@ -2212,22 +2212,30 @@ window.saveMyRoom = async function() {
 // ═══════════ PER-SYNDICATE SITREP ════════════════════════════
 function buildSyndicateSITREP(groupKey, options = {}) {
   const forceAllIn = options.forceAllIn;
-  const timeLabel = options.timeLabel || formatBKKTime();
   const members = membersInGroup(groupKey);
   const total = members.length;
   const st = STATE.memberStatuses;
   const out = forceAllIn ? [] : members.filter(m => st[m.id]?.status === 'out');
   const inC = total - out.length;
 
-  let msg = `${groupKey}: ${inC}/${total} in Hotel, ${out.length}/${total} Out\n`;
+  const bkk = bkkNow();
+  const dateLabel = bkk.toLocaleDateString('en-GB', { day:'numeric', month:'long', weekday:'long', timeZone:'Asia/Bangkok' });
+  const timeLabel = options.timeLabel || bkk.toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit', hour12:false, timeZone:'Asia/Bangkok' }).replace(':','');
+  const header = options.header || `${timeLabel}H SITREP`;
+
+  let msg = `${header} - ${dateLabel}\n`;
+  msg += `${formatGroupDisplay(groupKey)}\n`;
+  msg += `IN HOTEL: ${inC}\n`;
+  msg += `OUT: ${out.length}\n`;
+  msg += `TOTAL: ${total}\n`;
   if (out.length > 0) {
-    msg += `Location\n`;
+    msg += `\nLocation\n`;
     out.forEach(m => {
       const loc = (st[m.id]?.locationText || '').trim() || 'Vicinity of Hotel';
       msg += `${m.shortName || m.name} - ${loc}\n`;
     });
   }
-  msg += `End of status update`;
+  msg += `\nEnd of SITREP`;
   return msg;
 }
 
