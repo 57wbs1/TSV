@@ -42,6 +42,80 @@ const PMESII = {
   Infra: { label: 'Infrastructure',   color: '#475569', full: 'Infrastructure' }
 };
 
+// ── SYNDICATE HYPOTHESES (from Consolidated Hypothesis Doc, 29 Mar 2026) ──
+const SYNDICATE_HYPOTHESES = {
+  '57 CSC Syn 1': {
+    domain: 'P',
+    label: 'Political',
+    loi: "What does Thailand's handling of border tensions reveal about its approach to escalation control, regional diplomacy, and ASEAN-centred conflict management?",
+    hypothesis: "Thailand adopts a stability-first logic to preserve regime continuity under the constitutional monarchy, which shapes how it aligns internal security, military modernisation, and economic transformation to manage rising domestic and geopolitical pressures. It is institutionalised through long-term frameworks such as the 20-year National Strategy. This produces a calibrated approach to border tensions and major-power competition that prioritises escalation control, regional diplomacy, and ASEAN centrality over decisive alignment or resolution, making predictability and internal equilibrium the true benchmarks of its foreign and security behaviour.",
+    probes: [
+      'Does a consistent "stability-first" logic cut across military, academic, economic, and diplomatic settings?',
+      'Do institutions implicitly acknowledge constraints imposed, and is innovation/reform framed as compatible rather than disruptive to existing power structures?',
+      'Do some institutions push boundaries more than others? Subtle divergences between official narratives and analytical perspectives?'
+    ]
+  },
+  '57 CSC Syn 3': {
+    domain: 'M',
+    label: 'Military',
+    loi: "Why does Thailand's military establishment retain continuity despite political turnover, and how does this continuity shape force development, joint readiness, and the management of border tensions?",
+    hypothesis: "Thailand's military establishment retains continuity despite political turnover because it does not primarily see itself as an instrument of elected civilian governments, but as a guardian of the nation, monarchy, and political order. This institutional self-understanding, especially within the Army, helps explain why force development, joint readiness, and the management of border tensions are shaped by both external defence needs, and the military's enduring role in preserving regime stability, controlling escalation, and safeguarding core state institutions.",
+    probes: [
+      'Does the military focus more on external defence, or also on internal stability?',
+      'When governments change, what stays the same for the military? How does it keep its direction consistent?',
+      'What factors shape the decision to escalate or exercise restraint during border sensitivities?'
+    ]
+  },
+  '57 CSC Syn 4': {
+    domain: 'E',
+    label: 'Economic',
+    loi: "How is Thailand pursuing economic transformation and resilience while reducing vulnerability to geopolitical shocks, border instability and energy stress?",
+    hypothesis: "Thailand is trying to build a more resilient economy through higher-value industries, foreign investment and better connectivity. But its resilience is still limited by energy dependence and exposure to border and geopolitical shocks, so success will depend on how well Thailand diversifies its partners, protects supply chains and maintains investor confidence during disruption.",
+    probes: [
+      'Which sectors do Thai officials, firms, and stakeholders consider most critical for long-term resilience?',
+      'How seriously are border-related risks assessed? Do energy constraints shape industrial planning?',
+      'Is diversification (partners, supply chains) seen as a genuine resilience issue or policy talking point?'
+    ]
+  },
+  '25th CSC (E) Syn 18': {
+    domain: 'S',
+    label: 'Social',
+    loi: "How does Thailand sustain national cohesion and institutional confidence amid political change, economic transformation, border tensions, and social transition?",
+    hypothesis: "Thailand maintains national cohesion not through a single political consensus, but through a shared reverence for the Monarchy as a stabilizing apex and a deeply ingrained cultural identity that transcends partisan divides. However, this traditional cohesion is under increasing strain from urban-rural economic disparities and digital social transition, making the key question not whether the anchor holds, but whether it remains equally legitimate across different communities and demographics.",
+    probes: [
+      'During political/leadership transitions, what institutions or cultural values provide stability?',
+      'How is the younger generation\'s view of national identity evolving with digital & economic transformation?',
+      'In times of border tension, how does shared national identity shape public confidence in government response?'
+    ]
+  },
+  '26th CSC (E) Syn 14': {
+    domain: 'Info',
+    label: 'Information',
+    loi: "How do Thailand's state institutions, knowledge communities, and digital ecosystems shape the national information environment, and with what implications for public trust and resilience?",
+    hypothesis: "Thailand's information environment is shaped by the tension between accelerating digital expansion and persistent constraints on open discourse. Whether state institutions, knowledge communities, and digital platforms can maintain credibility across official messaging, expert assessment, and public experience will determine how that tension resolves.",
+    probes: [
+      'Does alignment exist between official messaging, institutional behaviour, and public experience?',
+      'How do elite/academic interpretations diverge from official discourse?',
+      'How does the state understand strategic communication, legitimacy, and resilience?'
+    ]
+  },
+  '27th CSC (E) Syn 18': {
+    domain: 'Infra',
+    label: 'Infrastructure',
+    loi: "How does Thailand's infrastructure development function as a dual-purpose tool for hedging against major-power entrapment and ensuring internal resilience against regional shocks?",
+    hypothesis: "Thailand's pursuit of large-scale infrastructure development (specifically the Southern Land Bridge and Eastern Economic Corridor) has dual purposes: it is deliberately aimed at preserving its strategic autonomy by creating multi-alignment assets that make Thailand indispensable to partners, while also increasing its resilience to changes in external factors.",
+    probes: [
+      'Do Thai officials view infrastructure as economic projects, or tactical bargaining chips in regional security?',
+      'Is there evidence of a unified "hedging" strategy, or does balanced posture arise from divergent ministerial positions?',
+      'Evidence of diversified tech/partnerships (avoiding path dependency) vs. single-country dependency?'
+    ]
+  }
+};
+
+function getHypothesisForGroup(groupKey) {
+  return SYNDICATE_HYPOTHESES[groupKey] || null;
+}
+
 // ── CALENDAR EVENTS ─ Detailed from xlsx itinerary ──────────
 const CALENDAR_SEED = [
 

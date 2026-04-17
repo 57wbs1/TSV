@@ -135,11 +135,19 @@ function formatBKKTime(d = bkkNow()) { return d.toLocaleTimeString('en-GB', { ho
 
 function getCurrentDay() {
   const dateStr = bkkNow().toISOString().split('T')[0];
-  const today = DAYS.find(d => d.date === dateStr);
-  if (today) return today;
+  return DAYS.find(d => d.date === dateStr) || null;
+}
+
+function getTripStatus() {
   const now = bkkNow();
-  if (now < new Date(DAYS[0].date)) return DAYS[0];
-  return DAYS[DAYS.length - 1];
+  const start = new Date(DAYS[0].date + 'T00:00:00+07:00');
+  const end = new Date(DAYS[DAYS.length - 1].date + 'T23:59:59+07:00');
+  if (now < start) {
+    const days = Math.ceil((start - now) / (1000 * 60 * 60 * 24));
+    return { phase: 'before', days };
+  }
+  if (now > end) return { phase: 'after' };
+  return { phase: 'during', day: getCurrentDay() };
 }
 
 function getMemberById(id) { return MEMBERS.find(m => m.id === id); }
@@ -176,13 +184,13 @@ function renderLoginSyndicateList() {
   groupOrder().forEach(gk => {
     const mem = membersInGroup(gk);
     if (!mem.length) return;
-    const isPriority = gk === PRIORITY_GROUP;
+    const display = formatGroupDisplay(gk);
     const card = document.createElement('button');
-    card.className = `login-group-card ${isPriority ? 'priority' : ''}`;
+    card.className = 'login-group-card';
     card.innerHTML = `
       <div class="lg-badge">${gk === 'Leadership' ? '★' : (mem[0].syndicate || '?')}</div>
       <div class="lg-info">
-        <div class="lg-title">${escapeHtml(gk)}${isPriority ? ' · My Syndicate' : ''}</div>
+        <div class="lg-title">${escapeHtml(display)}</div>
         <div class="lg-sub">${mem.length} ${mem.length === 1 ? 'member' : 'members'}</div>
       </div>
       <div class="lg-arrow">›</div>`;
@@ -195,7 +203,8 @@ function goToNameStep(groupKey) {
   el('login-step-syn').classList.add('hidden');
   el('login-step-name').classList.remove('hidden');
   el('login-step-pin').classList.add('hidden');
-  el('login-syn-label').textContent = groupKey;
+  el('login-syn-label').textContent = formatGroupDisplay(groupKey);
+  window._loginActiveGroup = groupKey;
 
   const grid = el('login-name-list');
   grid.innerHTML = '';
@@ -206,6 +215,16 @@ function goToNameStep(groupKey) {
     card.addEventListener('click', () => goToPinStep(m));
     grid.appendChild(card);
   });
+  // "Not in list" button lives on this step now
+  const addBtn = document.createElement('button');
+  addBtn.className = 'login-name-card';
+  addBtn.style.cssText = 'border-style:dashed;opacity:.8;grid-column:span 2';
+  addBtn.innerHTML = '➕ I\'m not here — register me';
+  addBtn.addEventListener('click', () => {
+    hideLoginFlow();
+    showSelfRegisterWithDefault(groupKey);
+  });
+  grid.appendChild(addBtn);
 }
 function backToNameStep() {
   if (loginCandidateMember) {
@@ -358,6 +377,11 @@ async function initMemberInSheet(member) {
 }
 
 // ═══════════ SELF-REGISTER ═══════════════════════════════════
+window.showSelfRegisterWithDefault = function(groupKey) {
+  window._selfRegisterDefaultGroup = groupKey;
+  showSelfRegister();
+};
+
 window.showSelfRegister = function() {
   hideIdentityModal();
   el('self-register-modal').classList.remove('hidden');
@@ -365,8 +389,16 @@ window.showSelfRegister = function() {
   el('sr-rank').innerHTML = DEFAULT_RANK_OPTIONS.map(r => `<option value="${r}">${r || '(none)'}</option>`).join('');
   el('sr-role').innerHTML = DEFAULT_ROLE_OPTIONS.map(r => `<option value="${r}">${r}</option>`).join('');
   const cscs = getCSCsInUse();
-  el('sr-csc').innerHTML = cscs.map(c => `<option value="${c}">${c}</option>`).join('') + '<option value="__custom__">➕ Add new CSC…</option>';
-  populateSelfRegSyn(cscs[0]);
+  // If arriving from a syndicate button, pre-select that CSC + Syn
+  const defGroup = window._selfRegisterDefaultGroup;
+  let defCsc = cscs[0], defSyn = null;
+  if (defGroup && defGroup !== 'Leadership') {
+    const match = defGroup.match(/^(.+?)\s*Syn\s*(\S+)$/i);
+    if (match) { defCsc = match[1].trim(); defSyn = match[2]; }
+  }
+  el('sr-csc').innerHTML = cscs.map(c => `<option value="${c}" ${c === defCsc ? 'selected' : ''}>${c}</option>`).join('') + '<option value="__custom__">➕ Add new CSC…</option>';
+  populateSelfRegSyn(defCsc, defSyn);
+  window._selfRegisterDefaultGroup = null;
 
   ['sr-name','sr-shortName','sr-custom-csc','sr-custom-syn'].forEach(id => el(id).value = '');
   el('sr-custom-csc-wrap').classList.add('hidden');
@@ -376,10 +408,10 @@ window.hideSelfRegister = function() {
   el('self-register-modal').classList.add('hidden');
   showIdentityModal();
 };
-function populateSelfRegSyn(csc) {
+function populateSelfRegSyn(csc, preselectSyn) {
   const syns = getSyndicatesForCSC(csc);
   if (!syns.length) syns.push('1');
-  el('sr-syn').innerHTML = syns.map(s => `<option value="${s}">${s}</option>`).join('') + '<option value="__custom__">➕ Add new Syndicate…</option>';
+  el('sr-syn').innerHTML = syns.map(s => `<option value="${s}" ${String(preselectSyn) === String(s) ? 'selected' : ''}>${s}</option>`).join('') + '<option value="__custom__">➕ Add new Syndicate…</option>';
 }
 window.onSelfRegCSCChange = function() {
   const v = el('sr-csc').value;
@@ -517,36 +549,73 @@ function startPolling() {
 
 // ═══════════ HOME TAB ════════════════════════════════════════
 function renderHome() {
-  const day = getCurrentDay();
-  STATE.currentDay = day;
+  const trip = getTripStatus();
   const bkk = bkkNow();
   const inC = inCount(), outC = outCount(), total = MEMBERS.length;
-  const nextEvent = getNextEvent(day, bkk);
   const user = STATE.currentUser;
   const myStatus = getStatusOf(user?.id || '');
-  const hour = bkk.getHours();
-  const showEv = hour === CONFIG.reports.eveningHour && !STATE.reportSent.evening;
-  const showMn = hour === CONFIG.reports.midnightHour && !STATE.reportSent.midnight;
+  const myGroup = user ? memberGroupKey(user) : null;
+  const myHypothesis = myGroup ? getHypothesisForGroup(myGroup) : null;
+
+  // Hero varies with trip phase
+  let heroHtml, nextEventHtml = '';
+  if (trip.phase === 'before') {
+    heroHtml = `
+      <div class="home-hero" style="background:linear-gradient(135deg, #003580, #0056b3)">
+        <div class="hero-content">
+          <span class="hero-day-label">● Pre-Trip · Ready-State</span>
+          <div class="hero-theme">🛫 Trip starts in ${trip.days} day${trip.days === 1 ? '' : 's'}</div>
+          <div class="hero-date">First day: ${new Date(DAYS[0].date).toLocaleDateString('en-GB', { weekday:'long', day:'numeric', month:'long' })}</div>
+          <div class="hero-time" id="live-time">${formatBKKTime(bkk)}</div>
+          <div class="hero-time-label">Bangkok / Singapore Time</div>
+        </div>
+      </div>`;
+  } else if (trip.phase === 'after') {
+    heroHtml = `
+      <div class="home-hero" style="background:linear-gradient(135deg, #1C2D4E, #334155)">
+        <div class="hero-content">
+          <span class="hero-day-label">● Trip Complete</span>
+          <div class="hero-theme">✈️ Safe journey home</div>
+          <div class="hero-date">Reflect and consolidate learnings</div>
+          <div class="hero-time" id="live-time">${formatBKKTime(bkk)}</div>
+          <div class="hero-time-label">Bangkok / Singapore Time</div>
+        </div>
+      </div>`;
+  } else {
+    const day = trip.day;
+    STATE.currentDay = day;
+    const nextEvent = day ? getNextEvent(day, bkk) : null;
+    heroHtml = `
+      <div class="home-hero">
+        <div class="hero-content">
+          <span class="hero-day-label">● Day ${day.day} · ${day.label}</span>
+          <div class="hero-theme">${day.icon} ${day.theme}</div>
+          <div class="hero-date">${new Date(day.date).toLocaleDateString('en-GB', { weekday:'long', day:'numeric', month:'long', year:'numeric' })}</div>
+          <div class="hero-time" id="live-time">${formatBKKTime(bkk)}</div>
+          <div class="hero-time-label">Bangkok / Singapore Time</div>
+        </div>
+      </div>`;
+    if (nextEvent) {
+      nextEventHtml = `
+        <div class="next-event-card">
+          <div class="ne-header" style="background:linear-gradient(135deg, ${day.color}, ${day.color}dd)">
+            <span class="ne-dot"></span>Next Event
+          </div>
+          <div class="ne-body">
+            <div class="ne-time">${nextEvent.startTime}–${nextEvent.endTime}</div>
+            <div class="ne-event">${escapeHtml(nextEvent.title)}</div>
+            <div class="ne-location">📍 ${escapeHtml(nextEvent.location || '')}</div>
+            ${nextEvent.attire ? `<div class="ne-attire">👔 ${escapeHtml(nextEvent.attire)}</div>` : ''}
+            ${nextEvent.remarks ? `<div class="ne-remarks">${escapeHtml(nextEvent.remarks)}</div>` : ''}
+          </div>
+        </div>`;
+    }
+  }
 
   el('tab-home').innerHTML = `
-    ${showEv || showMn ? `
-      <div class="report-reminder">
-        <div class="icon">⏰</div>
-        <div><h3>${showEv ? '2300H SITREP Due' : '0200H All-In Check'}</h3>
-        <p>${showEv ? 'Time to send evening parade state.' : 'Confirm all members back.'}</p></div>
-        <button class="btn btn-sm" onclick="sendReport('${showEv ? 'evening' : 'midnight'}')">Send</button>
-      </div>` : ''}
-    ${STATE.offlineMode ? `<div class="alert alert-orange">⚠️ API not configured — local data only. See config.js</div>` : ''}
+    ${STATE.offlineMode ? `<div class="alert alert-orange">⚠️ API not configured — local data only.</div>` : ''}
 
-    <div class="home-hero">
-      <div class="hero-content">
-        <span class="hero-day-label">● Day ${day.day} · ${day.label}</span>
-        <div class="hero-theme">${day.icon} ${day.theme}</div>
-        <div class="hero-date">${new Date(day.date).toLocaleDateString('en-GB', { weekday:'long', day:'numeric', month:'long', year:'numeric' })}</div>
-        <div class="hero-time" id="live-time">${formatBKKTime(bkk)}</div>
-        <div class="hero-time-label">Bangkok / Singapore Time</div>
-      </div>
-    </div>
+    ${heroHtml}
 
     <div class="parade-grid">
       <div class="parade-card in"><div class="big-num green">${inC}</div><div class="label">In Hotel</div></div>
@@ -555,35 +624,37 @@ function renderHome() {
       <div class="parade-card status"><div class="big-num gold">${outC===0?'✓':outC}</div><div class="label">${outC===0?'All In':'Out Now'}</div></div>
     </div>
 
-    ${nextEvent ? `
-    <div class="next-event-card">
-      <div class="ne-header" style="background:linear-gradient(135deg, ${day.color}, ${day.color}dd)">
-        <span class="ne-dot"></span>Next Event
-      </div>
-      <div class="ne-body">
-        <div class="ne-time">${nextEvent.startTime}–${nextEvent.endTime}</div>
-        <div class="ne-event">${escapeHtml(nextEvent.title)}</div>
-        <div class="ne-location">📍 ${escapeHtml(nextEvent.location || '')}</div>
-        ${nextEvent.attire ? `<div class="ne-attire">👔 ${escapeHtml(nextEvent.attire)}</div>` : ''}
-        ${nextEvent.remarks ? `<div class="ne-remarks">${escapeHtml(nextEvent.remarks)}</div>` : ''}
-      </div>
-    </div>` : ''}
+    ${nextEventHtml}
 
     <div class="my-status-bar">
       <div class="user-icon">👤</div>
       <div class="user-info">
         <div class="user-name">${user ? escapeHtml(user.name) : '—'}</div>
-        <div class="user-role">${user ? `${escapeHtml(user.role || '')} · ${escapeHtml(user.csc || '')} ${user.syndicate ? 'Syn '+user.syndicate : ''}` : 'Not signed in'}</div>
+        <div class="user-role">${user ? `${escapeHtml(user.role || '')} · ${user && myGroup ? escapeHtml(formatGroupDisplay(myGroup)) : ''}` : 'Not signed in'}</div>
       </div>
       <span class="status-pill ${myStatus.status==='out'?'pill-out':'pill-in'}">${myStatus.status==='out'?'🔴 OUT':'🟢 IN'}</span>
     </div>
 
+    ${myHypothesis ? `
+    <div class="card" style="margin-top:12px">
+      <div class="card-header" style="background:linear-gradient(135deg, #fef3c7, #fde68a)">
+        <span class="icon">🧭</span>
+        <h3 style="color:#78350f">${myHypothesis.label} · Your Syndicate's Hypothesis</h3>
+      </div>
+      <div class="card-body">
+        <div style="font-size:11px;font-weight:800;letter-spacing:.08em;color:var(--text-2);text-transform:uppercase;margin-bottom:6px">Line of Inquiry</div>
+        <p style="font-size:13px;line-height:1.55;font-style:italic;color:var(--text-2);margin-bottom:10px">${escapeHtml(myHypothesis.loi)}</p>
+        <div style="font-size:11px;font-weight:800;letter-spacing:.08em;color:var(--text-2);text-transform:uppercase;margin-bottom:6px">Hypothesis</div>
+        <p style="font-size:13.5px;line-height:1.6">${escapeHtml(myHypothesis.hypothesis)}</p>
+      </div>
+    </div>` : ''}
+
     ${isAdmin() ? `
     <div class="card">
-      <div class="card-header"><span class="icon">📡</span><h3>Admin — Send Report</h3></div>
-      <div class="card-body" style="display:flex;gap:8px;flex-wrap:wrap">
-        <button class="btn btn-primary btn-sm" onclick="sendReport('evening')">📋 2300H SITREP</button>
-        <button class="btn btn-green btn-sm" onclick="sendReport('midnight')">✅ 0200H All-In</button>
+      <div class="card-header"><span class="icon">📡</span><h3>Admin — Reports</h3></div>
+      <div class="card-body">
+        <button class="btn btn-primary btn-block" onclick="showAdhocPicker()">📤 Send Adhoc SITREP</button>
+        <p style="font-size:11px;color:var(--text-2);margin-top:8px;text-align:center">2300H and 0200H reports run automatically in the background.</p>
       </div>
     </div>` : ''}
   `;
@@ -594,6 +665,43 @@ function renderHome() {
     if (e) e.textContent = formatBKKTime(bkkNow());
   }, 1000);
 }
+
+// ═══════════ ADHOC SITREP PICKER ═════════════════════════════
+window.showAdhocPicker = function() {
+  const groups = groupOrder();
+  const opts = groups.filter(g => g !== 'Leadership').map(g => ({ key: g, label: formatGroupDisplay(g), count: membersInGroup(g).length }));
+  let html = `<div style="background:#fff;border-radius:var(--r-lg);padding:16px;max-width:400px;margin:0 auto">
+    <h3 style="font-size:16px;font-weight:800;margin-bottom:4px">📤 Send Adhoc SITREP</h3>
+    <p style="font-size:12px;color:var(--text-2);margin-bottom:12px">Which syndicate?</p>
+    <div style="display:flex;flex-direction:column;gap:6px">`;
+  opts.forEach(o => {
+    html += `<button class="btn btn-outline btn-block" style="justify-content:space-between" onclick="sendSyndicateSITREP('${o.key.replace(/'/g,"\\'")}'); closeAdhocPicker()">
+      <span>${escapeHtml(o.label)}</span><span style="opacity:.6;font-size:11px">${o.count} members</span>
+    </button>`;
+  });
+  html += `<button class="btn btn-primary btn-block" style="margin-top:6px" onclick="sendAllSITREPs(); closeAdhocPicker()">
+    📣 Mass send — all syndicates
+  </button>
+  <button class="btn btn-sm" style="background:transparent;color:var(--text-2);margin-top:6px" onclick="closeAdhocPicker()">Cancel</button>
+  </div></div>`;
+
+  const wrap = document.createElement('div');
+  wrap.id = 'adhoc-picker';
+  wrap.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(6px);z-index:7000;display:flex;align-items:flex-end;padding:16px;animation:fadeIn .25s';
+  wrap.innerHTML = `<div style="width:100%;animation:slideUp .3s">${html}</div>`;
+  document.body.appendChild(wrap);
+};
+window.closeAdhocPicker = function() { el('adhoc-picker')?.remove(); };
+
+window.sendAllSITREPs = async function() {
+  toast('📡 Sending all syndicates...');
+  const groups = groupOrder().filter(g => g !== 'Leadership');
+  for (const g of groups) {
+    await sendSyndicateSITREP(g, true);
+    await new Promise(r => setTimeout(r, 400));
+  }
+  toast('✅ All SITREPs sent');
+};
 
 function getNextEvent(day, now) {
   const mins = now.getHours() * 60 + now.getMinutes();
@@ -665,14 +773,18 @@ function renderCalendar() {
     </div>` : '';
 
   el('tab-calendar').innerHTML = `
-    <div class="calendar-toolbar">
-      <div class="day-tabs" style="flex:1">${dayTabs}</div>
-      ${isAdmin() ? `<button class="calendar-fab" onclick="openEventEditor()" title="Add event">+</button>` : ''}
-    </div>
-    <div class="schedule-day-banner" style="background:linear-gradient(135deg, ${day.color}, ${day.color}cc)">
-      <div class="db-label">Day ${day.day} · ${day.label}</div>
-      <div class="db-theme">${day.icon} ${day.theme}</div>
-      <div class="db-date">${new Date(day.date).toLocaleDateString('en-GB', { weekday:'long', day:'numeric', month:'long' })}</div>
+    <div class="sticky-header">
+      <div class="day-tabs-wrap">
+        <div class="calendar-toolbar">
+          <div class="day-tabs" style="flex:1">${dayTabs}</div>
+          ${isAdmin() ? `<button class="calendar-fab" onclick="openEventEditor()" title="Add event">+</button>` : ''}
+        </div>
+      </div>
+      <div class="schedule-day-banner" style="background:linear-gradient(135deg, ${day.color}, ${day.color}cc)">
+        <div class="db-label">Day ${day.day} · ${day.label}</div>
+        <div class="db-theme">${day.icon} ${day.theme}</div>
+        <div class="db-date">${new Date(day.date).toLocaleDateString('en-GB', { weekday:'long', day:'numeric', month:'long' })}</div>
+      </div>
     </div>
     ${scopeNotice}
     <div class="category-filter">${catChips}</div>
@@ -870,18 +982,23 @@ function renderLocation() {
           ${myStatus.status==='out'
             ? `<button class="btn btn-green" onclick="returnToHotel()">🏨 Return to Hotel</button>
                <button class="btn btn-outline btn-sm" onclick="updateLocationText()">📍 Update Location</button>`
-            : `<button class="btn btn-red" onclick="showBuddyModal()">🚶 Leaving Hotel</button>
-               <button class="btn btn-primary btn-sm" onclick="shareGPS()">📡 Share GPS</button>`
+            : `<button class="btn btn-red" onclick="showBuddyModal()">🚶 Leaving Hotel</button>`
           }
         </div>
-        ${myStatus.lat && myStatus.lng ? `
-          <div class="tracking-indicator">
-            <div class="live-dot"></div>
-            <span>GPS location being shared · lat ${myStatus.lat.toFixed(4)}, lng ${myStatus.lng.toFixed(4)}</span>
-          </div>
-          <button class="btn btn-stop-track" onclick="stopTracking()" style="margin-top:10px">
-            🛑 Stop Sharing My Location
-          </button>` : ''}
+        <div style="margin-top:10px">
+          ${myStatus.lat && myStatus.lng ? `
+            <div class="tracking-indicator">
+              <div class="live-dot"></div>
+              <span>📡 GPS being shared · ${myStatus.lat.toFixed(4)}, ${myStatus.lng.toFixed(4)}</span>
+            </div>
+            <button class="btn btn-stop-track" onclick="stopTracking()" style="margin-top:10px">
+              🛑 STOP SHARING MY GPS
+            </button>`
+          : `<button class="btn btn-primary btn-block" onclick="shareGPS()">
+              📡 Share GPS Location
+            </button>`
+          }
+        </div>
       </div>
     </div>` : `<div class="alert alert-orange">Tap 👤 in header to sign in.</div>`}
 

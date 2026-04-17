@@ -64,6 +64,14 @@ function memberGroupKey(m) {
   return `${m.csc} Syn ${m.syndicate}`;
 }
 
+// Compact display: "57 CSC Syn 1" → "57 - SYN 1", "26th CSC (E) Syn 14" → "26 - SYN 14"
+function formatGroupDisplay(groupKey) {
+  if (groupKey === 'Leadership') return 'LEADERSHIP';
+  const match = groupKey.match(/^(\d+)(?:th)?\s*CSC\s*(?:\(E\))?\s*Syn\s*(\S+)$/i);
+  if (match) return `${match[1]} - SYN ${match[2]}`;
+  return groupKey;
+}
+
 function groupColorFor(groupKey) {
   if (groupKey === 'Leadership') return '#1C2D4E';
   if (groupKey === PRIORITY_GROUP) return '#003580';   // Caspar's group gets Thai blue
