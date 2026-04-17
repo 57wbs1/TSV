@@ -1630,7 +1630,26 @@ function startApp() {
 
 // ═══════════ INIT ════════════════════════════════════════════
 window.addEventListener('load', () => {
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('./sw.js').then(reg => {
+      // Detect when a new SW is waiting — prompt reload
+      reg.addEventListener('updatefound', () => {
+        const newSW = reg.installing;
+        if (!newSW) return;
+        newSW.addEventListener('statechange', () => {
+          if (newSW.state === 'installed' && navigator.serviceWorker.controller) {
+            // New version available
+            if (confirm('A new version of the app is available. Reload now?')) {
+              newSW.postMessage('SKIP_WAITING');
+              window.location.reload();
+            }
+          }
+        });
+      });
+      // Auto-check for updates every 60s when app is open
+      setInterval(() => reg.update().catch(() => {}), 60000);
+    }).catch(() => {});
+  }
   setupPinKeypad();
   el('loading').style.display = 'none';
   if (loadIdentity()) {
