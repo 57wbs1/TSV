@@ -999,8 +999,7 @@ window.promptAttendanceCount = function(groupKey, eventId) {
   const msg = `📋 <b>ATTENDANCE</b> ${status}
 ${formatGroupDisplay(groupKey)}: <b>${n}/${total}</b> present
 Event: ${ev.title}
-Time: ${ev.startTime}H · ${dateLabel}
-Reported by: ${STATE.currentUser?.shortName || STATE.currentUser?.name || '—'}`;
+Time: ${ev.startTime}H · ${dateLabel}`;
 
   TELEGRAM.send(msg, CONFIG.telegram.chatId).then(ok => {
     if (ok) toast(`✅ Attendance sent: ${n}/${total}`);
