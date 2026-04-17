@@ -304,6 +304,170 @@ function logAction(action, actor, detail) {
   } catch (e) { /* non-critical */ }
 }
 
+// ════════════════════════════════════════════════════════════
+// TELEGRAM AUTOMATED BROADCASTS (server-side time triggers)
+// Run setupAllTriggers() ONCE from the Apps Script editor to install
+// the 1900H, 2300H, and 0200H daily triggers.
+// ════════════════════════════════════════════════════════════
+
+const BOT_TOKEN   = '8623156706:AAHv8vGrjxr1Kj4s8_k3EoruBlx1l_EhziQ';
+const MAIN_CHAT   = '922547929';   // update to group chat id (-100...) when ready
+const SYN1_CHAT   = '922547929';   // update when ready
+
+function tgSend(text, chatId) {
+  try {
+    UrlFetchApp.fetch('https://api.telegram.org/bot' + BOT_TOKEN + '/sendMessage', {
+      method: 'post',
+      contentType: 'application/json',
+      payload: JSON.stringify({ chat_id: chatId, text: text, parse_mode: 'HTML' }),
+      muteHttpExceptions: true
+    });
+  } catch (e) { logAction('tg_fail', 'server', e.message); }
+}
+
+function bkkNow() {
+  // Get current BKK time
+  return new Date(Utilities.formatDate(new Date(), 'Asia/Bangkok', "yyyy-MM-dd'T'HH:mm:ss"));
+}
+
+function timeNormalized(timeStr) {
+  if (!timeStr) return 0;
+  const parts = String(timeStr).split(':').map(Number);
+  const h = parts[0] || 0, m = parts[1] || 0;
+  return h < 6 ? h*60 + m + 24*60 : h*60 + m;
+}
+
+const DAYS_MAP = {
+  '2026-04-26': {day:1, theme:'Arrival & Innovation',   icon:'✈️'},
+  '2026-04-27': {day:2, theme:'Military & Academic',     icon:'🎓'},
+  '2026-04-28': {day:3, theme:'SCOPE Day',               icon:'🔍'},
+  '2026-04-29': {day:4, theme:'Diplomatic & Policy',     icon:'🏛️'},
+  '2026-04-30': {day:5, theme:'Reflection & Departure',  icon:'🛫'}
+};
+
+// ── 1900H: Next-day preview + location reminder (to MAIN chat) ──
+function sendDailyReminder() {
+  const bkk = bkkNow();
+  const tmr = new Date(bkk.getTime() + 24*60*60*1000);
+  const tmrDate = Utilities.formatDate(tmr, 'Asia/Bangkok', 'yyyy-MM-dd');
+  const d = DAYS_MAP[tmrDate];
+  if (!d) { logAction('reminder_skip', 'server', 'not trip day: ' + tmrDate); return 'Not a trip day'; }
+
+  const cal = SPREADSHEET.getSheetByName('Calendar');
+  if (!cal) { tgSend('⚠️ Calendar sheet not found', MAIN_CHAT); return 'No sheet'; }
+
+  const rows = cal.getDataRange().getValues();
+  const h = rows[0];
+  const idx = {
+    day: h.indexOf('day'), start: h.indexOf('startTime'),
+    title: h.indexOf('title'), cat: h.indexOf('category'),
+    attire: h.indexOf('attire'), del: h.indexOf('isDeleted')
+  };
+
+  const events = rows.slice(1)
+    .filter(r => parseInt(r[idx.day]) === d.day && r[idx.del] !== 'true' && r[idx.del] !== true)
+    .filter(r => r[idx.cat] !== 'free' && !String(r[idx.title]).toLowerCase().includes('cutoff'))
+    .map(r => ({ start: r[idx.start], title: r[idx.title], attire: r[idx.attire] }))
+    .sort((a, b) => timeNormalized(a.start) - timeNormalized(b.start));
+
+  const dateLabel = Utilities.formatDate(tmr, 'Asia/Bangkok', 'EEEE, d MMMM');
+  let msg = '🔔 <b>Tomorrow — ' + dateLabel + '</b>\n';
+  msg += 'Day ' + d.day + ' · ' + d.icon + ' ' + d.theme + '\n\n';
+
+  const max = 12;
+  events.slice(0, max).forEach(e => {
+    msg += '• ' + e.start + ' — ' + e.title;
+    if (e.attire) msg += '  <i>(' + e.attire + ')</i>';
+    msg += '\n';
+  });
+  if (events.length > max) msg += '  …and ' + (events.length - max) + ' more\n';
+
+  msg += '\n📱 Open the app for full details, attire, and locations:';
+  msg += '\nhttps://57wbs1.github.io/TSV/';
+  msg += '\n\n📍 Please keep your <b>status and room</b> updated in the app — especially when you check in/out of the hotel.';
+
+  tgSend(msg, MAIN_CHAT);
+  logAction('reminder_sent', 'server', tmrDate);
+  return 'Sent reminder for ' + tmrDate;
+}
+
+// ── 2300H: Syn 1 SITREP (actual status) ──
+function sendEveningSitrep() {
+  const membersAll = readSheet(SHEETS.MEMBERS);
+  const members = membersAll.filter(m =>
+    m.csc === '57 CSC' && String(m.syndicate) === '1' &&
+    m.isDeleted !== 'true' && m.isDeleted !== true
+  );
+  const statuses = readSheet(SHEETS.STATUS);
+  const statusMap = {};
+  statuses.forEach(s => { statusMap[s.id] = s; });
+
+  const total = members.length;
+  const out = members.filter(m => statusMap[m.id] && statusMap[m.id].status === 'out');
+  const inCount = total - out.length;
+
+  const bkk = bkkNow();
+  const dateLabel = Utilities.formatDate(bkk, 'Asia/Bangkok', 'EEE, d MMM');
+
+  let msg = '📍 <b>2300H SITREP · ' + dateLabel + '</b>\n';
+  msg += '57 SYN 1: ' + inCount + '/' + total + ' in Hotel, ' + out.length + '/' + total + ' Out\n';
+  if (out.length > 0) {
+    msg += 'Location\n';
+    out.forEach(m => {
+      const st = statusMap[m.id] || {};
+      const loc = (st.locationText || '').toString().trim() || 'Vicinity of Hotel';
+      msg += (m.shortName || m.name) + ' - ' + loc + '\n';
+    });
+  }
+  msg += 'End of status update';
+  tgSend(msg, SYN1_CHAT);
+  logAction('sitrep_2300', 'server', inCount + '/' + total);
+  return 'Sent 2300H';
+}
+
+// ── 0200H: EOD (always-in per spec) ──
+function sendMidnightSitrep() {
+  const membersAll = readSheet(SHEETS.MEMBERS);
+  const members = membersAll.filter(m =>
+    m.csc === '57 CSC' && String(m.syndicate) === '1' &&
+    m.isDeleted !== 'true' && m.isDeleted !== true
+  );
+  const total = members.length;
+
+  const bkk = bkkNow();
+  const yesterday = new Date(bkk.getTime() - 24*60*60*1000);
+  const yLabel = Utilities.formatDate(yesterday, 'Asia/Bangkok', 'EEE, d MMM');
+
+  let msg = '✅ <b>EOD Report · ' + yLabel + ' (0200H cutoff)</b>\n';
+  msg += '57 SYN 1: ' + total + '/' + total + ' in Hotel, 0/' + total + ' Out\n';
+  msg += 'End of status update';
+  tgSend(msg, SYN1_CHAT);
+  logAction('sitrep_0200', 'server', total + '/' + total);
+  return 'Sent 0200H';
+}
+
+// ── Setup: run this ONCE from Apps Script editor ──
+function setupAllTriggers() {
+  ScriptApp.getProjectTriggers().forEach(t => {
+    const fn = t.getHandlerFunction();
+    if (fn === 'sendDailyReminder' || fn === 'sendEveningSitrep' || fn === 'sendMidnightSitrep') {
+      ScriptApp.deleteTrigger(t);
+    }
+  });
+  ScriptApp.newTrigger('sendDailyReminder')
+    .timeBased().atHour(19).nearMinute(0).everyDays(1).inTimezone('Asia/Bangkok').create();
+  ScriptApp.newTrigger('sendEveningSitrep')
+    .timeBased().atHour(23).nearMinute(0).everyDays(1).inTimezone('Asia/Bangkok').create();
+  ScriptApp.newTrigger('sendMidnightSitrep')
+    .timeBased().atHour(2).nearMinute(0).everyDays(1).inTimezone('Asia/Bangkok').create();
+  return '✓ 3 triggers installed: 1900H reminder · 2300H SITREP · 0200H EOD (all BKK daily)';
+}
+
+// Manual tests (run from editor to verify)
+function testDailyReminder() { return sendDailyReminder(); }
+function testEveningSitrep() { return sendEveningSitrep(); }
+function testMidnightSitrep() { return sendMidnightSitrep(); }
+
 // ── PINGS ────────────────────────────────────────────────────
 function sendPing(data) {
   const sheet = getOrCreateSheet(SHEETS.PINGS);

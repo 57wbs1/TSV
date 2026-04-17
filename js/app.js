@@ -529,9 +529,18 @@ window.submitSelfRegister = async function() {
 };
 
 // ═══════════ DATA SYNC ═══════════════════════════════════════
+let _lastMembersHash = '';
+let _lastLearningsHash = '';
+let _lastCalendarHash = '';
+let _lastPingsHash = '';
+
 async function syncMembers() {
   const data = await API.get('getMembers');
   if (!data || !Array.isArray(data) || data.length === 0) return;
+  const hash = JSON.stringify(data);
+  if (hash === _lastMembersHash) return;
+  _lastMembersHash = hash;
+
   MEMBERS = data.map(row => ({
     id: String(row.id), name: row.name || '', shortName: row.shortName || row.name || '',
     rank: row.rank || '', role: row.role || 'Member',
@@ -539,7 +548,6 @@ async function syncMembers() {
     pin: row.pin || '0000',
     isAdmin: row.isAdmin === 'true' || row.isAdmin === true
   }));
-  // Refresh current user's flags (e.g., isAdmin just approved)
   if (STATE.currentUser) {
     const me = MEMBERS.find(m => m.id === STATE.currentUser.id);
     if (me) {
@@ -547,7 +555,9 @@ async function syncMembers() {
       saveIdentity(STATE.currentUser);
     }
   }
+  if (anyModalOpen() || STATE.isTouching) return;
   if (STATE.currentTab === 'location') renderLocation();
+  if (STATE.currentTab === 'rooms')    renderRooms();
   if (STATE.currentTab === 'home')     renderHome();
 }
 
@@ -592,13 +602,19 @@ async function syncStatuses() {
 async function syncLearnings() {
   const data = await API.get('getLearnings');
   if (!data) return;
+  const hash = JSON.stringify(data);
+  if (hash === _lastLearningsHash) return;
+  _lastLearningsHash = hash;
   STATE.learnings = data;
-  if (STATE.currentTab === 'learnings') renderLearnings();
+  if (!anyModalOpen() && STATE.currentTab === 'learnings') renderLearnings();
 }
 
 async function syncCalendar() {
   const data = await API.get('getCalendar');
   if (!Array.isArray(data) || !data.length) return;
+  const hash = JSON.stringify(data);
+  if (hash === _lastCalendarHash) return;
+  _lastCalendarHash = hash;
   // Merge: Sheet is source of truth when present
   CALENDAR_EVENTS = data.map(r => ({
     id: String(r.id),
@@ -614,6 +630,7 @@ async function syncCalendar() {
     oics: r.oics ? (typeof r.oics === 'string' ? safeJson(r.oics) : r.oics) : {},
     isDeleted: r.isDeleted
   }));
+  if (anyModalOpen() || STATE.isTouching) return;
   if (STATE.currentTab === 'calendar') renderCalendar();
   if (STATE.currentTab === 'home') renderHome();
 }
@@ -621,7 +638,39 @@ async function syncCalendar() {
 async function seedIfEmpty() {
   if (STATE.offlineMode) return;
   const members = await API.get('getMembers');
-  if (Array.isArray(members) && members.length === 0) await API.post('seedMembers', { members: DEFAULT_MEMBERS });
+
+  if (Array.isArray(members)) {
+    if (members.length === 0) {
+      await API.post('seedMembers', { members: DEFAULT_MEMBERS });
+    } else {
+      // Add any NEW defaults that aren't in sheet yet (Jon Quek, Grace, Umbra, etc.)
+      const existingIds = new Set(members.map(m => String(m.id)));
+      const missing = DEFAULT_MEMBERS.filter(m => !existingIds.has(m.id));
+      if (missing.length) await API.post('seedMembers', { members: missing });
+
+      // One-time migration: soft-delete stale entries from previous seeds
+      const STALE_IDS = [
+        'sl', 'dysl', 'safety_ic', 'security_ic', 'log_ic', 'learning_ic', 'comm_ic',
+        '57s1_ic', '57s3_ic', '57s4_ic',
+        '57s1_m1','57s1_m2','57s1_m3','57s1_m4','57s1_m5','57s1_m6','57s1_m7',
+        '57s3_m1','57s3_m2','57s3_m3','57s3_m4','57s3_m5','57s3_m6','57s3_m7',
+        '57s4_m1','57s4_m2','57s4_m3','57s4_m4','57s4_m5','57s4_m6','57s4_m7',
+        '25es18_m1','25es18_m2','25es18_m3','25es18_m4','25es18_m5','25es18_m6','25es18_m7',
+        '26es14_m1','26es14_m2','26es14_m3','26es14_m4','26es14_m5','26es14_m6','26es14_m7',
+        '27es18_m1','27es18_m2','27es18_m3','27es18_m4','27es18_m5','27es18_m6','27es18_m7'
+      ];
+      if (localStorage.getItem('tsv_migrated_v2') !== '1') {
+        const toRemove = members.filter(m =>
+          STALE_IDS.includes(String(m.id)) && m.isDeleted !== 'true' && m.isDeleted !== true
+        );
+        for (const m of toRemove) {
+          await API.post('deleteMember', { id: m.id, actor: 'migration_v2' });
+        }
+        localStorage.setItem('tsv_migrated_v2', '1');
+      }
+    }
+  }
+
   const cal = await API.get('getCalendar');
   if (Array.isArray(cal) && cal.length === 0) await API.post('seedCalendar', { events: CALENDAR_SEED });
   await syncMembers();
@@ -630,21 +679,39 @@ async function seedIfEmpty() {
 
 function safeJson(s) { try { return JSON.parse(s); } catch { return {}; } }
 
+// Smart polling: tier syncs by how often data changes.
+//   - Every 30s: statuses (most dynamic)
+//   - Every 2 min: members (rarely changes, except admin edits)
+//   - Every 5 min: calendar (rarely changes)
+//   - On-demand: learnings (only while viewing Learn tab, every 45s)
+// All syncs are hash-checked — if nothing changed, no re-render.
+// All polls pause when the page is hidden (tab backgrounded).
 function startPolling() {
-  if (STATE.pollTimer) clearInterval(STATE.pollTimer);
-  syncMembers().then(syncStatuses);
-  syncLearnings();
-  syncCalendar();
-  STATE.pollTimer = setInterval(() => {
-    syncMembers();
-    syncStatuses();
-    if (STATE.currentTab === 'learnings') syncLearnings();
-    if (STATE.currentTab === 'calendar') syncCalendar();
-  }, CONFIG.pollInterval);
+  // Clear any zombie timers
+  Object.keys(STATE._timers || {}).forEach(k => clearInterval(STATE._timers[k]));
+  STATE._timers = {};
 
-  document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) { syncMembers(); syncStatuses(); }
-  });
+  // Initial sync
+  syncMembers().then(syncStatuses);
+  syncCalendar();
+
+  STATE._timers.status  = setInterval(() => { if (!document.hidden) syncStatuses(); }, 30000);
+  STATE._timers.members = setInterval(() => { if (!document.hidden) syncMembers(); }, 120000);
+  STATE._timers.calendar= setInterval(() => { if (!document.hidden) syncCalendar(); }, 300000);
+  STATE._timers.learn   = setInterval(() => {
+    if (!document.hidden && STATE.currentTab === 'learnings') syncLearnings();
+  }, 45000);
+
+  // Refresh when coming back to the tab
+  if (!STATE._visHandler) {
+    STATE._visHandler = () => {
+      if (!document.hidden) {
+        syncStatuses();
+        if (STATE.currentTab === 'learnings') syncLearnings();
+      }
+    };
+    document.addEventListener('visibilitychange', STATE._visHandler);
+  }
 }
 
 // ═══════════ HOME TAB ════════════════════════════════════════
@@ -761,6 +828,7 @@ function renderHome() {
 
   clearInterval(window._clockTimer);
   window._clockTimer = setInterval(() => {
+    if (document.hidden || STATE.currentTab !== 'home') return;
     const e = el('live-time');
     if (e) e.textContent = formatBKKTime(bkkNow());
   }, 1000);
@@ -1263,33 +1331,111 @@ window.setLocationFilter = function(f) { STATE.locationFilter = f; renderLocatio
 // ═══════════ BUDDY / STATUS ACTIONS ══════════════════════════
 window.showBuddyModal = function() {
   el('buddy-modal').classList.remove('hidden');
-  const list = el('buddy-list');
-  list.innerHTML = '';
+  STATE._pendingGPS = null;
+  // Reset the in-modal GPS button
+  const gpsBtn = el('buddy-gps-btn');
+  if (gpsBtn) { gpsBtn.textContent = '📡 GPS'; gpsBtn.disabled = false; gpsBtn.style.background = ''; }
+  const gpsStatus = el('buddy-gps-status');
+  if (gpsStatus) gpsStatus.style.display = 'none';
+  const locInput = el('location-text-input');
+  if (locInput) locInput.value = '';
+
+  if (!STATE.expandedBuddyGroups) STATE.expandedBuddyGroups = new Set();
   const user = STATE.currentUser;
-  MEMBERS.filter(m => m.id !== user?.id && getStatusOf(m.id).status !== 'out').forEach(m => {
-    const item = document.createElement('div');
-    item.className = 'buddy-item';
-    item.dataset.id = m.id;
-    item.innerHTML = `<span class="bi-dot"></span>${escapeHtml(m.shortName)}`;
-    item.addEventListener('click', () => item.classList.toggle('selected'));
-    list.appendChild(item);
-  });
-  if (!list.children.length) list.innerHTML = '<p style="padding:16px;color:var(--text-2);font-size:13px">All other members are out.</p>';
+  if (!user) return;
+  // Non-admins see only their own syndicate; auto-expand since single group
+  const canSeeAll = canSeeAllSyndicates();
+  const myGroup = memberGroupKey(user);
+  if (!canSeeAll) STATE.expandedBuddyGroups.add(myGroup);
+  renderBuddyList();
 };
 window.hideBuddyModal = function() { el('buddy-modal').classList.add('hidden'); };
+
+function renderBuddyList() {
+  const list = el('buddy-list');
+  const user = STATE.currentUser;
+  if (!user) { list.innerHTML = ''; return; }
+  const canSeeAll = canSeeAllSyndicates();
+  const myGroup = memberGroupKey(user);
+  const groups = canSeeAll ? groupOrder() : [myGroup];
+  const selectedIds = new Set(
+    [...document.querySelectorAll('.buddy-item.selected')].map(x => x.dataset.id)
+  );
+
+  list.innerHTML = groups.map(gk => {
+    const members = membersInGroup(gk)
+      .filter(m => m.id !== user.id && getStatusOf(m.id).status !== 'out');
+    if (!members.length) return '';
+    const isOpen = STATE.expandedBuddyGroups.has(gk);
+    const safeId = gk.replace(/[^a-z0-9]/gi, '_');
+    const itemsHtml = !isOpen ? '' : members.map(m => {
+      const sel = selectedIds.has(m.id) ? 'selected' : '';
+      return `<div class="buddy-item ${sel}" data-id="${m.id}" onclick="this.classList.toggle('selected')">
+        <span class="bi-dot"></span>${escapeHtml(m.shortName || m.name)}
+      </div>`;
+    }).join('');
+    return `
+      <div class="buddy-group" id="bg-${safeId}">
+        <div class="buddy-group-header" style="background:${synColor(gk)}"
+          onclick="toggleBuddyGroup('${gk.replace(/'/g,"\\'")}')">
+          <span>${formatGroupDisplay(gk)} · ${members.length} available</span>
+          <span style="font-size:10px;opacity:.8">${isOpen?'▲':'▼'}</span>
+        </div>
+        ${isOpen ? `<div class="buddy-group-items">${itemsHtml}</div>` : ''}
+      </div>`;
+  }).join('') || '<p style="padding:16px;color:var(--text-2);font-size:13px;text-align:center">No syndicate mates available.</p>';
+}
+
+window.toggleBuddyGroup = function(gk) {
+  if (!STATE.expandedBuddyGroups) STATE.expandedBuddyGroups = new Set();
+  if (STATE.expandedBuddyGroups.has(gk)) STATE.expandedBuddyGroups.delete(gk);
+  else STATE.expandedBuddyGroups.add(gk);
+  renderBuddyList();
+};
+
+// Pre-share GPS from inside the buddy modal (before submitting)
+window.shareGPSFromBuddyModal = async function() {
+  const btn = el('buddy-gps-btn');
+  const status = el('buddy-gps-status');
+  if (btn) { btn.textContent = '⏳'; btn.disabled = true; }
+  try {
+    const pos = await new Promise((r, rj) =>
+      navigator.geolocation.getCurrentPosition(r, rj, { timeout: 8000, enableHighAccuracy: false })
+    );
+    STATE._pendingGPS = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+    if (btn) { btn.textContent = '✓ GPS'; btn.style.background = 'linear-gradient(135deg, #16a34a, #22c55e)'; }
+    if (status) {
+      status.style.display = 'block';
+      status.textContent = `📍 GPS captured: ${STATE._pendingGPS.lat.toFixed(4)}, ${STATE._pendingGPS.lng.toFixed(4)}`;
+      status.style.color = '#16a34a';
+    }
+  } catch (e) {
+    if (btn) { btn.textContent = '📡 GPS'; btn.disabled = false; }
+    if (status) {
+      status.style.display = 'block';
+      status.textContent = '❌ GPS unavailable — continue without it';
+      status.style.color = 'var(--red-500)';
+    }
+  }
+};
 
 window.confirmLeaveHotel = async function() {
   const user = STATE.currentUser;
   if (!user) return;
-  const locText = el('location-text-input')?.value?.trim() || '';
+  const rawLoc = el('location-text-input')?.value?.trim() || '';
+  const locText = rawLoc || 'Vicinity of Hotel';
   const selectedItems = [...document.querySelectorAll('.buddy-item.selected')];
   const buddyObjs = selectedItems.map(x => getMemberById(x.dataset.id)).filter(Boolean);
   const myLabel = user.shortName || user.name;
   const buddyLabels = buddyObjs.map(b => b.shortName || b.name);
   hideBuddyModal();
 
-  // Keep existing GPS coords (don't force a new prompt); user can share via pinned 📡 button
+  // Use pending GPS (from the in-modal 📡 button) if shared, else keep existing coords
+  const pending = STATE._pendingGPS;
   const existingStatus = getStatusOf(user.id);
+  const useLat = pending ? pending.lat : (existingStatus.lat || '');
+  const useLng = pending ? pending.lng : (existingStatus.lng || '');
+  STATE._pendingGPS = null;
   const now = new Date().toISOString();
 
   // Mark ME as out
@@ -1297,6 +1443,8 @@ window.confirmLeaveHotel = async function() {
     ...existingStatus,
     status: 'out',
     locationText: locText,
+    lat: useLat || null,
+    lng: useLng || null,
     buddyWith: buddyLabels.join(', '),
     lastUpdated: now
   };
@@ -1304,12 +1452,12 @@ window.confirmLeaveHotel = async function() {
     memberId: user.id, name: user.name, shortName: user.shortName,
     role: user.role, syndicate: user.syndicate,
     status: 'out', locationText: locText,
-    lat: existingStatus.lat || '', lng: existingStatus.lng || '',
+    lat: useLat, lng: useLng,
     buddyWith: buddyLabels.join(', '),
     roomNumber: existingStatus.roomNumber || ''
   });
 
-  // Mark EACH buddy as out too — their buddyWith shows the rest of the group
+  // Mark EACH buddy as out too — same location text, GPS only for caller
   for (const b of buddyObjs) {
     const otherNames = [myLabel, ...buddyLabels.filter(n => n !== (b.shortName || b.name))];
     const bStatus = getStatusOf(b.id);
@@ -2069,7 +2217,7 @@ function buildSyndicateSITREP(groupKey, options = {}) {
   if (out.length > 0) {
     msg += `Location\n`;
     out.forEach(m => {
-      const loc = (st[m.id]?.locationText || '').trim() || 'Unknown';
+      const loc = (st[m.id]?.locationText || '').trim() || 'Vicinity of Hotel';
       msg += `${m.shortName || m.name} - ${loc}\n`;
     });
   }
@@ -2088,40 +2236,10 @@ window.sendSyndicateSITREP = async function(groupKey, auto) {
   return ok;
 };
 
-// ═══════════ AUTO SYN1 REPORTS (2300H / 0200H) ══════════════
-function setupSyn1AutoReports() {
-  setInterval(async () => {
-    const bkk = bkkNow();
-    const h = bkk.getHours(), m = bkk.getMinutes();
-    const today = bkk.toISOString().split('T')[0];
-    const lastSent = JSON.parse(localStorage.getItem('tsv_last_sent') || '{}');
-
-    // 2300H — actual SITREP (Syn 1 only)
-    if (h === 23 && m === 0 && lastSent[today + '_2300'] !== true) {
-      const msg = buildSyndicateSITREP(PRIORITY_GROUP, { timeLabel: '2300H' });
-      const header = `📍 2300H SITREP · ${bkk.toLocaleDateString('en-GB',{day:'numeric',month:'short',timeZone:'Asia/Bangkok'})}\n`;
-      const ok = await TELEGRAM.send(header + msg, CONFIG.telegram.syn1ChatId);
-      if (ok) {
-        lastSent[today + '_2300'] = true;
-        localStorage.setItem('tsv_last_sent', JSON.stringify(lastSent));
-      }
-    }
-
-    // 0200H — End-of-Day SITREP (Syn 1 only) — labelled as YESTERDAY's date
-    if (h === 2 && m === 0 && lastSent[today + '_0200'] !== true) {
-      const syn1 = getSyn1Members();
-      const yesterday = new Date(bkk.getTime() - 86400000);
-      const yLabel = yesterday.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',timeZone:'Asia/Bangkok'});
-      const msg = `${formatGroupDisplay(PRIORITY_GROUP)}: ${syn1.length}/${syn1.length} in Hotel, 0/${syn1.length} Out\nEnd of status update`;
-      const header = `✅ EOD Report · ${yLabel} (0200H cutoff)\n`;
-      const ok = await TELEGRAM.send(header + msg, CONFIG.telegram.syn1ChatId);
-      if (ok) {
-        lastSent[today + '_0200'] = true;
-        localStorage.setItem('tsv_last_sent', JSON.stringify(lastSent));
-      }
-    }
-  }, 60000);
-}
+// Auto reports (1900H, 2300H, 0200H) are now handled server-side by Apps Script
+// time triggers — see apps-script/Code.gs → setupAllTriggers().
+// This means they fire reliably even when no one has the app open.
+function setupSyn1AutoReports() { /* no-op — server-side now */ }
 
 // ═══════════ SETTINGS MODAL ══════════════════════════════════
 window.showSettingsModal = function() {

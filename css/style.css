@@ -1687,10 +1687,37 @@ body::after {
 }
 #buddy-list {
   flex: 1; overflow-y: auto;
-  display: grid; grid-template-columns: 1fr 1fr;
+  display: flex; flex-direction: column;
   gap: 6px;
-  max-height: 40vh;
+  max-height: 55vh;
   margin-bottom: 10px;
+}
+.buddy-group {
+  border-radius: var(--r-md);
+  overflow: hidden;
+  border: 1px solid var(--border-2);
+}
+.buddy-group-header {
+  padding: 10px 14px;
+  color: white;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: -0.005em;
+  display: flex; align-items: center; justify-content: space-between;
+  cursor: pointer;
+  user-select: none;
+  transition: filter .12s;
+}
+.buddy-group-header:active { filter: brightness(1.1); }
+.buddy-group-items {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  padding: 8px;
+  background: var(--n-50);
+}
+@media (prefers-color-scheme: dark) {
+  .buddy-group-items { background: rgba(15,23,42,.4); }
 }
 .buddy-item {
   padding: 10px 12px;

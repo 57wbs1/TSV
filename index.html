@@ -167,9 +167,14 @@
     <h2>🚶 Leaving Hotel</h2>
     <p>Select your buddy(s) and where you're going</p>
     <div id="location-input-wrap">
-      <input id="location-text-input" type="text"
-        placeholder="Where are you going? (e.g. Asiatique Night Market)">
-      <p style="font-size:12px;color:var(--text-2);text-align:left">Select at least one buddy:</p>
+      <div style="display:flex;gap:8px;align-items:stretch">
+        <input id="location-text-input" type="text" style="flex:1"
+          placeholder="Where are you going? (default: Vicinity of Hotel)">
+        <button class="btn btn-primary btn-sm" id="buddy-gps-btn" onclick="shareGPSFromBuddyModal()"
+          style="flex-shrink:0;padding:0 14px;font-size:13px">📡 GPS</button>
+      </div>
+      <p id="buddy-gps-status" style="font-size:11px;color:var(--text-2);margin-top:2px;display:none"></p>
+      <p style="font-size:12px;color:var(--text-2);text-align:left;margin-top:4px">Select your buddy(s):</p>
     </div>
     <div id="buddy-list"></div>
     <div class="buddy-actions">
