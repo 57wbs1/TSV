@@ -157,18 +157,37 @@ function outCount() { return MEMBERS.filter(m => getStatusOf(m.id).status === 'o
 function synColor(g) { return groupColorFor(g); }
 function groupOrder() { return computeGroupOrder(); }
 function membersInGroup(g) { return MEMBERS.filter(m => memberGroupKey(m) === g); }
-function isAdmin() {
+// Real underlying admin permission (doesn't change with view toggle)
+function hasAdminRights() {
   const u = STATE.currentUser;
   if (!u) return false;
   if (CONFIG.adminIds.includes(u.id)) return true;
-  if (u.isAdmin === true || u.isAdmin === 'true') return true; // approved via admin request
+  if (u.isAdmin === true || u.isAdmin === 'true') return true;
   return false;
 }
 
-// Everyone can see everyone — the per-syndicate scoping was too restrictive.
-// Kept as functions so call sites don't all need updating.
-function canSeeAllSyndicates() { return true; }
-function visibleGroups() { return groupOrder(); }
+// What the UI uses — respects the admin's "View as Non-Admin" toggle
+function isAdmin() {
+  if (!hasAdminRights()) return false;
+  if (localStorage.getItem('tsv_admin_view_as') === 'non-admin') return false;
+  return true;
+}
+
+// Tracker and Rooms: non-admins see only their own syndicate.
+// (Buddy picker overrides this to always show all — that's the cross-syndicate case.)
+function canSeeAllSyndicates() {
+  const u = STATE.currentUser;
+  if (!u) return false;
+  if (isAdmin()) return true;
+  if (u.csc === 'Staff' || u.syndicate === 'Leadership') return true;
+  return false;
+}
+function visibleGroups() {
+  if (canSeeAllSyndicates()) return groupOrder();
+  const u = STATE.currentUser;
+  if (!u) return [];
+  return [memberGroupKey(u)];
+}
 function escapeHtml(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
 // ═══════════ LOGIN FLOW (Syndicate → Name → PIN) ═════════════
@@ -2459,12 +2478,21 @@ function renderSettings() {
     <!-- Access -->
     <div class="settings-section">
       <div class="settings-section-header">🔐 Access</div>
-      ${isAdmin() ? `
+      ${hasAdminRights() ? `
         <div class="settings-row">
           <div class="sr-label">You have Admin rights
             <div class="sr-value">You can see all syndicates, send reports, manage members</div>
           </div>
           <span style="font-size:22px">👑</span>
+        </div>
+        <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:8px">
+          <div class="sr-label">View as…
+            <div class="sr-value">Declutter the app by hiding admin-only controls</div>
+          </div>
+          <div class="theme-chooser">
+            <button class="${localStorage.getItem('tsv_admin_view_as') !== 'non-admin' ? 'active' : ''}" onclick="setAdminView('admin')">👑<br>Full Admin</button>
+            <button class="${localStorage.getItem('tsv_admin_view_as') === 'non-admin' ? 'active' : ''}" onclick="setAdminView('non-admin')">👤<br>Non-Admin</button>
+          </div>
         </div>
       ` : `
         <div class="settings-row">
@@ -2508,6 +2536,21 @@ function renderSettings() {
     </div>
   `;
 }
+
+window.setAdminView = function(mode) {
+  if (mode === 'non-admin') localStorage.setItem('tsv_admin_view_as', 'non-admin');
+  else localStorage.removeItem('tsv_admin_view_as');
+  // Update header admin-panel button visibility
+  const btn = el('btn-admin');
+  if (btn) btn.classList.toggle('hidden', !isAdmin());
+  // Re-render current tab + settings
+  if (STATE.currentTab === 'home')     renderHome();
+  if (STATE.currentTab === 'location') renderLocation();
+  if (STATE.currentTab === 'rooms')    renderRooms();
+  if (STATE.currentTab === 'calendar') renderCalendar();
+  renderSettings();
+  toast(mode === 'non-admin' ? '👤 Viewing as non-admin' : '👑 Admin view restored');
+};
 
 window.setSize = function(s) {
   document.documentElement.classList.remove('size-sm','size-md','size-lg');

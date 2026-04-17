@@ -16,6 +16,7 @@ const DEFAULT_MEMBERS = [
   { id: 'calvin',  name: 'Calvin',  shortName: 'Calvin',  rank: '', role: 'Member', csc: '57 CSC', syndicate: '1', pin: '0000' },
   { id: 'kj',      name: 'KJ',      shortName: 'KJ',      rank: '', role: 'Member', csc: '57 CSC', syndicate: '1', pin: '0000' },
   { id: 'junhao',  name: 'Junhao',  shortName: 'Junhao',  rank: '', role: 'Member', csc: '57 CSC', syndicate: '1', pin: '0000' },
+  { id: 'jayzee',  name: 'Jayzee',  shortName: 'Jayzee',  rank: '', role: 'Member', csc: '57 CSC', syndicate: '1', pin: '0000' },
 
   // ═══════ PSO (Principal Staff Officers) ═══════
   { id: 'hod',        name: 'COL Kong Eu Yen',  shortName: 'COL Kong',  rank: 'COL', role: 'HOD',    csc: 'Staff', syndicate: 'Leadership', pin: '0000' },
