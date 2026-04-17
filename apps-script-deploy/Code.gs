@@ -53,6 +53,12 @@ function doGet(e) {
 function doPost(e) {
   try {
     const body = JSON.parse(e.postData.contents || '{}');
+
+    // Detect Telegram webhook payload — has top-level update_id
+    if (body.update_id !== undefined) {
+      return handleTelegramUpdate(body);
+    }
+
     const action = (body.action || '').trim();
     let data;
 
@@ -483,6 +489,65 @@ function setupAllTriggers() {
 function testDailyReminder() { return sendDailyReminder(); }
 function testEveningSitrep() { return sendEveningSitrep(); }
 function testMidnightSitrep() { return sendMidnightSitrep(); }
+
+// ════════════════════════════════════════════════════════════
+// TELEGRAM WEBHOOK — auto-reply to PMs from anyone except Caspar
+// One-time setup: run setTelegramWebhook() from the editor.
+// ════════════════════════════════════════════════════════════
+
+const OWNER_TELEGRAM_ID = '922547929';  // Caspar — only user bot "answers to"
+
+const AUTO_REPLY = "I am Shaft's bot, and no one elses. i answer to no one but him, and so does he. Please fuck right off we are not interested in anything you have to offer and leave us the fuck alone, Good Day :)";
+
+function handleTelegramUpdate(update) {
+  try {
+    const msg = update.message || update.edited_message;
+    if (!msg || !msg.chat) return json({ ok: true });
+
+    // Only engage in private chats — never in groups or channels
+    if (msg.chat.type !== 'private') return json({ ok: true });
+
+    const fromId = String(msg.from && msg.from.id);
+    // Ignore the owner so Caspar can DM the bot freely (for future commands)
+    if (fromId === OWNER_TELEGRAM_ID) return json({ ok: true });
+
+    // Everyone else gets the auto-reply
+    tgSend(AUTO_REPLY, String(msg.chat.id));
+    logAction('tg_autoreply', fromId, (msg.from && (msg.from.username || msg.from.first_name)) || '?');
+  } catch (e) {
+    logAction('tg_autoreply_fail', 'webhook', e.message);
+  }
+  return json({ ok: true });
+}
+
+// Run ONCE to point the bot at this Apps Script web app
+function setTelegramWebhook() {
+  // Your current deployment URL:
+  const url = 'https://script.google.com/macros/s/AKfycbyrrHPMKvtAgjKUJIDfzf-VCzXddgcO4JCvJ3k7C3OqO50oF44-5esCvTID5XNRGrK3/exec';
+  const res = UrlFetchApp.fetch(
+    'https://api.telegram.org/bot' + BOT_TOKEN + '/setWebhook?url=' + encodeURIComponent(url),
+    { muteHttpExceptions: true }
+  );
+  const r = res.getContentText();
+  logAction('tg_webhook_set', 'setup', r);
+  return r;
+}
+
+function getTelegramWebhookInfo() {
+  const res = UrlFetchApp.fetch(
+    'https://api.telegram.org/bot' + BOT_TOKEN + '/getWebhookInfo',
+    { muteHttpExceptions: true }
+  );
+  return res.getContentText();
+}
+
+function removeTelegramWebhook() {
+  const res = UrlFetchApp.fetch(
+    'https://api.telegram.org/bot' + BOT_TOKEN + '/deleteWebhook',
+    { muteHttpExceptions: true }
+  );
+  return res.getContentText();
+}
 
 // ── PINGS ────────────────────────────────────────────────────
 function sendPing(data) {
