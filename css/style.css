@@ -1360,8 +1360,9 @@ body::after {
    MAP
    ══════════════════════════════════════════════════════════ */
 #map-container {
-  height: calc(100vh - var(--header-h) - var(--nav-h) - 160px);
-  min-height: 300px;
+  height: calc(100dvh - var(--header-h) - var(--nav-h) - var(--action-h, 0px) - var(--safe-b) - 200px);
+  min-height: 260px;
+  max-height: 60vh;
   border-radius: var(--r-lg);
   overflow: hidden;
   box-shadow: var(--shadow-md);

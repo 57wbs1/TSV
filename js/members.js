@@ -1,20 +1,10 @@
 // ============================================================
 // DEFAULT MEMBER ROSTER (seed data)
-// ------------------------------------------------------------
-// Each member has:
-//   id         — unique, no spaces
-//   name       — display name
-//   shortName  — compact label
-//   rank       — optional
-//   role       — Member / Syn IC / SL / etc
-//   csc        — "57 CSC", "26th CSC (E)", "Staff", etc.
-//   syndicate  — "1", "3", "14", "Leadership"
-//   pin        — 4-digit personal PIN (default "0000" for seeded)
 // ============================================================
 
 const DEFAULT_MEMBERS = [
 
-  // ═══════ 57 CSC — SYNDICATE 1 (Caspar's Syndicate) ═══════
+  // ═══════ 57 CSC — SYNDICATE 1 ═══════
   { id: 'caspar',  name: 'Caspar',  shortName: 'Caspar',  rank: '', role: 'Member', csc: '57 CSC', syndicate: '1', pin: '0000' },
   { id: 'jamal',   name: 'Jamal',   shortName: 'Jamal',   rank: '', role: 'Member', csc: '57 CSC', syndicate: '1', pin: '0000' },
   { id: 'luke',    name: 'Luke',    shortName: 'Luke',    rank: '', role: 'Member', csc: '57 CSC', syndicate: '1', pin: '0000' },
@@ -27,33 +17,37 @@ const DEFAULT_MEMBERS = [
   { id: 'kj',      name: 'KJ',      shortName: 'KJ',      rank: '', role: 'Member', csc: '57 CSC', syndicate: '1', pin: '0000' },
   { id: 'junhao',  name: 'Junhao',  shortName: 'Junhao',  rank: '', role: 'Member', csc: '57 CSC', syndicate: '1', pin: '0000' },
 
-  // ═══════ STAFF / LEADERSHIP ═══════
-  { id: 'hod',         name: 'COL Kong Eu Yen',  shortName: 'COL Kong',    rank: 'COL', role: 'HOD',         csc: 'Staff', syndicate: 'Leadership', pin: '0000' },
-  { id: 'pds',         name: 'LTC Roger Cheong', shortName: 'LTC Roger',   rank: 'LTC', role: 'PDS',         csc: 'Staff', syndicate: 'Leadership', pin: '0000' },
-  { id: 'tsv_ao',      name: 'Ms Nancy',          shortName: 'Ms Nancy',    rank: '',    role: 'TSV AO',      csc: 'Staff', syndicate: 'Leadership', pin: '0000' },
-  { id: 'sl',          name: 'ME6 Grace',         shortName: 'ME6 Grace',   rank: 'ME6', role: 'SL',          csc: 'Staff', syndicate: 'Leadership', pin: '0000' },
-  { id: 'dysl',        name: 'MAJ Dominic',       shortName: 'MAJ Dominic', rank: 'MAJ', role: 'Dy SL',       csc: 'Staff', syndicate: 'Leadership', pin: '0000' },
+  // ═══════ PSO (Principal Staff Officers) ═══════
+  { id: 'hod',        name: 'COL Kong Eu Yen',  shortName: 'COL Kong',  rank: 'COL', role: 'HOD',    csc: 'Staff', syndicate: 'Leadership', pin: '0000' },
+  { id: 'pds',        name: 'LTC Roger Cheong', shortName: 'LTC Roger', rank: 'LTC', role: 'PDS',    csc: 'Staff', syndicate: 'Leadership', pin: '0000' },
+  { id: 'tsv_ao',     name: 'Ms Nancy',          shortName: 'Ms Nancy',  rank: '',    role: 'TSV AO', csc: 'Staff', syndicate: 'Leadership', pin: '0000' },
+  { id: 'jon_quek',   name: 'LTC Jon Quek',      shortName: 'LTC Jon',   rank: 'LTC', role: 'PSO',    csc: 'Staff', syndicate: 'Leadership', pin: '0000' },
 
-  // ═══════ OTHER 57 CSC SYNDICATES ═══════
-  { id: '57s3_ic', name: '57 CSC S3 — Syn IC', shortName: '57S3 IC', rank: '', role: 'Syn IC', csc: '57 CSC', syndicate: '3', pin: '0000' },
-  { id: '57s4_ic', name: '57 CSC S4 — Syn IC', shortName: '57S4 IC', rank: '', role: 'Syn IC', csc: '57 CSC', syndicate: '4', pin: '0000' },
+  // ═══════ 57 CSC — SYNDICATE 3 ═══════
+  { id: 'grace',      name: 'ME6 Grace',  shortName: 'Grace',    rank: 'ME6', role: 'SL',     csc: '57 CSC', syndicate: '3', pin: '0000' },
+  { id: 'umbra',      name: 'Umbra',      shortName: 'Umbra',    rank: '',    role: 'Member', csc: '57 CSC', syndicate: '3', pin: '0000' },
+  { id: 'wen_jing',   name: 'Wen Jing',   shortName: 'Wen Jing', rank: '',    role: 'Member', csc: '57 CSC', syndicate: '3', pin: '0000' },
+  { id: 'dehong',     name: 'Dehong',     shortName: 'Dehong',   rank: '',    role: 'Member', csc: '57 CSC', syndicate: '3', pin: '0000' },
+  { id: 'glenn',      name: 'Glenn',      shortName: 'Glenn',    rank: '',    role: 'Member', csc: '57 CSC', syndicate: '3', pin: '0000' },
+
+  // ═══════ 57 CSC — SYNDICATE 4 ═══════
+  { id: 'alvin',      name: 'Alvin',      shortName: 'Alvin',    rank: '',    role: 'Member', csc: '57 CSC', syndicate: '4', pin: '0000' },
+  { id: 'liwen',      name: 'LiWen',      shortName: 'LiWen',    rank: '',    role: 'Member', csc: '57 CSC', syndicate: '4', pin: '0000' },
+  { id: 'oliver',     name: 'Oliver',     shortName: 'Oliver',   rank: '',    role: 'Member', csc: '57 CSC', syndicate: '4', pin: '0000' },
 
   // ═══════ 25th / 26th / 27th CSC (E) ═══════
-  { id: '25es18_ic', name: '25th CSC (E) S18 — Syn IC', shortName: '25ES18 IC', rank: '', role: 'Syn IC', csc: '25th CSC (E)', syndicate: '18', pin: '0000' },
-  { id: '26es14_ic', name: '26th CSC (E) S14 — Syn IC', shortName: '26ES14 IC', rank: '', role: 'Syn IC', csc: '26th CSC (E)', syndicate: '14', pin: '0000' },
-  { id: '27es18_ic', name: '27th CSC (E) S18 — Syn IC', shortName: '27ES18 IC', rank: '', role: 'Syn IC', csc: '27th CSC (E)', syndicate: '18', pin: '0000' }
+  { id: '25es18_ic',  name: '25E Syn IC', shortName: '25E IC',   rank: '', role: 'Syn IC', csc: '25th CSC (E)', syndicate: '18', pin: '0000' },
+  { id: '26es14_ic',  name: '26E Syn IC', shortName: '26E IC',   rank: '', role: 'Syn IC', csc: '26th CSC (E)', syndicate: '14', pin: '0000' },
+  { id: '27es18_ic',  name: '27E Syn IC', shortName: '27E IC',   rank: '', role: 'Syn IC', csc: '27th CSC (E)', syndicate: '18', pin: '0000' }
 ];
 
 let MEMBERS = [...DEFAULT_MEMBERS];
 
-// Always show 57 CSC Syn 1 first (Caspar's syndicate)
 const PRIORITY_GROUP = '57 CSC Syn 1';
 
 const DEFAULT_CSC_OPTIONS = ['57 CSC', '25th CSC (E)', '26th CSC (E)', '27th CSC (E)', 'Staff'];
-
-const DEFAULT_ROLE_OPTIONS = ['Member', 'Syn IC', 'HOD', 'PDS', 'TSV AO',
+const DEFAULT_ROLE_OPTIONS = ['Member', 'Syn IC', 'HOD', 'PDS', 'TSV AO', 'PSO',
   'SL', 'Dy SL', 'Safety IC', 'Security IC', 'Log IC', 'Learning IC', 'Comm IC', 'DS', 'Observer'];
-
 const DEFAULT_RANK_OPTIONS = ['', 'CPT', 'MAJ', 'LTC', 'COL', 'BG',
   'ME3', 'ME4', 'ME5', 'ME6', 'ME7', 'ME8', 'CWO', 'SWO', 'MWO', 'Ms', 'Mr'];
 
@@ -67,10 +61,8 @@ function memberGroupKey(m) {
 // Compact display: "57 CSC Syn 1" → "57 SYN 1", "26th CSC (E) Syn 14" → "26E", "Leadership" → "PSO"
 function formatGroupDisplay(groupKey) {
   if (groupKey === 'Leadership') return 'PSO';
-  // Executive courses: show compact "25E", "26E", "27E"
   const execMatch = groupKey.match(/^(\d+)(?:th)?\s*CSC\s*\(E\)\s*Syn\s*(\S+)$/i);
   if (execMatch) return `${execMatch[1]}E`;
-  // Main courses: "57 SYN 1"
   const mainMatch = groupKey.match(/^(\d+)(?:th)?\s*CSC\s*Syn\s*(\S+)$/i);
   if (mainMatch) return `${mainMatch[1]} SYN ${mainMatch[2]}`;
   return groupKey;
@@ -78,7 +70,7 @@ function formatGroupDisplay(groupKey) {
 
 function groupColorFor(groupKey) {
   if (groupKey === 'Leadership') return '#1C2D4E';
-  if (groupKey === PRIORITY_GROUP) return '#003580';   // Caspar's group gets Thai blue
+  if (groupKey === PRIORITY_GROUP) return '#003580';
   const palette = ['#2D6E4E', '#E07B39', '#7B2535', '#B5973A',
                    '#5A2D8C', '#0EA5E9', '#EC4899', '#10B981', '#F97316', '#64748B'];
   let hash = 0;
@@ -86,16 +78,14 @@ function groupColorFor(groupKey) {
   return palette[hash % palette.length];
 }
 
-// Group order: 57 SYN 1 → Leadership → 57 SYN 3 → 57 SYN 4 → 25E → 26E → 27E
+// Group order: SYN 1 → PSO → SYN 3 → SYN 4 → 25E → 26E → 27E
 function computeGroupOrder() {
   const set = new Set();
   MEMBERS.forEach(m => set.add(memberGroupKey(m)));
   const all = [...set];
   const priority = {};
-  priority[PRIORITY_GROUP] = 0;   // 57 CSC Syn 1
-  priority['Leadership'] = 1;
-  // Other 57 CSC syndicates get 10+n
-  // Executive courses get 20+n
+  priority[PRIORITY_GROUP] = 0;
+  priority['Leadership']   = 1;
   all.forEach(gk => {
     if (priority[gk] !== undefined) return;
     if (/^57 CSC Syn /.test(gk)) {
@@ -128,7 +118,6 @@ function getSyndicatesForCSC(csc) {
   });
 }
 
-// Syndicate 1 members (for auto SITREP)
 function getSyn1Members() {
   return MEMBERS.filter(m => m.csc === '57 CSC' && String(m.syndicate) === '1');
 }

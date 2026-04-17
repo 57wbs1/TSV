@@ -1252,6 +1252,12 @@ window.toggleTrackerGroup = function(gk) {
   else STATE.expandedTrackerGroups.add(gk);
   renderLocation();
 };
+window.toggleRoomsGroup = function(gk) {
+  if (!STATE.expandedRoomsGroups) STATE.expandedRoomsGroups = new Set();
+  if (STATE.expandedRoomsGroups.has(gk)) STATE.expandedRoomsGroups.delete(gk);
+  else STATE.expandedRoomsGroups.add(gk);
+  renderRooms();
+};
 window.setLocationFilter = function(f) { STATE.locationFilter = f; renderLocation(); };
 
 // ═══════════ BUDDY / STATUS ACTIONS ══════════════════════════
@@ -1275,24 +1281,59 @@ window.hideBuddyModal = function() { el('buddy-modal').classList.add('hidden'); 
 window.confirmLeaveHotel = async function() {
   const user = STATE.currentUser;
   if (!user) return;
-  const buddies = [...document.querySelectorAll('.buddy-item.selected')].map(el => getMemberById(el.dataset.id)?.shortName).filter(Boolean);
   const locText = el('location-text-input')?.value?.trim() || '';
+  const selectedItems = [...document.querySelectorAll('.buddy-item.selected')];
+  const buddyObjs = selectedItems.map(x => getMemberById(x.dataset.id)).filter(Boolean);
+  const myLabel = user.shortName || user.name;
+  const buddyLabels = buddyObjs.map(b => b.shortName || b.name);
   hideBuddyModal();
-  toast('📡 Updating...');
-  let lat=null, lng=null;
-  try {
-    const pos = await new Promise((r,rj) => navigator.geolocation.getCurrentPosition(r,rj,{timeout:5000}));
-    lat = pos.coords.latitude; lng = pos.coords.longitude;
-  } catch {}
-  const payload = {
-    memberId: user.id, name: user.name, shortName: user.shortName, role: user.role, syndicate: user.syndicate,
-    status: 'out', locationText: locText, lat, lng, buddyWith: buddies.join(', ')
+
+  // Keep existing GPS coords (don't force a new prompt); user can share via pinned 📡 button
+  const existingStatus = getStatusOf(user.id);
+  const now = new Date().toISOString();
+
+  // Mark ME as out
+  STATE.memberStatuses[user.id] = {
+    ...existingStatus,
+    status: 'out',
+    locationText: locText,
+    buddyWith: buddyLabels.join(', '),
+    lastUpdated: now
   };
-  STATE.memberStatuses[user.id] = { status:'out', locationText:locText, lat, lng, buddyWith:buddies.join(', '), lastUpdated:new Date().toISOString() };
+  await API.post('updateStatus', {
+    memberId: user.id, name: user.name, shortName: user.shortName,
+    role: user.role, syndicate: user.syndicate,
+    status: 'out', locationText: locText,
+    lat: existingStatus.lat || '', lng: existingStatus.lng || '',
+    buddyWith: buddyLabels.join(', '),
+    roomNumber: existingStatus.roomNumber || ''
+  });
+
+  // Mark EACH buddy as out too — their buddyWith shows the rest of the group
+  for (const b of buddyObjs) {
+    const otherNames = [myLabel, ...buddyLabels.filter(n => n !== (b.shortName || b.name))];
+    const bStatus = getStatusOf(b.id);
+    STATE.memberStatuses[b.id] = {
+      ...bStatus,
+      status: 'out',
+      locationText: locText,
+      buddyWith: otherNames.join(', '),
+      lastUpdated: now
+    };
+    await API.post('updateStatus', {
+      memberId: b.id, name: b.name, shortName: b.shortName,
+      role: b.role, syndicate: b.syndicate,
+      status: 'out', locationText: locText,
+      lat: bStatus.lat || '', lng: bStatus.lng || '',
+      buddyWith: otherNames.join(', '),
+      roomNumber: bStatus.roomNumber || ''
+    });
+  }
+
   renderLocation();
   renderPinnedActionBar();
-  await API.post('updateStatus', payload);
-  toast('✅ Updated — travel with buddy!');
+  const n = 1 + buddyObjs.length;
+  toast(`✅ ${n} marked OUT — stay safe!`);
 };
 
 window.returnToHotel = async function() {
@@ -1335,7 +1376,12 @@ window.updateLocationText = function() {
 
 // ═══════════ MAP TAB ═════════════════════════════════════════
 function initMap() {
-  if (STATE.map) { updateMapMarkers(); return; }
+  if (STATE.map) {
+    updateMapMarkers();
+    // Ensure map re-measures after tab switch / orientation / action-bar changes
+    setTimeout(() => STATE.map.invalidateSize(), 100);
+    return;
+  }
   if (typeof L === 'undefined') { setTimeout(initMap, 500); return; }
   STATE.map = L.map('leaflet-map').setView([CONFIG.hotel.lat, CONFIG.hotel.lng], 13);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution:'© OpenStreetMap', maxZoom:19 }).addTo(STATE.map);
@@ -1927,12 +1973,16 @@ function renderRooms() {
   const myRoom = myStatus.roomNumber || '';
   const filter = STATE.locationFilter;
   const groups = visibleGroups();
+  if (!STATE.expandedRoomsGroups) STATE.expandedRoomsGroups = new Set();
+  // Non-admins (who only see their own syndicate) default to expanded; admins default to collapsed
+  const nonAdminAutoExpand = !canSeeAllSyndicates() && groups.length === 1;
 
   const groupSections = groups.map(gk => {
     if (filter !== 'all' && filter !== gk) return '';
     const members = membersInGroup(gk);
     if (!members.length) return '';
-    const rows = members.map(m => {
+    const isOpen = nonAdminAutoExpand || STATE.expandedRoomsGroups.has(gk);
+    const rows = !isOpen ? '' : members.map(m => {
       const st = getStatusOf(m.id);
       const rm = st.roomNumber || '';
       const isMe = user && m.id === user.id;
@@ -1947,8 +1997,9 @@ function renderRooms() {
     }).join('');
     return `
       <div class="rooms-group">
-        <div class="rooms-group-header" style="background:${synColor(gk)}">
-          ${formatGroupDisplay(gk)} <span class="count">${members.length} ${members.length === 1 ? 'member' : 'members'}</span>
+        <div class="rooms-group-header" style="background:${synColor(gk)};cursor:pointer;display:flex;align-items:center;justify-content:space-between" onclick="toggleRoomsGroup('${gk.replace(/'/g,"\\'")}')">
+          <span>${formatGroupDisplay(gk)} <span class="count">${members.length} ${members.length === 1 ? 'member' : 'members'}</span></span>
+          <span style="font-size:10px;opacity:.8">${isOpen?'▲':'▼'}</span>
         </div>
         ${rows}
       </div>`;

@@ -1,5 +1,5 @@
 // Bump this version number on every deploy to invalidate the cache.
-const CACHE_NAME = 'tsv-bkk-v12-' + '20260417l';
+const CACHE_NAME = 'tsv-bkk-v13-' + '20260417m';
 
 const APP_SHELL = [
   './index.html',

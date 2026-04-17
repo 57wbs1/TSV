@@ -67,7 +67,10 @@ const CONFIG = {
   defaultPin: '0000',
 
   // Admin member IDs — can edit calendar, manage members, send Telegram reports
-  adminIds: ['caspar', 'dominic', 'kenny', 'kj', 'hod', 'pds', 'sl', 'dysl'],
+  adminIds: ['caspar', 'dominic', 'kenny', 'kj',
+             'grace', 'umbra',
+             'alvin', 'liwen',
+             'hod', 'pds', 'jon_quek'],
 
   // Super-admin — only this id can approve/decline admin-rights requests
   superAdminId: 'caspar',
