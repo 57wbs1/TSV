@@ -67,7 +67,10 @@ const CONFIG = {
   defaultPin: '0000',
 
   // Admin member IDs — can edit calendar, manage members, send Telegram reports
-  adminIds: ['caspar', 'hod', 'pds', 'sl', 'dysl'],
+  adminIds: ['caspar', 'dominic', 'kenny', 'kj', 'hod', 'pds', 'sl', 'dysl'],
+
+  // Super-admin — only this id can approve/decline admin-rights requests
+  superAdminId: 'caspar',
 
   // ----------------------------------------------------------
   // TRIP INFO

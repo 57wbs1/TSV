@@ -157,7 +157,31 @@ function outCount() { return MEMBERS.filter(m => getStatusOf(m.id).status === 'o
 function synColor(g) { return groupColorFor(g); }
 function groupOrder() { return computeGroupOrder(); }
 function membersInGroup(g) { return MEMBERS.filter(m => memberGroupKey(m) === g); }
-function isAdmin() { return STATE.currentUser && CONFIG.adminIds.includes(STATE.currentUser.id); }
+function isAdmin() {
+  const u = STATE.currentUser;
+  if (!u) return false;
+  if (CONFIG.adminIds.includes(u.id)) return true;
+  if (u.isAdmin === true || u.isAdmin === 'true') return true; // approved via admin request
+  return false;
+}
+
+// Who can see all syndicates (not just their own)?
+// Admins + Staff/Leadership members.
+function canSeeAllSyndicates() {
+  const u = STATE.currentUser;
+  if (!u) return false;
+  if (isAdmin()) return true;
+  if (u.csc === 'Staff' || u.syndicate === 'Leadership') return true;
+  return false;
+}
+
+// Filter group order for current user's visibility
+function visibleGroups() {
+  if (canSeeAllSyndicates()) return groupOrder();
+  const u = STATE.currentUser;
+  if (!u) return [];
+  return [memberGroupKey(u)];
+}
 function escapeHtml(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
 // ═══════════ LOGIN FLOW (Syndicate → Name → PIN) ═════════════
@@ -311,6 +335,7 @@ function switchTab(tabId) {
   if (tabId === 'learnings') renderLearnings();
   if (tabId === 'ir')        renderIR();
   if (tabId === 'sop')       renderSOP();
+  if (tabId === 'settings')  renderSettings();
 }
 
 // ═══════════ IDENTITY ════════════════════════════════════════
@@ -462,8 +487,18 @@ async function syncMembers() {
   MEMBERS = data.map(row => ({
     id: String(row.id), name: row.name || '', shortName: row.shortName || row.name || '',
     rank: row.rank || '', role: row.role || 'Member',
-    csc: row.csc || '', syndicate: String(row.syndicate || '')
+    csc: row.csc || '', syndicate: String(row.syndicate || ''),
+    pin: row.pin || '0000',
+    isAdmin: row.isAdmin === 'true' || row.isAdmin === true
   }));
+  // Refresh current user's flags (e.g., isAdmin just approved)
+  if (STATE.currentUser) {
+    const me = MEMBERS.find(m => m.id === STATE.currentUser.id);
+    if (me) {
+      STATE.currentUser = { ...STATE.currentUser, ...me };
+      saveIdentity(STATE.currentUser);
+    }
+  }
   if (STATE.currentTab === 'location') renderLocation();
   if (STATE.currentTab === 'home')     renderHome();
 }
@@ -752,7 +787,6 @@ function renderCalendar() {
           <div class="ce-start">${ev.startTime}</div>
           <div class="ce-end">${ev.endTime !== ev.startTime ? ev.endTime : ''}</div>
         </div>
-        <div class="cal-event-dot" style="background:${cat.color}"></div>
         <div class="cal-event-card ${isNow?'now':''}" style="border-left-color:${cat.color}" onclick="showEventDetail('${ev.id}')">
           <div class="ce-title">${cat.icon} ${escapeHtml(ev.title)}</div>
           ${ev.location ? `<div class="ce-loc">📍 ${escapeHtml(ev.location)}</div>` : ''}
@@ -919,10 +953,14 @@ window.deleteEventConfirm = async function() {
 function renderLocation() {
   const user = STATE.currentUser;
   const myStatus = getStatusOf(user?.id || '');
-  const total = MEMBERS.length, inC = inCount(), outC = outCount();
-  const allGroups = groupOrder();
+  const visibleGs = visibleGroups();
+  // Counts are computed over VISIBLE scope only for non-admins
+  const visMembers = canSeeAllSyndicates() ? MEMBERS : MEMBERS.filter(m => visibleGs.includes(memberGroupKey(m)));
+  const total = visMembers.length;
+  const outC = visMembers.filter(m => getStatusOf(m.id).status === 'out').length;
+  const inC = total - outC;
 
-  const synGroups = allGroups.map(gk => {
+  const synGroups = visibleGs.map(gk => {
     if (STATE.locationFilter !== 'all' && STATE.locationFilter !== gk) return '';
     const members = membersInGroup(gk);
     if (!members.length) return '';
@@ -930,10 +968,12 @@ function renderLocation() {
     const synIn = members.length - synOut;
     const allIn = synOut === 0;
     const safeId = gk.replace(/[^a-z0-9]/gi, '_');
+    const mySyn = user && memberGroupKey(user) === gk;
     const rows = members.map(m => {
       const st = getStatusOf(m.id);
       const isOut = st.status === 'out';
       const isMe = user && m.id === user.id;
+      const canPing = mySyn && !isMe; // only ping within your own syndicate
       return `
         <div class="member-row" ${isMe ? 'style="background:#f0f4ff"' : ''}>
           <div class="status-dot ${isOut ? 'dot-out' : 'dot-in'}"></div>
@@ -945,6 +985,7 @@ function renderLocation() {
             </div>
             ${isOut && st.buddyWith ? `<div class="m-buddy">👥 w/ ${escapeHtml(st.buddyWith)}</div>` : ''}
           </div>
+          ${canPing ? `<button class="btn-ping" onclick="event.stopPropagation(); pingMember('${m.id}', '${escapeHtml(m.shortName || m.name).replace(/'/g,"\\'")}'`+`)">👋</button>` : ''}
           <span class="status-pill ${isOut ? 'pill-out' : 'pill-in'}">${isOut ? 'OUT' : 'IN'}</span>
         </div>`;
     }).join('');
@@ -952,7 +993,7 @@ function renderLocation() {
       <div class="syn-group" id="sg-${safeId}">
         <div class="syn-header" style="background:${synColor(gk)}">
           <span class="syn-name" onclick="toggleSynGroup('${safeId}')" style="cursor:pointer;display:flex;align-items:center;gap:8px;flex:1">
-            ${gk} <span class="syn-arrow" style="font-size:10px;opacity:.8">▼</span>
+            ${formatGroupDisplay(gk)} <span class="syn-arrow" style="font-size:10px;opacity:.8">▼</span>
           </span>
           <button class="syn-sitrep-btn" onclick="sendSyndicateSITREP('${gk.replace(/'/g,"\\'")}')">📤 SITREP</button>
           <span class="syn-count">${synIn}/${members.length} ${allIn ? '✅' : '⚠️'}</span>
@@ -961,9 +1002,12 @@ function renderLocation() {
       </div>`;
   }).join('');
 
-  const filterChips = ['all', ...allGroups].map(s =>
-    `<button class="filter-chip ${STATE.locationFilter === s ? 'active' : ''}" onclick="setLocationFilter('${s.replace(/'/g, "\\'")}')">${s === 'all' ? 'All' : s}</button>`
-  ).join('');
+  // Filter chips — only show if user sees multiple groups
+  const filterChips = visibleGs.length > 1
+    ? ['all', ...visibleGs].map(s =>
+        `<button class="filter-chip ${STATE.locationFilter === s ? 'active' : ''}" onclick="setLocationFilter('${s.replace(/'/g, "\\'")}')">${s === 'all' ? 'All' : formatGroupDisplay(s)}</button>`
+      ).join('')
+    : '';
 
   el('tab-location').innerHTML = `
     ${user ? `
@@ -1556,23 +1600,32 @@ window.deleteMemberConfirm = async function() {
 
 // ═══════════ APP STARTUP ═════════════════════════════════════
 function startApp() {
+  applySavedSize();
+  applyTheme();
   el('loading').style.display = 'none';
   el('app').classList.add('visible');
-  // Switch user: go back to login flow
-  el('btn-switch-user').onclick = () => {
-    if (confirm('Sign out and switch user?')) logout();
-  };
+  el('btn-switch-user').onclick = () => switchTab('settings');
   const admin = el('btn-admin');
   admin.onclick = showMembersModal;
   if (isAdmin()) admin.classList.remove('hidden');
   document.querySelectorAll('.nav-btn').forEach(btn => btn.addEventListener('click', () => switchTab(btn.dataset.tab)));
-  STATE.scheduleDay = getCurrentDay().day;
+  STATE.scheduleDay = (getCurrentDay() || DAYS[0]).day;
   switchTab('home');
   startPolling();
   seedIfEmpty();
   setupReportReminders();
   setupSyn1AutoReports();
   requestNotificationPermission();
+
+  // Ping check every 20s
+  checkMyPings();
+  setInterval(checkMyPings, 20000);
+
+  // Admin requests sync for super-admin
+  if (STATE.currentUser?.id === CONFIG.superAdminId) {
+    syncAdminRequests();
+    setInterval(syncAdminRequests, 30000);
+  }
 }
 
 // ═══════════ INIT ════════════════════════════════════════════
@@ -1593,7 +1646,7 @@ function renderRooms() {
   const myStatus = getStatusOf(user?.id || '');
   const myRoom = myStatus.roomNumber || '';
   const filter = STATE.locationFilter;
-  const groups = groupOrder();
+  const groups = visibleGroups();
 
   const groupSections = groups.map(gk => {
     if (filter !== 'all' && filter !== gk) return '';
@@ -1615,15 +1668,17 @@ function renderRooms() {
     return `
       <div class="rooms-group">
         <div class="rooms-group-header" style="background:${synColor(gk)}">
-          ${gk} <span class="count">${members.length} ${members.length === 1 ? 'member' : 'members'}</span>
+          ${formatGroupDisplay(gk)} <span class="count">${members.length} ${members.length === 1 ? 'member' : 'members'}</span>
         </div>
         ${rows}
       </div>`;
   }).join('');
 
-  const filterChips = ['all', ...groups].map(s =>
-    `<button class="filter-chip ${filter === s ? 'active' : ''}" onclick="setLocationFilter('${s.replace(/'/g, "\\'")}')">${s === 'all' ? 'All' : s}</button>`
-  ).join('');
+  const filterChips = groups.length > 1
+    ? ['all', ...groups].map(s =>
+        `<button class="filter-chip ${filter === s ? 'active' : ''}" onclick="setLocationFilter('${s.replace(/'/g, "\\'")}')">${s === 'all' ? 'All' : formatGroupDisplay(s)}</button>`
+      ).join('')
+    : '';
 
   el('tab-rooms').innerHTML = `
     <div class="rooms-hero">
@@ -1721,11 +1776,13 @@ function setupSyn1AutoReports() {
       }
     }
 
-    // 0200H — always-11/11 SITREP (Syn 1 only)
+    // 0200H — End-of-Day SITREP (Syn 1 only) — labelled as YESTERDAY's date
     if (h === 2 && m === 0 && lastSent[today + '_0200'] !== true) {
       const syn1 = getSyn1Members();
-      const msg = `${PRIORITY_GROUP}: ${syn1.length}/${syn1.length} in Hotel, 0/${syn1.length} Out\nEnd of status update`;
-      const header = `✅ 0200H All-In · ${bkk.toLocaleDateString('en-GB',{day:'numeric',month:'short',timeZone:'Asia/Bangkok'})}\n`;
+      const yesterday = new Date(bkk.getTime() - 86400000);
+      const yLabel = yesterday.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',timeZone:'Asia/Bangkok'});
+      const msg = `${formatGroupDisplay(PRIORITY_GROUP)}: ${syn1.length}/${syn1.length} in Hotel, 0/${syn1.length} Out\nEnd of status update`;
+      const header = `✅ EOD Report · ${yLabel} (0200H cutoff)\n`;
       const ok = await TELEGRAM.send(header + msg, CONFIG.telegram.syn1ChatId);
       if (ok) {
         lastSent[today + '_0200'] = true;
@@ -1733,6 +1790,246 @@ function setupSyn1AutoReports() {
       }
     }
   }, 60000);
+}
+
+// ═══════════ SETTINGS TAB ════════════════════════════════════
+function renderSettings() {
+  const user = STATE.currentUser;
+  if (!user) {
+    el('tab-settings').innerHTML = '<div class="alert alert-orange">Sign in first.</div>';
+    return;
+  }
+  const gk = memberGroupKey(user);
+  const sizePref = localStorage.getItem('tsv_size') || 'md';
+  const themePref = localStorage.getItem('tsv_theme') || 'auto';
+  const isSuperAdmin = user.id === CONFIG.superAdminId;
+  const adminReqs = STATE.adminRequests || [];
+  const pendingReqs = adminReqs.filter(r => r.status === 'pending');
+
+  el('tab-settings').innerHTML = `
+    <div class="section-title">⚙️ Settings</div>
+
+    <!-- Account -->
+    <div class="settings-section">
+      <div class="settings-section-header">👤 Account</div>
+      <div class="settings-row">
+        <div class="sr-label">Name
+          <div class="sr-value">${escapeHtml(user.name)}</div>
+        </div>
+        <button class="btn btn-outline btn-sm" onclick="editMyProfile()">Edit</button>
+      </div>
+      <div class="settings-row">
+        <div class="sr-label">Syndicate
+          <div class="sr-value">${escapeHtml(formatGroupDisplay(gk))}</div>
+        </div>
+      </div>
+      <div class="settings-row">
+        <div class="sr-label">Role
+          <div class="sr-value">${escapeHtml(user.role || 'Member')} ${isAdmin() ? '· 👑 Admin' : ''}</div>
+        </div>
+      </div>
+      <div class="settings-row">
+        <div class="sr-label">Personal PIN
+          <div class="sr-value">•••• (tap to change)</div>
+        </div>
+        <button class="btn btn-outline btn-sm" onclick="changeMyPin()">Change</button>
+      </div>
+    </div>
+
+    <!-- Display -->
+    <div class="settings-section">
+      <div class="settings-section-header">🎨 Display</div>
+      <div class="settings-row">
+        <div class="sr-label">Text Size</div>
+      </div>
+      <div style="padding:0 16px 14px">
+        <div class="size-chooser">
+          <button class="${sizePref==='sm'?'active':''}" onclick="setSize('sm')">A-</button>
+          <button class="${sizePref==='md'?'active':''}" onclick="setSize('md')">A</button>
+          <button class="${sizePref==='lg'?'active':''}" onclick="setSize('lg')">A+</button>
+        </div>
+      </div>
+      <div class="settings-row">
+        <div class="sr-label">Theme</div>
+      </div>
+      <div style="padding:0 16px 14px">
+        <div class="theme-chooser">
+          <button class="${themePref==='auto'?'active':''}" onclick="setTheme('auto')">🌓<br>Auto</button>
+          <button class="${themePref==='light'?'active':''}" onclick="setTheme('light')">☀️<br>Light</button>
+          <button class="${themePref==='dark'?'active':''}" onclick="setTheme('dark')">🌙<br>Dark</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Access -->
+    <div class="settings-section">
+      <div class="settings-section-header">🔐 Access</div>
+      ${isAdmin() ? `
+        <div class="settings-row">
+          <div class="sr-label">You have Admin rights
+            <div class="sr-value">You can see all syndicates, send reports, manage members</div>
+          </div>
+          <span style="font-size:22px">👑</span>
+        </div>
+      ` : `
+        <div class="settings-row">
+          <div class="sr-label">Request Admin Rights
+            <div class="sr-value">Lets you see all syndicates in Tracker / Rooms</div>
+          </div>
+          <button class="btn btn-gold btn-sm" onclick="requestAdminRights()">Request</button>
+        </div>
+      `}
+      ${isSuperAdmin && pendingReqs.length ? `
+        <div style="padding:12px 16px;border-top:1px solid var(--border-2)">
+          <div style="font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--text-2);margin-bottom:8px">Pending Admin Requests (${pendingReqs.length})</div>
+          ${pendingReqs.map(r => `
+            <div class="admin-request-card">
+              <div class="arc-info">
+                <b>${escapeHtml(r.fromName)}</b> — ${escapeHtml(r.fromGroup || '')}
+                <div style="font-size:11px;margin-top:2px;opacity:.8">${new Date(r.timestamp).toLocaleString('en-GB')}</div>
+                ${r.message ? `<div style="font-size:12px;margin-top:4px;font-style:italic">"${escapeHtml(r.message)}"</div>` : ''}
+              </div>
+              <div class="arc-actions">
+                <button class="btn btn-green btn-sm" onclick="approveAdminReq('${r.id}')">✓ Approve</button>
+                <button class="btn btn-outline btn-sm" onclick="declineAdminReq('${r.id}')">✕ Decline</button>
+              </div>
+            </div>`).join('')}
+        </div>` : ''}
+    </div>
+
+    <!-- Session -->
+    <div class="settings-section">
+      <div class="settings-section-header">🚪 Session</div>
+      <div class="settings-row">
+        <div class="sr-label">Sign out
+          <div class="sr-value">Back to login screen</div>
+        </div>
+        <button class="btn btn-red btn-sm" onclick="if(confirm('Sign out?'))logout()">Sign Out</button>
+      </div>
+    </div>
+
+    <div class="app-footer" style="padding:16px 14px">
+      v1.0 · Designed by <b>Shaft · Syn 1</b>
+    </div>
+  `;
+}
+
+window.setSize = function(s) {
+  document.documentElement.classList.remove('size-sm','size-md','size-lg');
+  document.documentElement.classList.add('size-' + s);
+  localStorage.setItem('tsv_size', s);
+  renderSettings();
+};
+window.setTheme = function(t) {
+  localStorage.setItem('tsv_theme', t);
+  applyTheme();
+  renderSettings();
+};
+function applyTheme() {
+  const t = localStorage.getItem('tsv_theme') || 'auto';
+  document.documentElement.dataset.theme = t;
+  if (t === 'dark') document.documentElement.style.colorScheme = 'dark';
+  else if (t === 'light') document.documentElement.style.colorScheme = 'light';
+  else document.documentElement.style.colorScheme = 'light dark';
+}
+function applySavedSize() {
+  const s = localStorage.getItem('tsv_size') || 'md';
+  document.documentElement.classList.add('size-' + s);
+}
+
+window.editMyProfile = function() {
+  openMemberEditor(STATE.currentUser.id);
+};
+
+window.changeMyPin = async function() {
+  const newPin = prompt('Enter new 4-digit PIN:');
+  if (!newPin || !/^\d{4}$/.test(newPin)) { toast('PIN must be exactly 4 digits'); return; }
+  const user = STATE.currentUser;
+  user.pin = newPin;
+  saveIdentity(user);
+  await API.post('updateMember', { id: user.id, pin: newPin, actor: user.id });
+  toast('✅ PIN changed to ' + newPin);
+};
+
+window.requestAdminRights = async function() {
+  const msg = prompt('Why do you need admin rights? (optional)');
+  if (msg === null) return; // cancelled
+  const user = STATE.currentUser;
+  const payload = {
+    fromId: user.id,
+    fromName: user.name,
+    fromGroup: formatGroupDisplay(memberGroupKey(user)),
+    message: msg || '',
+    timestamp: new Date().toISOString(),
+    status: 'pending'
+  };
+  await API.post('addAdminRequest', payload);
+  toast('✅ Request sent to super-admin');
+};
+
+window.approveAdminReq = async function(reqId) {
+  const req = (STATE.adminRequests || []).find(r => r.id === reqId);
+  if (!req) return;
+  if (!confirm(`Approve admin rights for ${req.fromName}?`)) return;
+  await API.post('resolveAdminRequest', { id: reqId, status: 'approved', actor: STATE.currentUser.id });
+  // Flag member as admin
+  await API.post('updateMember', { id: req.fromId, isAdmin: 'true', actor: STATE.currentUser.id });
+  // Send a "ping" to inform them
+  await API.post('sendPing', { toId: req.fromId, fromId: STATE.currentUser.id, fromName: 'Super Admin', message: '✅ Your admin rights request has been APPROVED.' });
+  toast('✅ Approved + member notified');
+  await syncAdminRequests();
+  renderSettings();
+};
+
+window.declineAdminReq = async function(reqId) {
+  const req = (STATE.adminRequests || []).find(r => r.id === reqId);
+  if (!req) return;
+  const reason = prompt('Reason for decline (optional):');
+  if (reason === null) return;
+  await API.post('resolveAdminRequest', { id: reqId, status: 'declined', actor: STATE.currentUser.id, reason: reason || '' });
+  await API.post('sendPing', { toId: req.fromId, fromId: STATE.currentUser.id, fromName: 'Super Admin', message: `❌ Your admin rights request was declined.${reason ? ' Reason: ' + reason : ''}` });
+  toast('Declined + member notified');
+  await syncAdminRequests();
+  renderSettings();
+};
+
+async function syncAdminRequests() {
+  const data = await API.get('getAdminRequests');
+  if (Array.isArray(data)) STATE.adminRequests = data;
+}
+
+// ═══════════ PING (within syndicate) ═══════════════════════════
+window.pingMember = async function(memberId, shortName) {
+  const preset = prompt(`Ping ${shortName} — short message:`, '👋 Where are you?');
+  if (!preset) return;
+  await API.post('sendPing', {
+    toId: memberId,
+    fromId: STATE.currentUser.id,
+    fromName: STATE.currentUser.shortName || STATE.currentUser.name,
+    message: preset
+  });
+  toast(`👋 Ping sent to ${shortName}`);
+};
+
+async function checkMyPings() {
+  const user = STATE.currentUser;
+  if (!user) return;
+  const data = await API.get(`getPings&userId=${encodeURIComponent(user.id)}`);
+  if (!Array.isArray(data) || !data.length) return;
+  const unread = data.filter(p => p.read !== 'true' && p.read !== true);
+  unread.forEach(p => showPingBanner(p));
+}
+function showPingBanner(ping) {
+  const existing = document.querySelectorAll('.ping-banner');
+  existing.forEach(e => e.remove());
+
+  const el2 = document.createElement('div');
+  el2.className = 'ping-banner';
+  el2.innerHTML = `👋 <div><b>${escapeHtml(ping.fromName || 'Someone')}:</b> ${escapeHtml(ping.message || '')}</div>`;
+  document.body.appendChild(el2);
+  setTimeout(() => el2.remove(), 6000);
+  // Mark as read
+  API.post('markPingRead', { id: ping.id });
 }
 
 // ═══════════ STOP TRACKING ═══════════════════════════════════

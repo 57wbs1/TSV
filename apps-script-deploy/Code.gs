@@ -10,11 +10,13 @@ const SPREADSHEET = SpreadsheetApp.openById(SHEET_ID);
 
 // Sheet schemas
 const SHEETS = {
-  MEMBERS:   { name: 'Members',   headers: ['id','name','shortName','rank','role','csc','syndicate','pin','isDeleted','createdAt','updatedAt'] },
+  MEMBERS:   { name: 'Members',   headers: ['id','name','shortName','rank','role','csc','syndicate','pin','isAdmin','isDeleted','createdAt','updatedAt'] },
   STATUS:    { name: 'Status',    headers: ['id','status','locationText','lat','lng','buddyWith','roomNumber','lastUpdated'] },
   LEARNINGS: { name: 'Learnings', headers: ['id','authorId','authorName','day','content','isAhha','timestamp'] },
   INCIDENTS: { name: 'Incidents', headers: ['id','reportedBy','type','who','what','where','when','why','how','status','buddy','medicalFacility','actionsText','timestamp'] },
-  LOG:       { name: 'Log',       headers: ['timestamp','action','actor','detail'] }
+  LOG:       { name: 'Log',       headers: ['timestamp','action','actor','detail'] },
+  PINGS:     { name: 'Pings',     headers: ['id','fromId','fromName','toId','message','timestamp','read'] },
+  ADMINREQ:  { name: 'AdminReq',  headers: ['id','fromId','fromName','fromGroup','message','timestamp','status','resolvedBy','resolvedAt','reason'] }
 };
 
 // ── Response helper ──────────────────────────────────────────
@@ -36,6 +38,8 @@ function doGet(e) {
       case 'getMembers':  data = readMembers(); break;
       case 'getStatuses': data = readStatuses(); break;
       case 'getLearnings':data = readLearnings(); break;
+      case 'getPings':    data = getPings(e.parameter.userId || ''); break;
+      case 'getAdminRequests': data = readSheet(SHEETS.ADMINREQ); break;
       default: return json({ ok: false, error: 'Unknown action: ' + action });
     }
     return json({ ok: true, data });
@@ -59,6 +63,10 @@ function doPost(e) {
       case 'updateMember': data = updateMember(body); break;
       case 'deleteMember': data = deleteMember(body); break;
       case 'seedMembers':  data = seedMembers(body.members || []); break;
+      case 'sendPing':     data = sendPing(body); break;
+      case 'markPingRead': data = markPingRead(body.id); break;
+      case 'addAdminRequest':     data = addAdminRequest(body); break;
+      case 'resolveAdminRequest': data = resolveAdminRequest(body); break;
       default: return json({ ok: false, error: 'Unknown action: ' + action });
     }
     return json({ ok: true, data });
@@ -89,6 +97,7 @@ function addMember(data) {
     data.csc || '',
     data.syndicate || '',
     data.pin || '0000',
+    data.isAdmin || 'false',
     'false',
     now,
     now
@@ -113,6 +122,10 @@ function updateMember(data) {
       row[headers.indexOf('role')]      = data.role ?? row[headers.indexOf('role')];
       row[headers.indexOf('csc')]       = data.csc ?? row[headers.indexOf('csc')];
       row[headers.indexOf('syndicate')] = data.syndicate ?? row[headers.indexOf('syndicate')];
+      if (data.pin !== undefined && headers.indexOf('pin') >= 0)
+        row[headers.indexOf('pin')] = data.pin;
+      if (data.isAdmin !== undefined && headers.indexOf('isAdmin') >= 0)
+        row[headers.indexOf('isAdmin')] = data.isAdmin;
       row[headers.indexOf('updatedAt')] = now;
       sheet.getRange(i + 1, 1, 1, headers.length).setValues([row]);
       logAction('updateMember', data.actor || '', data.name);
@@ -154,7 +167,7 @@ function seedMembers(members) {
     if (!existing.includes(m.id)) {
       sheet.appendRow([m.id, m.name || '', m.shortName || m.name || '', m.rank || '',
                        m.role || 'Member', m.csc || '', m.syndicate || '',
-                       m.pin || '0000', 'false', now, now]);
+                       m.pin || '0000', m.isAdmin || 'false', 'false', now, now]);
       added++;
     }
   });
@@ -287,4 +300,78 @@ function logAction(action, actor, detail) {
     const sheet = getOrCreateSheet(SHEETS.LOG);
     sheet.appendRow([new Date().toISOString(), action, actor, detail]);
   } catch (e) { /* non-critical */ }
+}
+
+// ── PINGS ────────────────────────────────────────────────────
+function sendPing(data) {
+  const sheet = getOrCreateSheet(SHEETS.PINGS);
+  const id = 'P' + Date.now() + Math.floor(Math.random()*1000);
+  sheet.appendRow([
+    id,
+    data.fromId || '',
+    data.fromName || '',
+    data.toId || '',
+    data.message || '',
+    new Date().toISOString(),
+    'false'
+  ]);
+  return { id };
+}
+
+function getPings(userId) {
+  if (!userId) return [];
+  const rows = readSheet(SHEETS.PINGS);
+  return rows.filter(p => p.toId === userId);
+}
+
+function markPingRead(id) {
+  const sheet = getOrCreateSheet(SHEETS.PINGS);
+  const rows = sheet.getDataRange().getValues();
+  const headers = rows[0];
+  const idCol = headers.indexOf('id');
+  const readCol = headers.indexOf('read');
+  for (let i = 1; i < rows.length; i++) {
+    if (rows[i][idCol] === id) {
+      sheet.getRange(i+1, readCol+1).setValue('true');
+      return { updated: id };
+    }
+  }
+  return { error: 'not found' };
+}
+
+// ── ADMIN REQUESTS ───────────────────────────────────────────
+function addAdminRequest(data) {
+  const sheet = getOrCreateSheet(SHEETS.ADMINREQ);
+  const id = 'AR' + Date.now();
+  sheet.appendRow([
+    id,
+    data.fromId || '',
+    data.fromName || '',
+    data.fromGroup || '',
+    data.message || '',
+    new Date().toISOString(),
+    'pending',
+    '',
+    '',
+    ''
+  ]);
+  return { id };
+}
+
+function resolveAdminRequest(data) {
+  const sheet = getOrCreateSheet(SHEETS.ADMINREQ);
+  const rows = sheet.getDataRange().getValues();
+  const headers = rows[0];
+  const idCol = headers.indexOf('id');
+  for (let i = 1; i < rows.length; i++) {
+    if (rows[i][idCol] === data.id) {
+      rows[i][headers.indexOf('status')] = data.status || 'pending';
+      rows[i][headers.indexOf('resolvedBy')] = data.actor || '';
+      rows[i][headers.indexOf('resolvedAt')] = new Date().toISOString();
+      rows[i][headers.indexOf('reason')] = data.reason || '';
+      sheet.getRange(i+1, 1, 1, headers.length).setValues([rows[i]]);
+      return { updated: data.id };
+    }
+  }
+  return { error: 'not found' };
 }
