@@ -165,15 +165,16 @@ body::before {
 /* ══════════════════════════════════════════════════════════
    PIN GATE
    ══════════════════════════════════════════════════════════ */
-#pin-gate {
+#pin-gate, #login-flow {
   position: fixed; inset: 0;
   z-index: 9000;
   display: flex; align-items: center; justify-content: center;
   color: white;
   animation: fadeIn .3s var(--ease-out);
-  padding: 20px;
-  overflow: hidden;
+  padding: calc(env(safe-area-inset-top, 0) + 20px) 20px calc(env(safe-area-inset-bottom, 0) + 20px);
+  overflow-y: auto;
 }
+#login-flow.hidden { display: none; }
 #pin-gate.hidden { display: none; }
 
 .pin-bg {
@@ -479,15 +480,20 @@ body::before {
 
 /* ── Header ──────────────────────────────────────────────── */
 #app-header {
-  height: var(--header-h);
+  min-height: var(--header-h);
   background: linear-gradient(135deg, var(--blue-900) 0%, var(--blue-600) 60%, var(--blue-500) 100%);
   display: flex; align-items: center;
-  padding: 0 14px; gap: 10px;
+  padding: env(safe-area-inset-top, 0) 14px 0;
+  padding-left: max(14px, env(safe-area-inset-left));
+  padding-right: max(14px, env(safe-area-inset-right));
+  padding-bottom: 8px;
+  gap: 10px;
   color: white; flex-shrink: 0;
   box-shadow: 0 4px 14px rgba(0,26,64,.2);
   position: relative;
   overflow: hidden;
 }
+#app-header > * { position: relative; z-index: 2; }
 #app-header::after {
   content: '';
   position: absolute; inset: 0;
