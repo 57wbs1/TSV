@@ -551,6 +551,13 @@ async function syncMembers() {
   if (STATE.currentTab === 'home')     renderHome();
 }
 
+let _lastStatusHash = '';
+function anyModalOpen() {
+  return ['settings-modal','members-modal','member-editor','event-editor',
+          'visit-detail-modal','buddy-modal','self-register-modal','adhoc-picker']
+    .some(id => { const m = el(id); return m && !m.classList.contains('hidden'); });
+}
+
 async function syncStatuses() {
   const data = await API.get('getStatuses');
   if (!data) return;
@@ -566,9 +573,18 @@ async function syncStatuses() {
       lastUpdated: r.lastUpdated || ''
     };
   });
+  // Skip re-render if nothing actually changed — prevents jank on idle polling
+  const hash = JSON.stringify(map);
+  if (hash === _lastStatusHash) return;
+  _lastStatusHash = hash;
   STATE.memberStatuses = map;
+
+  // Don't rip out DOM while user is interacting with a modal or mid-touch
+  if (anyModalOpen() || STATE.isTouching) return;
+
   if (STATE.currentTab === 'home')     renderHome();
   if (STATE.currentTab === 'location') renderLocation();
+  if (STATE.currentTab === 'rooms')    renderRooms();
   if (STATE.currentTab === 'map')      updateMapMarkers();
 }
 
@@ -841,6 +857,7 @@ function renderCalendar() {
         : '';
       expansionHtml = `
         <div class="cal-event-expand">
+          <div class="cee-title-row">${cat.icon} ${escapeHtml(ev.title)} · ${ev.startTime}${ev.endTime !== ev.startTime ? '–'+ev.endTime : ''}</div>
           ${ev.attire ? `<h5>👔 Attire</h5><p>${escapeHtml(ev.attire)}</p>` : ''}
           ${ev.remarks ? `<h5>📝 Remarks</h5><p>${escapeHtml(ev.remarks)}</p>` : ''}
           ${oicLines ? `<h5>👥 Functional OICs</h5>${oicLines}` : ''}
@@ -949,12 +966,7 @@ window.toggleEventExpand = function(eventId) {
 };
 
 function isAttendanceEvent(ev) {
-  const haystack = [
-    ev.title || '',
-    ev.remarks || '',
-    ...Object.values(ev.oics || {})
-  ].join(' ').toLowerCase();
-  return /attendance|check.?in|parade state|headcount|accountability|gather.+board|last mile|reporting/i.test(haystack);
+  return ev.synicReport === true;
 }
 
 // ═══════════ ATTENDANCE SEND ══════════════════════════════════
@@ -1133,6 +1145,8 @@ function renderLocation() {
   const outC = visMembers.filter(m => getStatusOf(m.id).status === 'out').length;
   const inC = total - outC;
 
+  if (!STATE.expandedTrackerGroups) STATE.expandedTrackerGroups = new Set();
+
   const synGroups = visibleGs.map(gk => {
     if (STATE.locationFilter !== 'all' && STATE.locationFilter !== gk) return '';
     const members = membersInGroup(gk);
@@ -1142,7 +1156,8 @@ function renderLocation() {
     const allIn = synOut === 0;
     const safeId = gk.replace(/[^a-z0-9]/gi, '_');
     const mySyn = user && memberGroupKey(user) === gk;
-    const rows = members.map(m => {
+    const isOpen = STATE.expandedTrackerGroups.has(gk);
+    const rows = !isOpen ? '' : members.map(m => {
       const st = getStatusOf(m.id);
       const isOut = st.status === 'out';
       const isMe = user && m.id === user.id;
@@ -1165,13 +1180,13 @@ function renderLocation() {
     return `
       <div class="syn-group" id="sg-${safeId}">
         <div class="syn-header" style="background:${synColor(gk)}">
-          <span class="syn-name" onclick="toggleSynGroup('${safeId}')" style="cursor:pointer;display:flex;align-items:center;gap:8px;flex:1">
-            ${formatGroupDisplay(gk)} <span class="syn-arrow" style="font-size:10px;opacity:.8">▼</span>
+          <span class="syn-name" onclick="toggleTrackerGroup('${gk.replace(/'/g,"\\'")}')" style="cursor:pointer;display:flex;align-items:center;gap:8px;flex:1">
+            ${formatGroupDisplay(gk)} <span class="syn-arrow" style="font-size:10px;opacity:.8">${isOpen?'▲':'▼'}</span>
           </span>
-          <button class="syn-sitrep-btn" onclick="sendSyndicateSITREP('${gk.replace(/'/g,"\\'")}')">📤 SITREP</button>
+          <button class="syn-sitrep-btn" onclick="event.stopPropagation(); sendSyndicateSITREP('${gk.replace(/'/g,"\\'")}')">📤 SITREP</button>
           <span class="syn-count">${synIn}/${members.length} ${allIn ? '✅' : '⚠️'}</span>
         </div>
-        <div class="syn-members open" id="syn-members-${safeId}">${rows}</div>
+        ${isOpen ? `<div class="syn-members open" id="syn-members-${safeId}">${rows}</div>` : ''}
       </div>`;
   }).join('');
 
@@ -1229,6 +1244,12 @@ function renderLocation() {
 window.toggleSynGroup = function(s) {
   const m = el(`syn-members-${s}`), h = qs(`#sg-${s} .syn-header`);
   m?.classList.toggle('open'); h?.classList.toggle('collapsed');
+};
+window.toggleTrackerGroup = function(gk) {
+  if (!STATE.expandedTrackerGroups) STATE.expandedTrackerGroups = new Set();
+  if (STATE.expandedTrackerGroups.has(gk)) STATE.expandedTrackerGroups.delete(gk);
+  else STATE.expandedTrackerGroups.add(gk);
+  renderLocation();
 };
 window.setLocationFilter = function(f) { STATE.locationFilter = f; renderLocation(); };
 
@@ -1841,6 +1862,11 @@ function startApp() {
   setupModalSwipes();
   setupCalendarSwipe();
   requestNotificationPermission();
+
+  // Track touch state to avoid DOM swap during user interaction
+  document.addEventListener('touchstart', () => { STATE.isTouching = true; }, { passive: true });
+  document.addEventListener('touchend', () => { setTimeout(() => { STATE.isTouching = false; }, 200); }, { passive: true });
+  document.addEventListener('touchcancel', () => { STATE.isTouching = false; }, { passive: true });
 
   // Ping check every 20s
   checkMyPings();

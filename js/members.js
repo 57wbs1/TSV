@@ -64,9 +64,9 @@ function memberGroupKey(m) {
   return `${m.csc} Syn ${m.syndicate}`;
 }
 
-// Compact display: "57 CSC Syn 1" → "57 SYN 1", "26th CSC (E) Syn 14" → "26E"
+// Compact display: "57 CSC Syn 1" → "57 SYN 1", "26th CSC (E) Syn 14" → "26E", "Leadership" → "PSO"
 function formatGroupDisplay(groupKey) {
-  if (groupKey === 'Leadership') return 'Leadership';
+  if (groupKey === 'Leadership') return 'PSO';
   // Executive courses: show compact "25E", "26E", "27E"
   const execMatch = groupKey.match(/^(\d+)(?:th)?\s*CSC\s*\(E\)\s*Syn\s*(\S+)$/i);
   if (execMatch) return `${execMatch[1]}E`;

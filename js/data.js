@@ -121,7 +121,7 @@ const CALENDAR_SEED = [
 
   // ═══════ DAY 1 — 26 Apr Sunday ═══════
   { id:'d1_01', day:1, startTime:'06:00', endTime:'08:30', title:'Commence Check-In', location:'Changi Airport Terminal 2',
-    category:'admin', attire:'Smart Casual',
+    category:'admin', attire:'Smart Casual', synicReport: true,
     oics:{ops:'Syn ICs start reporting attendance @ 0630H'},
     remarks:'Syndicate-level attendance tracking begins.' },
   { id:'d1_02', day:1, startTime:'07:30', endTime:'08:00', title:'Cohort Photo', location:'Dreamscape Indoor Garden, Changi T2',
@@ -129,7 +129,7 @@ const CALENDAR_SEED = [
   { id:'d1_03', day:1, startTime:'08:00', endTime:'08:30', title:'Complete Check-In', location:'Changi T2',
     category:'admin' },
   { id:'d1_04', day:1, startTime:'08:30', endTime:'09:00', title:'Attendance Check @ Departure Gate', location:'Changi T2',
-    category:'admin' },
+    category:'admin', synicReport: true },
   { id:'d1_05', day:1, startTime:'09:00', endTime:'11:00', title:'Outbound Flight SQ 708', location:'SIN → BKK',
     category:'flight', remarks:'Depart 0930H. Breakfast provided by airline.' },
   { id:'d1_06', day:1, startTime:'11:30', endTime:'12:30', title:'Arrival in Bangkok', location:'Suvarnabhumi Airport',
@@ -146,7 +146,7 @@ const CALENDAR_SEED = [
   { id:'d1_11', day:1, startTime:'18:00', endTime:'18:30', title:'Movement to Hotel', location:'Chao Phraya River → Pullman Bangkok Hotel G',
     category:'movement' },
   { id:'d1_12', day:1, startTime:'18:30', endTime:'19:00', title:'Hotel Check-in / Syndicate Reflections', location:'Pullman Bangkok Hotel G',
-    category:'reflection',
+    category:'reflection', synicReport: true,
     oics:{tour:'Distribute Room Keys', log:'Distribute Room Keys'},
     remarks:'Submit Rooming List to Syn ICs.' },
   { id:'d1_13', day:1, startTime:'19:00', endTime:'19:30', title:'TSV Comm Huddle w/ PDS', location:'Pullman Bangkok Hotel G',
@@ -208,13 +208,17 @@ const CALENDAR_SEED = [
     oics:{safety:'Syn 1P · Syn 3M · Syn 4E · 25E S · 26E Info · 27E Infra'},
     remarks:'Syndicate-led field research.' },
   { id:'d3_03', day:3, startTime:'10:00', endTime:'10:30', title:'✅ 1st Check-In (1000H)', location:'Via Syn IC', category:'scope',
+    synicReport: true,
     oics:{ops:'Check-In', log:'Check-In', sec:'Check-In'},
     remarks:'SCOPE teams to Syn IC → TSV Group Chat.' },
   { id:'d3_04', day:3, startTime:'14:00', endTime:'14:30', title:'✅ 2nd Check-In (1400H)', location:'Via Syn IC', category:'scope',
+    synicReport: true,
     oics:{ops:'Check-In', log:'Check-In', sec:'Check-In'} },
   { id:'d3_05', day:3, startTime:'18:00', endTime:'18:30', title:'✅ 3rd Check-In (1800H)', location:'Via Syn IC', category:'scope',
+    synicReport: true,
     oics:{ops:'Check-In', log:'Check-In', sec:'Check-In'} },
   { id:'d3_06', day:3, startTime:'22:00', endTime:'22:30', title:'✅ Final Check-In (2200H)', location:'Hotel / En-route', category:'scope',
+    synicReport: true,
     oics:{ops:'Final Check-In', log:'Final Check-In', sec:'Final Check-In'},
     remarks:'All SCOPE teams should be back in Bangkok.' },
   { id:'d3_cutoff', day:3, startTime:'02:00', endTime:'02:00', title:'⏱ Daily Cutoff', location:'—', category:'admin',
@@ -277,14 +281,14 @@ const CALENDAR_SEED = [
   { id:'d5_06', day:5, startTime:'14:00', endTime:'14:30', title:'Complete Check-In', location:'Suvarnabhumi Airport',
     category:'admin' },
   { id:'d5_07', day:5, startTime:'14:30', endTime:'15:00', title:'Attendance Check @ Departure Gate', location:'Suvarnabhumi Airport',
-    category:'admin' },
+    category:'admin', synicReport: true },
   { id:'d5_08', day:5, startTime:'15:00', endTime:'19:00', title:'Outbound Flight SQ 709', location:'BKK → SIN',
     category:'flight', remarks:'Depart 1530H. Dinner provided by airline.' },
   { id:'d5_09', day:5, startTime:'19:30', endTime:'20:00', title:'Collect Luggage', location:'Changi Airport Terminal 2',
     category:'admin' },
   { id:'d5_10', day:5, startTime:'20:00', endTime:'20:30', title:'Return Home', location:'—', category:'admin' },
   { id:'d5_11', day:5, startTime:'20:30', endTime:'21:00', title:'Last Man Out of Arrival Hall', location:'Changi Airport Terminal 2',
-    category:'admin', oics:{ops:'Syn ICs update when last person exits arrival hall'} }
+    category:'admin', synicReport: true, oics:{ops:'Syn ICs update when last person exits arrival hall'} }
 ];
 
 // ── Live runtime calendar (populated from Sheet, starts as seed)
