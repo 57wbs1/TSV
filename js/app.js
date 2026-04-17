@@ -866,7 +866,7 @@ function renderCalendar() {
             <span class="ce-badge cat" style="background:${cat.color}">${cat.label}</span>
             ${ev.attire ? `<span class="ce-badge attire">👔 ${escapeHtml(ev.attire)}</span>` : ''}
             ${hasVisit ? `<span class="ce-badge visit">💡 Learning Visit</span>` : ''}
-            ${attn ? `<span class="ce-badge" style="background:#10b981;color:white">📋 Attendance</span>` : ''}
+            ${attn ? `<span class="ce-badge" style="background:#10b981;color:white;font-weight:800">⭐ SYN IC REPORT</span>` : ''}
             ${isNow ? `<span class="ce-badge" style="background:var(--green-500);color:white">● NOW</span>` : ''}
           </div>
         </div>
