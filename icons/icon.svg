@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" fill="#003580" rx="80"/>
+  <!-- Thai flag stripes -->
+  <rect y="100" width="512" height="80" fill="#DC143C"/>
+  <rect y="180" width="512" height="60" fill="#ffffff"/>
+  <rect y="240" width="512" height="80" fill="#003580"/>
+  <rect y="320" width="512" height="60" fill="#ffffff"/>
+  <rect y="380" width="512" height="80" fill="#DC143C"/>
+  <!-- Location pin overlay -->
+  <circle cx="256" cy="230" r="70" fill="#ffffff" opacity="0.95"/>
+  <circle cx="256" cy="220" r="45" fill="#DC143C"/>
+  <ellipse cx="256" cy="300" rx="22" ry="12" fill="#ffffff" opacity="0.95"/>
+  <text x="256" y="230" font-family="Arial" font-size="44" font-weight="bold" fill="#ffffff" text-anchor="middle" dominant-baseline="middle">TH</text>
+</svg>

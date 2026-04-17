@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#003580">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="TSV BKK">
+  <link rel="apple-touch-icon" href="icons/icon.svg">
+  <link rel="manifest" href="manifest.json">
+  <title>GKSCSC Thailand Study Visit</title>
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- ── Loading Screen ─────────────────────────────────────── -->
+<div id="loading">
+  <div class="flag-big">🇹🇭</div>
+  <div class="spinner"></div>
+  <p class="loading-text">Thailand Study Visit 2026</p>
+</div>
+
+<!-- ── Login Flow (Syndicate → Name → PIN) ───────────────── -->
+<div id="login-flow" class="hidden">
+  <div class="pin-bg"></div>
+  <div class="pin-container">
+    <div class="pin-badge">🇹🇭</div>
+    <h1 class="pin-title">GKSCSC TSV 2026</h1>
+
+    <!-- Step 1 — Syndicate / Group -->
+    <div id="login-step-syn" class="login-step">
+      <p class="pin-subtitle">Select your group</p>
+      <div id="login-syn-list" class="login-group-list"></div>
+      <button class="btn-linky" onclick="showSelfRegister()">I'm not here — register me</button>
+    </div>
+
+    <!-- Step 2 — Name -->
+    <div id="login-step-name" class="login-step hidden">
+      <button class="back-btn" onclick="backToSynStep()">← Back</button>
+      <p class="pin-subtitle" id="login-syn-label">Who are you?</p>
+      <div id="login-name-list" class="login-name-grid"></div>
+    </div>
+
+    <!-- Step 3 — PIN -->
+    <div id="login-step-pin" class="login-step hidden">
+      <button class="back-btn" onclick="backToNameStep()">← Back</button>
+      <p class="pin-subtitle" id="login-user-label">Enter your 4-digit PIN</p>
+      <div class="pin-dots" id="pin-dots"><span></span><span></span><span></span><span></span></div>
+      <div class="pin-keypad">
+        <button class="pin-key" data-k="1">1</button>
+        <button class="pin-key" data-k="2">2</button>
+        <button class="pin-key" data-k="3">3</button>
+        <button class="pin-key" data-k="4">4</button>
+        <button class="pin-key" data-k="5">5</button>
+        <button class="pin-key" data-k="6">6</button>
+        <button class="pin-key" data-k="7">7</button>
+        <button class="pin-key" data-k="8">8</button>
+        <button class="pin-key" data-k="9">9</button>
+        <button class="pin-key pin-key-ghost" data-k="">&nbsp;</button>
+        <button class="pin-key" data-k="0">0</button>
+        <button class="pin-key pin-key-ghost" data-k="back">⌫</button>
+      </div>
+      <p class="pin-error hidden" id="pin-error">Wrong PIN. Try again.</p>
+      <p class="pin-hint">Default is <b>0000</b> · Ask admin if forgotten</p>
+    </div>
+  </div>
+</div>
+
+<!-- ── Identity Modal ─────────────────────────────────────── -->
+<div id="identity-modal" class="hidden">
+  <div class="identity-sheet">
+    <h2>🇹🇭 Who are you?</h2>
+    <p>Select your name — or register if you're not in the list</p>
+    <input id="member-search" type="text" placeholder="Search name, CSC, role…"
+      oninput="renderMemberPicker(this.value)">
+    <button class="btn btn-gold btn-block self-register-btn" onclick="showSelfRegister()">
+      ➕ I'm not in the list — add me
+    </button>
+    <div id="member-list"></div>
+  </div>
+</div>
+
+<!-- ── Self-Register Modal ───────────────────────────────── -->
+<div id="self-register-modal" class="hidden">
+  <div class="editor-sheet">
+    <div class="members-header">
+      <h2>➕ Register Yourself</h2>
+      <button class="close-btn" onclick="hideSelfRegister()">✕</button>
+    </div>
+    <div class="editor-body">
+      <p class="text-muted" style="margin-bottom:14px">
+        This creates your entry in the roster — you'll appear in everyone's list.
+      </p>
+      <div class="form-group">
+        <label>Full Name *</label>
+        <input id="sr-name" type="text" placeholder="e.g. MAJ John Smith">
+      </div>
+      <div class="form-group">
+        <label>Short Name (for lists)</label>
+        <input id="sr-shortName" type="text" placeholder="e.g. MAJ Smith">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Rank</label>
+          <select id="sr-rank"></select>
+        </div>
+        <div class="form-group">
+          <label>Role</label>
+          <select id="sr-role"></select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>CSC *</label>
+          <select id="sr-csc" onchange="onSelfRegCSCChange()"></select>
+        </div>
+        <div class="form-group">
+          <label>Syndicate *</label>
+          <select id="sr-syn"></select>
+        </div>
+      </div>
+      <div id="sr-custom-csc-wrap" class="form-group hidden">
+        <label>New CSC Name</label>
+        <input id="sr-custom-csc" type="text" placeholder="e.g. 58 CSC">
+      </div>
+      <div id="sr-custom-syn-wrap" class="form-group hidden">
+        <label>New Syndicate Number</label>
+        <input id="sr-custom-syn" type="text" placeholder="e.g. 2">
+      </div>
+      <div class="editor-actions">
+        <button class="btn btn-outline" onclick="hideSelfRegister()">Cancel</button>
+        <button class="btn btn-primary" onclick="submitSelfRegister()">Register & Login</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Buddy / Leave Hotel Modal ──────────────────────────── -->
+<div id="buddy-modal" class="hidden">
+  <div class="buddy-sheet">
+    <h2>🚶 Leaving Hotel</h2>
+    <p>Select your buddy(s) and where you're going</p>
+    <div id="location-input-wrap">
+      <input id="location-text-input" type="text"
+        placeholder="Where are you going? (e.g. Asiatique Night Market)">
+      <p style="font-size:12px;color:var(--text-2);text-align:left">Select at least one buddy:</p>
+    </div>
+    <div id="buddy-list"></div>
+    <div class="buddy-actions">
+      <button class="btn btn-outline" onclick="hideBuddyModal()">Cancel</button>
+      <button class="btn btn-red" onclick="confirmLeaveHotel()">🚶 Leave Hotel</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Manage Members Modal (admin) ─────────────────────── -->
+<div id="members-modal" class="hidden">
+  <div class="members-sheet">
+    <div class="members-header">
+      <h2>⚙️ Manage Members</h2>
+      <button class="close-btn" onclick="hideMembersModal()">✕</button>
+    </div>
+    <div class="members-toolbar">
+      <button class="btn btn-primary btn-sm" onclick="openMemberEditor()">+ Add</button>
+      <input id="members-search" type="text" placeholder="Search name, CSC, role…" oninput="renderMembersList()">
+    </div>
+    <div id="members-list-container"></div>
+    <p class="members-hint">Changes sync to Google Sheet and all devices (~30s)</p>
+  </div>
+</div>
+
+<!-- ── Member Editor ─────────────────────────────────────── -->
+<div id="member-editor" class="hidden">
+  <div class="editor-sheet">
+    <div class="members-header">
+      <h2 id="editor-title">Add Member</h2>
+      <button class="close-btn" onclick="hideMemberEditor()">✕</button>
+    </div>
+    <div class="editor-body">
+      <div class="form-group">
+        <label>Name *</label>
+        <input id="ed-name" type="text" placeholder="e.g. MAJ John Smith">
+      </div>
+      <div class="form-group">
+        <label>Short Name</label>
+        <input id="ed-shortName" type="text" placeholder="For lists &amp; map pins">
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Rank</label><select id="ed-rank"></select></div>
+        <div class="form-group"><label>Role</label><select id="ed-role"></select></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>CSC *</label><select id="ed-csc" onchange="onCSCChange()"></select></div>
+        <div class="form-group"><label>Syndicate *</label><select id="ed-syn"></select></div>
+      </div>
+      <div id="ed-custom-csc-wrap" class="form-group hidden">
+        <label>New CSC Name</label>
+        <input id="ed-custom-csc" type="text" placeholder="e.g. 58 CSC">
+      </div>
+      <div id="ed-custom-syn-wrap" class="form-group hidden">
+        <label>New Syndicate</label>
+        <input id="ed-custom-syn" type="text" placeholder="e.g. 2">
+      </div>
+      <div class="editor-actions">
+        <button class="btn btn-outline" onclick="hideMemberEditor()">Cancel</button>
+        <button class="btn btn-red btn-sm" id="ed-delete-btn" onclick="deleteMemberConfirm()" style="display:none">🗑 Delete</button>
+        <button class="btn btn-primary" onclick="saveMember()">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Visit Detail Modal (Learning tab) ────────────────── -->
+<div id="visit-detail-modal" class="hidden">
+  <div class="visit-detail-sheet">
+    <div class="members-header">
+      <h2 id="visit-detail-title">Visit</h2>
+      <button class="close-btn" onclick="hideVisitDetail()">✕</button>
+    </div>
+    <div id="visit-detail-body"></div>
+  </div>
+</div>
+
+<!-- ── Calendar Event Detail Modal ──────────────────────── -->
+<div id="event-detail-modal" class="hidden">
+  <div class="visit-detail-sheet">
+    <div class="members-header">
+      <h2 id="event-detail-title">Event</h2>
+      <button class="close-btn" onclick="hideEventDetail()">✕</button>
+    </div>
+    <div id="event-detail-body"></div>
+  </div>
+</div>
+
+<!-- ── Calendar Event Editor ────────────────────────────── -->
+<div id="event-editor" class="hidden">
+  <div class="editor-sheet">
+    <div class="members-header">
+      <h2 id="event-editor-title">Edit Event</h2>
+      <button class="close-btn" onclick="hideEventEditor()">✕</button>
+    </div>
+    <div class="editor-body">
+      <div class="form-group">
+        <label>Title *</label>
+        <input id="ev-title" type="text" placeholder="e.g. Visit to ISIS">
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Day *</label><select id="ev-day"></select></div>
+        <div class="form-group"><label>Category</label><select id="ev-category"></select></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Start *</label><input id="ev-start" type="time"></div>
+        <div class="form-group"><label>End *</label><input id="ev-end" type="time"></div>
+      </div>
+      <div class="form-group"><label>Location</label><input id="ev-location" type="text" placeholder="Venue / route"></div>
+      <div class="form-group"><label>Attire</label>
+        <select id="ev-attire">
+          <option value="">—</option>
+          <option>Smart Casual</option>
+          <option>No. 3 Uniform</option>
+          <option>No. 4 Uniform</option>
+          <option>PT Attire</option>
+        </select>
+      </div>
+      <div class="form-group"><label>Remarks</label><textarea id="ev-remarks" placeholder="Notes, OIC instructions…"></textarea></div>
+      <div class="editor-actions">
+        <button class="btn btn-outline" onclick="hideEventEditor()">Cancel</button>
+        <button class="btn btn-red btn-sm" id="ev-delete-btn" onclick="deleteEventConfirm()" style="display:none">🗑 Delete</button>
+        <button class="btn btn-primary" onclick="saveEvent()">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Main App ───────────────────────────────────────────── -->
+<div id="app">
+
+  <header id="app-header">
+    <div class="flag">🇹🇭</div>
+    <div class="title">
+      <h1>TSV Bangkok 2026</h1>
+      <p id="header-subtitle">26–30 Apr · Pullman Bangkok</p>
+    </div>
+    <div id="header-time"></div>
+    <button id="btn-admin" class="hidden" title="Manage Members">⚙️</button>
+    <button id="btn-switch-user" title="Switch user">👤</button>
+  </header>
+
+  <main id="main-content">
+    <div id="tab-home" class="tab-content active"></div>
+    <div id="tab-calendar" class="tab-content"></div>
+    <div id="tab-location" class="tab-content"></div>
+    <div id="tab-rooms" class="tab-content"></div>
+    <div id="tab-map" class="tab-content">
+      <div class="section-title">Live Location Map</div>
+      <div id="map-container"><div id="leaflet-map"></div></div>
+      <div class="map-legend">
+        <div class="legend-item"><div class="legend-dot" style="background:#003580"></div>Hotel</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#22c55e"></div>In Hotel</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#DC143C"></div>Out</div>
+      </div>
+    </div>
+    <div id="tab-learnings" class="tab-content"></div>
+    <div id="tab-ir" class="tab-content"></div>
+    <div id="tab-sop" class="tab-content"></div>
+  </main>
+
+  <nav id="bottom-nav">
+    <button class="nav-btn active" id="nav-home" data-tab="home">
+      <span class="nav-icon">🏠</span><span class="nav-label">Home</span>
+    </button>
+    <button class="nav-btn" id="nav-calendar" data-tab="calendar">
+      <span class="nav-icon">📅</span><span class="nav-label">Calendar</span>
+    </button>
+    <button class="nav-btn" id="nav-location" data-tab="location">
+      <span class="nav-icon">📍</span><span class="nav-label">Tracker</span>
+    </button>
+    <button class="nav-btn" id="nav-rooms" data-tab="rooms">
+      <span class="nav-icon">🛏️</span><span class="nav-label">Rooms</span>
+    </button>
+    <button class="nav-btn" id="nav-learnings" data-tab="learnings">
+      <span class="nav-icon">💡</span><span class="nav-label">Learn</span>
+    </button>
+    <button class="nav-btn" id="nav-map" data-tab="map">
+      <span class="nav-icon">🗺️</span><span class="nav-label">Map</span>
+    </button>
+    <button class="nav-btn urgent" id="nav-ir" data-tab="ir">
+      <span class="nav-icon">🚨</span><span class="nav-label">IR</span>
+    </button>
+    <button class="nav-btn" id="nav-sop" data-tab="sop">
+      <span class="nav-icon">🛡️</span><span class="nav-label">SOPs</span>
+    </button>
+  </nav>
+
+</div>
+
+<div id="toast"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="js/config.js"></script>
+<script src="js/members.js"></script>
+<script src="js/data.js"></script>
+<script src="js/app.js"></script>
+
+</body>
+</html>
