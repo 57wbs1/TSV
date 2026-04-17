@@ -339,7 +339,6 @@ function attachSwipeDownClose(modalEl, sheetSelector, onClose) {
 
 function setupModalSwipes() {
   attachSwipeDownClose(el('members-modal'), '.members-sheet');
-  attachSwipeDownClose(el('settings-modal'), '#settings-sheet');
   attachSwipeDownClose(el('member-editor'), '.editor-sheet', () => { _editingMemberId = null; });
   attachSwipeDownClose(el('event-editor'), '.editor-sheet');
   attachSwipeDownClose(el('visit-detail-modal'), '.visit-detail-sheet');
@@ -367,10 +366,10 @@ function switchTab(tabId) {
   if (tabId === 'calendar')  renderCalendar();
   if (tabId === 'location')  renderLocation();
   if (tabId === 'rooms')     renderRooms();
-  if (tabId === 'map')       initMap();
   if (tabId === 'learnings') renderLearnings();
   if (tabId === 'ir')        renderIR();
   if (tabId === 'sop')       renderSOP();
+  if (tabId === 'settings')  renderSettings();
 }
 
 // ═══════════ IDENTITY ════════════════════════════════════════
@@ -673,8 +672,9 @@ function safeJson(s) { try { return JSON.parse(s); } catch { return {}; } }
 //   - On-demand: learnings (only while viewing Learn tab, every 45s)
 // All syncs are hash-checked — if nothing changed, no re-render.
 // All polls pause when the page is hidden (tab backgrounded).
+// No aggressive polling — users refresh on demand (pull-to-refresh),
+// after their own actions, on tab switch, or when returning to the app.
 function startPolling() {
-  // Clear any zombie timers
   Object.keys(STATE._timers || {}).forEach(k => clearInterval(STATE._timers[k]));
   STATE._timers = {};
 
@@ -682,14 +682,7 @@ function startPolling() {
   syncMembers().then(syncStatuses);
   syncCalendar();
 
-  STATE._timers.status  = setInterval(() => { if (!document.hidden) syncStatuses(); }, 30000);
-  STATE._timers.members = setInterval(() => { if (!document.hidden) syncMembers(); }, 120000);
-  STATE._timers.calendar= setInterval(() => { if (!document.hidden) syncCalendar(); }, 300000);
-  STATE._timers.learn   = setInterval(() => {
-    if (!document.hidden && STATE.currentTab === 'learnings') syncLearnings();
-  }, 45000);
-
-  // Refresh when coming back to the tab
+  // Refresh when user comes back to the tab/app
   if (!STATE._visHandler) {
     STATE._visHandler = () => {
       if (!document.hidden) {
@@ -699,6 +692,76 @@ function startPolling() {
     };
     document.addEventListener('visibilitychange', STATE._visHandler);
   }
+}
+
+// ═══════════ PULL-TO-REFRESH ══════════════════════════════════
+function setupPullToRefresh() {
+  const main = el('main-content');
+  if (!main) return;
+
+  const indicator = document.createElement('div');
+  indicator.id = 'ptr-indicator';
+  indicator.innerHTML = '<span class="ptr-icon">↓</span>';
+  document.body.appendChild(indicator);
+
+  let startY = 0, pullDist = 0, pulling = false, refreshing = false;
+  const threshold = 70;
+
+  main.addEventListener('touchstart', (e) => {
+    if (refreshing) return;
+    if (main.scrollTop > 0) { pulling = false; return; }
+    startY = e.touches[0].clientY;
+    pulling = true;
+    pullDist = 0;
+  }, { passive: true });
+
+  main.addEventListener('touchmove', (e) => {
+    if (!pulling || refreshing) return;
+    pullDist = e.touches[0].clientY - startY;
+    if (pullDist < 0) { pulling = false; indicator.style.transform = 'translate(-50%, -50px)'; return; }
+    if (main.scrollTop > 0) { pulling = false; indicator.style.transform = 'translate(-50%, -50px)'; return; }
+    // Dampened movement
+    const y = Math.min(pullDist * 0.5, 80);
+    indicator.style.transform = `translate(-50%, ${y - 50}px)`;
+    indicator.style.opacity = Math.min(pullDist / threshold, 1);
+    const icon = indicator.querySelector('.ptr-icon');
+    if (pullDist > threshold) {
+      icon.textContent = '🔄';
+      indicator.classList.add('ptr-ready');
+    } else {
+      icon.textContent = '↓';
+      indicator.classList.remove('ptr-ready');
+    }
+  }, { passive: true });
+
+  main.addEventListener('touchend', async () => {
+    if (!pulling || refreshing) return;
+    pulling = false;
+    if (pullDist > threshold) {
+      refreshing = true;
+      indicator.classList.add('ptr-refreshing');
+      indicator.style.transform = 'translate(-50%, 20px)';
+      indicator.querySelector('.ptr-icon').textContent = '⟳';
+      try {
+        await Promise.all([
+          syncMembers(),
+          syncStatuses(),
+          syncCalendar(),
+          syncLearnings()
+        ]);
+      } catch {}
+      toast('✓ Refreshed');
+      setTimeout(() => {
+        indicator.classList.remove('ptr-refreshing', 'ptr-ready');
+        indicator.style.transform = 'translate(-50%, -50px)';
+        indicator.style.opacity = '0';
+        refreshing = false;
+      }, 500);
+    } else {
+      indicator.style.transform = 'translate(-50%, -50px)';
+      indicator.style.opacity = '0';
+    }
+  }, { passive: true });
 }
 
 // ═══════════ HOME TAB ════════════════════════════════════════
@@ -988,6 +1051,27 @@ function isEventNow(ev, nowMins) {
 window.selectCalendarDay = function(d) { STATE.scheduleDay = d; renderCalendar(); };
 window.setCalFilter = function(c) { STATE.calendarCategoryFilter = c; renderCalendar(); };
 
+// Swipe between Tracker sub-views (List ↔ Map)
+function setupTrackerSwipe() {
+  const container = el('tab-location');
+  if (!container) return;
+  let sx = 0, sy = 0, tracking = false;
+  container.addEventListener('touchstart', e => {
+    if (e.touches.length !== 1) return;
+    sx = e.touches[0].clientX; sy = e.touches[0].clientY; tracking = true;
+  }, { passive: true });
+  container.addEventListener('touchend', e => {
+    if (!tracking) return;
+    tracking = false;
+    const dx = e.changedTouches[0].clientX - sx;
+    const dy = e.changedTouches[0].clientY - sy;
+    if (Math.abs(dx) < 70 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+    const current = STATE.trackerView || 'list';
+    if (dx < 0 && current === 'list') setTrackerView('map');
+    else if (dx > 0 && current === 'map') setTrackerView('list');
+  }, { passive: true });
+}
+
 // Swipe between days on Calendar tab
 function setupCalendarSwipe() {
   const container = el('tab-calendar');
@@ -1218,6 +1302,7 @@ function renderLocation() {
       const isOut = st.status === 'out';
       const isMe = user && m.id === user.id;
       const canPing = mySyn && !isMe; // only ping within your own syndicate
+      const canForce = isAdmin() && !isMe && isOut;  // admin override
       return `
         <div class="member-row" ${isMe ? 'style="background:#f0f4ff"' : ''}>
           <div class="status-dot ${isOut ? 'dot-out' : 'dot-in'}"></div>
@@ -1229,6 +1314,7 @@ function renderLocation() {
             </div>
             ${isOut && st.buddyWith ? `<div class="m-buddy">👥 w/ ${escapeHtml(st.buddyWith)}</div>` : ''}
           </div>
+          ${canForce ? `<button class="btn-force-return" onclick="event.stopPropagation(); forceReturnMember('${m.id}', '${escapeHtml(m.shortName || m.name).replace(/'/g,"\\'")}'`+`)" title="Admin override — mark as returned">🏨</button>` : ''}
           ${canPing ? `<button class="btn-ping" onclick="event.stopPropagation(); pingMember('${m.id}', '${escapeHtml(m.shortName || m.name).replace(/'/g,"\\'")}'`+`)">👋</button>` : ''}
           <span class="status-pill ${isOut ? 'pill-out' : 'pill-in'}">${isOut ? 'OUT' : 'IN'}</span>
         </div>`;
@@ -1253,7 +1339,22 @@ function renderLocation() {
       ).join('')
     : '';
 
+  const trackerView = STATE.trackerView || 'list';
+
   el('tab-location').innerHTML = `
+    <div class="subtab-row" id="tracker-subtabs">
+      <button class="subtab-btn ${trackerView === 'list' ? 'active' : ''}" onclick="setTrackerView('list')">📋 List</button>
+      <button class="subtab-btn ${trackerView === 'map'  ? 'active' : ''}" onclick="setTrackerView('map')">🗺️ Map</button>
+    </div>
+    <div id="tracker-map-wrap" style="${trackerView === 'map' ? '' : 'display:none'}">
+      <div id="map-container"><div id="leaflet-map"></div></div>
+      <div class="map-legend" style="margin-top:10px">
+        <div class="legend-item"><div class="legend-dot" style="background:#003580"></div>Hotel</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#22c55e"></div>In Hotel</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#DC143C"></div>Out</div>
+      </div>
+    </div>
+    <div id="tracker-list-wrap" style="${trackerView === 'list' ? '' : 'display:none'}">
     ${user ? `
     <div class="my-status-card">
       <div class="status-header"><h3>👤 My Status — ${escapeHtml(user.shortName)}</h3></div>
@@ -1294,9 +1395,21 @@ function renderLocation() {
     <div class="filter-bar">${filterChips}</div>
     <div class="section-title">Team Status</div>
     ${synGroups}
-    <div class="alert alert-blue mt-12">🕙 Refreshes every 30s.</div>
+    <div class="alert alert-blue mt-12">↓ Pull down to refresh · swipe ← right for Map view</div>
+    </div>
   `;
+
+  // Initialize the map if the user is already on Map view
+  if (trackerView === 'map') {
+    setTimeout(() => initMap(), 100);
+  }
 }
+
+window.setTrackerView = function(view) {
+  STATE.trackerView = view;
+  renderLocation();
+  if (view === 'map') setTimeout(() => initMap(), 100);
+};
 window.toggleSynGroup = function(s) {
   const m = el(`syn-members-${s}`), h = qs(`#sg-${s} .syn-header`);
   m?.classList.toggle('open'); h?.classList.toggle('collapsed');
@@ -2053,7 +2166,7 @@ function startApp() {
   applyBackgroundPrefs();
   el('loading').style.display = 'none';
   el('app').classList.add('visible');
-  el('btn-switch-user').onclick = showSettingsModal;
+  // ⚙️ header button removed — Settings is now a dedicated tab in the bottom nav
   const admin = el('btn-admin');
   admin.onclick = showMembersModal;
   if (isAdmin()) admin.classList.remove('hidden');
@@ -2067,6 +2180,8 @@ function startApp() {
   setupSyn1AutoReports();
   setupModalSwipes();
   setupCalendarSwipe();
+  setupTrackerSwipe();
+  setupPullToRefresh();
   requestNotificationPermission();
 
   // Track touch state to avoid DOM swap during user interaction
@@ -2255,19 +2370,12 @@ window.sendSyndicateSITREP = async function(groupKey, auto) {
 // This means they fire reliably even when no one has the app open.
 function setupSyn1AutoReports() { /* no-op — server-side now */ }
 
-// ═══════════ SETTINGS MODAL ══════════════════════════════════
-window.showSettingsModal = function() {
-  el('settings-modal').classList.remove('hidden');
-  renderSettings();
-};
-window.hideSettingsModal = function() {
-  el('settings-modal').classList.add('hidden');
-};
-
+// ═══════════ SETTINGS TAB ════════════════════════════════════
 function renderSettings() {
   const user = STATE.currentUser;
+  const container = el('tab-settings');
   if (!user) {
-    el('settings-body').innerHTML = '<div class="alert alert-orange">Sign in first.</div>';
+    container.innerHTML = '<div class="alert alert-orange">Sign in first.</div>';
     return;
   }
   const gk = memberGroupKey(user);
@@ -2277,7 +2385,8 @@ function renderSettings() {
   const adminReqs = STATE.adminRequests || [];
   const pendingReqs = adminReqs.filter(r => r.status === 'pending');
 
-  el('settings-body').innerHTML = `
+  container.innerHTML = `
+    <div class="section-title">⚙️ Settings</div>
     <!-- Account -->
     <div class="settings-section">
       <div class="settings-section-header">👤 Account</div>
@@ -2567,6 +2676,32 @@ function renderPinnedActionBar() {
 }
 
 // ═══════════ STOP TRACKING ═══════════════════════════════════
+// Admin: force a member's status back to In Hotel (for those without wifi/forgot to update)
+window.forceReturnMember = async function(memberId, shortName) {
+  if (!isAdmin()) return toast('Admin only');
+  if (!confirm(`Mark ${shortName} as Returned to Hotel?\n\nUse this when they don't have app access (no wifi, phone off, etc.)`)) return;
+  const m = getMemberById(memberId);
+  if (!m) return;
+  const cur = getStatusOf(memberId);
+  STATE.memberStatuses[memberId] = {
+    ...cur,
+    status: 'in_hotel',
+    locationText: 'Hotel',
+    buddyWith: '',
+    lastUpdated: new Date().toISOString()
+  };
+  renderLocation();
+  await API.post('updateStatus', {
+    memberId: m.id, name: m.name, shortName: m.shortName,
+    role: m.role, syndicate: m.syndicate,
+    status: 'in_hotel', locationText: 'Hotel',
+    lat: cur.lat || '', lng: cur.lng || '',
+    buddyWith: '',
+    roomNumber: cur.roomNumber || ''
+  });
+  toast(`✓ ${shortName} marked as In Hotel (admin override)`);
+};
+
 window.stopTracking = async function() {
   const user = STATE.currentUser;
   if (!user) return;

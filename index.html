@@ -184,17 +184,6 @@
   </div>
 </div>
 
-<!-- ── Settings Modal ─────────────────────────────────────── -->
-<div id="settings-modal" class="hidden">
-  <div class="members-sheet" id="settings-sheet">
-    <div class="members-header">
-      <h2>⚙️ Settings</h2>
-      <button class="close-btn" onclick="hideSettingsModal()">✕</button>
-    </div>
-    <div id="settings-body" style="flex:1;overflow-y:auto;padding:12px 14px"></div>
-  </div>
-</div>
-
 <!-- ── Manage Members Modal (admin) ─────────────────────── -->
 <div id="members-modal" class="hidden">
   <div class="members-sheet">
@@ -316,7 +305,6 @@
     </div>
     <div id="header-time"></div>
     <button id="btn-admin" class="hidden" title="Manage Members">👥</button>
-    <button id="btn-switch-user" title="Settings">⚙️</button>
   </header>
 
   <main id="main-content">
@@ -324,18 +312,10 @@
     <div id="tab-calendar" class="tab-content"></div>
     <div id="tab-location" class="tab-content"></div>
     <div id="tab-rooms" class="tab-content"></div>
-    <div id="tab-map" class="tab-content">
-      <div class="section-title">Live Location Map</div>
-      <div id="map-container"><div id="leaflet-map"></div></div>
-      <div class="map-legend">
-        <div class="legend-item"><div class="legend-dot" style="background:#003580"></div>Hotel</div>
-        <div class="legend-item"><div class="legend-dot" style="background:#22c55e"></div>In Hotel</div>
-        <div class="legend-item"><div class="legend-dot" style="background:#DC143C"></div>Out</div>
-      </div>
-    </div>
     <div id="tab-learnings" class="tab-content"></div>
     <div id="tab-ir" class="tab-content"></div>
     <div id="tab-sop" class="tab-content"></div>
+    <div id="tab-settings" class="tab-content"></div>
 
     <footer class="app-footer">
       Designed by <b>Shaft · Syn 1</b> · TSV BKK 2026
@@ -355,9 +335,6 @@
     <button class="nav-btn" id="nav-location" data-tab="location">
       <span class="nav-icon">📍</span><span class="nav-label">Tracker</span>
     </button>
-    <button class="nav-btn" id="nav-map" data-tab="map">
-      <span class="nav-icon">🗺️</span><span class="nav-label">Map</span>
-    </button>
     <button class="nav-btn" id="nav-learnings" data-tab="learnings">
       <span class="nav-icon">💡</span><span class="nav-label">Learn</span>
     </button>
@@ -368,7 +345,10 @@
       <span class="nav-icon">🚨</span><span class="nav-label">IR</span>
     </button>
     <button class="nav-btn" id="nav-sop" data-tab="sop">
-      <span class="nav-icon">🛡️</span><span class="nav-label">SOPs</span>
+      <span class="nav-icon">🛡️</span><span class="nav-label">SOP</span>
+    </button>
+    <button class="nav-btn" id="nav-settings" data-tab="settings">
+      <span class="nav-icon">⚙️</span><span class="nav-label">Settings</span>
     </button>
   </nav>
 

@@ -78,7 +78,7 @@ function groupColorFor(groupKey) {
   return palette[hash % palette.length];
 }
 
-// Group order: SYN 1 → PSO → SYN 3 → SYN 4 → 25E → 26E → 27E
+// Group order: 57 SYN 1 → PSO → 57 SYN 3 → 57 SYN 4 → 25E → 26E → 27E
 function computeGroupOrder() {
   const set = new Set();
   MEMBERS.forEach(m => set.add(memberGroupKey(m)));
@@ -88,15 +88,13 @@ function computeGroupOrder() {
   priority['Leadership']   = 1;
   all.forEach(gk => {
     if (priority[gk] !== undefined) return;
-    if (/^57 CSC Syn /.test(gk)) {
-      const n = parseInt(gk.replace(/\D/g, '')) || 99;
-      priority[gk] = 10 + n;
-    } else if (/\(E\) Syn /.test(gk)) {
-      const m = gk.match(/^(\d+)/);
-      priority[gk] = 20 + (m ? parseInt(m[1]) : 99);
-    } else {
-      priority[gk] = 99;
-    }
+    // Main course: "57 CSC Syn 3" → use just the syn number (3)
+    const mainMatch = gk.match(/^57 CSC Syn (\d+)$/i);
+    if (mainMatch) { priority[gk] = 10 + parseInt(mainMatch[1]); return; }
+    // Executive courses: "25th CSC (E) Syn 18" → order by course number (25, 26, 27)
+    const execMatch = gk.match(/^(\d+)(?:th)?\s*CSC\s*\(E\)/i);
+    if (execMatch) { priority[gk] = 100 + parseInt(execMatch[1]); return; }
+    priority[gk] = 999;
   });
   all.sort((a, b) => priority[a] - priority[b]);
   return all;
