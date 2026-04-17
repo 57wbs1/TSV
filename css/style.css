@@ -103,7 +103,7 @@ button, a, input, select, textarea, .nav-btn, .day-tab, .filter-chip,
 button { font-family: inherit; }
 input, textarea, select { font-family: inherit; }
 
-/* ── Subtle background pattern ───────────────────────────── */
+/* ── GKS Logo Watermark (adjustable per-user) ────────────── */
 body::before {
   content: '';
   position: fixed; inset: 0;
@@ -111,6 +111,19 @@ body::before {
     radial-gradient(circle at 15% 10%, rgba(0,53,128,.05) 0, transparent 50%),
     radial-gradient(circle at 85% 90%, rgba(220,20,60,.04) 0, transparent 50%);
   pointer-events: none; z-index: 0;
+}
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: url('../icons/gks-logo.png') center center / 55% auto no-repeat;
+  opacity: var(--bg-opacity, 0.06);
+  filter: brightness(var(--bg-brightness, 1));
+  pointer-events: none;
+  z-index: 0;
+}
+@media (prefers-color-scheme: dark) {
+  body::after { filter: brightness(var(--bg-brightness, 1)) invert(1) hue-rotate(180deg); }
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -550,18 +563,88 @@ body::before {
   flex: 1; overflow-y: auto;
   overflow-x: hidden;
   width: 100%; max-width: 100%;
-  padding-bottom: calc(var(--nav-h) + var(--safe-b) + 12px);
+  padding-bottom: calc(var(--nav-h) + var(--action-h, 0px) + var(--safe-b) + 28px);
   scroll-behavior: smooth;
 }
 .app-footer {
   text-align: center;
-  font-size: 11px;
-  color: var(--text-3);
-  padding: 18px 14px 8px;
-  letter-spacing: .02em;
-  opacity: .7;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+  padding: 24px 14px 16px;
+  letter-spacing: .01em;
+  opacity: .85;
+  margin-top: 20px;
+  border-top: 1px solid var(--border-2);
 }
-.app-footer b { color: var(--blue-600); font-weight: 700; }
+.app-footer b {
+  color: var(--blue-600);
+  font-weight: 800;
+  letter-spacing: -0.005em;
+}
+
+/* ── Pinned Action Bar (above bottom nav) ──────────────── */
+#pinned-action-bar {
+  position: fixed;
+  left: 0; right: 0;
+  bottom: calc(var(--nav-h) + var(--safe-b));
+  z-index: 90;
+  padding: 8px 12px;
+  background: rgba(255,255,255,.88);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border-top: 1px solid rgba(226,232,240,.6);
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  transition: transform .2s var(--ease-out);
+}
+#pinned-action-bar.hidden { display: none; }
+@media (prefers-color-scheme: dark) {
+  #pinned-action-bar {
+    background: rgba(15,23,42,.88);
+    border-top-color: rgba(51,65,85,.5);
+  }
+}
+.pab-primary {
+  flex: 1;
+  padding: 13px 16px;
+  border: none;
+  border-radius: var(--r-lg);
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  cursor: pointer;
+  color: white;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  transition: transform .12s var(--ease-out);
+  box-shadow: var(--shadow-md);
+}
+.pab-primary:active { transform: scale(0.98); }
+.pab-primary.leaving { background: linear-gradient(135deg, var(--red-600), var(--red-500)); }
+.pab-primary.returning { background: linear-gradient(135deg, var(--green-600), var(--green-500)); }
+.pab-gps {
+  flex-shrink: 0;
+  width: 52px;
+  height: 48px;
+  border: none;
+  border-radius: var(--r-lg);
+  font-size: 20px;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: transform .12s var(--ease-out);
+  box-shadow: var(--shadow-sm);
+}
+.pab-gps:active { transform: scale(0.93); }
+.pab-gps.share {
+  background: linear-gradient(135deg, var(--blue-600), var(--blue-500));
+  color: white;
+}
+.pab-gps.stop {
+  background: linear-gradient(135deg, #b91c1c, #ef4444);
+  color: white;
+  animation: gentle-pulse 2s ease-in-out infinite;
+}
 .tab-content {
   display: none;
   padding: 14px 14px 8px;

@@ -586,6 +586,7 @@ async function syncStatuses() {
   if (STATE.currentTab === 'location') renderLocation();
   if (STATE.currentTab === 'rooms')    renderRooms();
   if (STATE.currentTab === 'map')      updateMapMarkers();
+  renderPinnedActionBar();
 }
 
 async function syncLearnings() {
@@ -1289,6 +1290,7 @@ window.confirmLeaveHotel = async function() {
   };
   STATE.memberStatuses[user.id] = { status:'out', locationText:locText, lat, lng, buddyWith:buddies.join(', '), lastUpdated:new Date().toISOString() };
   renderLocation();
+  renderPinnedActionBar();
   await API.post('updateStatus', payload);
   toast('✅ Updated — travel with buddy!');
 };
@@ -1298,6 +1300,7 @@ window.returnToHotel = async function() {
   if (!user) return;
   STATE.memberStatuses[user.id] = { status:'in_hotel', locationText:'Hotel', lat:CONFIG.hotel.lat, lng:CONFIG.hotel.lng, buddyWith:'', lastUpdated:new Date().toISOString() };
   renderLocation();
+  renderPinnedActionBar();
   await API.post('updateStatus', { memberId:user.id, name:user.name, shortName:user.shortName, role:user.role, syndicate:user.syndicate, status:'in_hotel', locationText:'Hotel', lat:CONFIG.hotel.lat, lng:CONFIG.hotel.lng, buddyWith:'' });
   toast('🏨 Welcome back!');
 };
@@ -1315,6 +1318,7 @@ window.shareGPS = async function() {
       lat, lng, buddyWith:getStatusOf(user.id).buddyWith
     });
     toast('📡 GPS shared!');
+    renderPinnedActionBar();
     if (STATE.map) updateMapMarkers();
   } catch { toast('❌ GPS unavailable — enter location manually'); }
 };
@@ -1846,6 +1850,7 @@ window.deleteMemberConfirm = async function() {
 function startApp() {
   applySavedSize();
   applyTheme();
+  applyBackgroundPrefs();
   el('loading').style.display = 'none';
   el('app').classList.add('visible');
   el('btn-switch-user').onclick = showSettingsModal;
@@ -1855,6 +1860,7 @@ function startApp() {
   document.querySelectorAll('.nav-btn').forEach(btn => btn.addEventListener('click', () => switchTab(btn.dataset.tab)));
   STATE.scheduleDay = (getCurrentDay() || DAYS[0]).day;
   switchTab('home');
+  renderPinnedActionBar();
   startPolling();
   seedIfEmpty();
   setupReportReminders();
@@ -2139,6 +2145,23 @@ function renderSettings() {
           <button class="${themePref==='dark'?'active':''}" onclick="setTheme('dark')">🌙<br>Dark</button>
         </div>
       </div>
+      <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:8px">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div class="sr-label">GKS Watermark Opacity</div>
+          <div id="bg-opacity-val" style="font-size:12px;font-weight:700;color:var(--blue-600);font-variant-numeric:tabular-nums">${Math.round((parseFloat(localStorage.getItem('tsv_bg_opacity')||'0.08'))*100)}%</div>
+        </div>
+        <input type="range" min="0" max="0.35" step="0.01" value="${localStorage.getItem('tsv_bg_opacity')||'0.08'}"
+          oninput="setBgOpacity(this.value)" style="width:100%;accent-color:var(--blue-600)">
+      </div>
+      <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:8px">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div class="sr-label">Watermark Brightness</div>
+          <div id="bg-brightness-val" style="font-size:12px;font-weight:700;color:var(--blue-600);font-variant-numeric:tabular-nums">${Math.round((parseFloat(localStorage.getItem('tsv_bg_brightness')||'1'))*100)}%</div>
+        </div>
+        <input type="range" min="0.3" max="1.8" step="0.05" value="${localStorage.getItem('tsv_bg_brightness')||'1'}"
+          oninput="setBgBrightness(this.value)" style="width:100%;accent-color:var(--blue-600)">
+        <div style="font-size:11px;color:var(--text-3);text-align:center">These settings only affect your device.</div>
+      </div>
     </div>
 
     <!-- Access -->
@@ -2216,6 +2239,26 @@ function applySavedSize() {
   const s = localStorage.getItem('tsv_size') || 'md';
   document.documentElement.classList.add('size-' + s);
 }
+
+// Background watermark: opacity + brightness, saved per-device
+function applyBackgroundPrefs() {
+  const op = localStorage.getItem('tsv_bg_opacity');
+  const br = localStorage.getItem('tsv_bg_brightness');
+  document.documentElement.style.setProperty('--bg-opacity', op !== null ? op : '0.08');
+  document.documentElement.style.setProperty('--bg-brightness', br !== null ? br : '1');
+}
+window.setBgOpacity = function(v) {
+  localStorage.setItem('tsv_bg_opacity', v);
+  document.documentElement.style.setProperty('--bg-opacity', v);
+  const el2 = el('bg-opacity-val');
+  if (el2) el2.textContent = Math.round(v * 100) + '%';
+};
+window.setBgBrightness = function(v) {
+  localStorage.setItem('tsv_bg_brightness', v);
+  document.documentElement.style.setProperty('--bg-brightness', v);
+  const el2 = el('bg-brightness-val');
+  if (el2) el2.textContent = Math.round(v * 100) + '%';
+};
 
 window.editMyProfile = function() {
   openMemberEditor(STATE.currentUser.id);
@@ -2312,6 +2355,34 @@ function showPingBanner(ping) {
   API.post('markPingRead', { id: ping.id });
 }
 
+// ═══════════ PINNED ACTION BAR (one-handed quick actions) ═══
+function renderPinnedActionBar() {
+  const bar = el('pinned-action-bar');
+  if (!bar) return;
+  const user = STATE.currentUser;
+  if (!user) {
+    bar.classList.add('hidden');
+    document.documentElement.style.setProperty('--action-h', '0px');
+    return;
+  }
+  const st = getStatusOf(user.id);
+  const isOut = st.status === 'out';
+  const hasGPS = !!(st.lat && st.lng);
+
+  const primary = isOut
+    ? `<button class="pab-primary returning" onclick="returnToHotel()">🏨 Return to Hotel</button>`
+    : `<button class="pab-primary leaving" onclick="showBuddyModal()">🚶 Leaving Hotel</button>`;
+
+  const gps = hasGPS
+    ? `<button class="pab-gps stop" onclick="stopTracking()" title="Stop Sharing GPS">🛑</button>`
+    : `<button class="pab-gps share" onclick="shareGPS()" title="Share GPS">📡</button>`;
+
+  bar.innerHTML = primary + gps;
+  bar.classList.remove('hidden');
+  // Reserve space so content doesn't get hidden under the bar
+  document.documentElement.style.setProperty('--action-h', '64px');
+}
+
 // ═══════════ STOP TRACKING ═══════════════════════════════════
 window.stopTracking = async function() {
   const user = STATE.currentUser;
@@ -2329,6 +2400,7 @@ window.stopTracking = async function() {
     roomNumber: cur.roomNumber || ''
   });
   toast('🛑 GPS tracking stopped');
+  renderPinnedActionBar();
   if (STATE.currentTab === 'location') renderLocation();
   if (STATE.map) updateMapMarkers();
 };

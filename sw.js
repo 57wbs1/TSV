@@ -1,5 +1,5 @@
 // Bump this version number on every deploy to invalidate the cache.
-const CACHE_NAME = 'tsv-bkk-v11-' + '20260417k';
+const CACHE_NAME = 'tsv-bkk-v12-' + '20260417l';
 
 const APP_SHELL = [
   './index.html',
@@ -9,7 +9,8 @@ const APP_SHELL = [
   './js/data.js',
   './js/app.js',
   './manifest.json',
-  './icons/icon.svg'
+  './icons/icon.svg',
+  './icons/gks-logo.png'
 ];
 
 const EXTERNAL_CACHE = [
