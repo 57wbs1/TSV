@@ -356,6 +356,70 @@ const DAYS_MAP = {
 // Messages are hardcoded here (not read from Calendar sheet) so they're
 // always available and can be tweaked freely without touching the app.
 const DAILY_PREVIEWS = {
+  // ── T-3 · sent on 23 Apr (key is "tomorrow's date") ──
+  '2026-04-24':
+`⏳ <b>3 days to TSV Bangkok</b>
+
+The countdown is on! 🎒
+
+A gentle nudge — things worth sorting this week:
+
+✅ Passport valid through Oct 2026
+✅ Travel insurance confirmed
+✅ No. 3 Uniform pressed and packed
+✅ Smart casual set ready (long pants, collared top, covered shoes)
+✅ Plug adapter (TH uses Type A / B / C)
+✅ Personal meds + any prescriptions
+
+—
+
+📱 If you haven't already — install the app on your phone's home screen:
+
+<b>iPhone:</b> Safari → Share → Add to Home Screen
+
+<b>Android:</b> Chrome → ⋮ → Install app
+
+https://57wbs1.github.io/TSV/
+
+Default PIN is <b>0000</b> — change it after first login.
+
+—
+
+Any questions, hit your Syn IC.
+
+Let's go! ✈️`,
+
+  // ── T-2 · sent on 24 Apr ──
+  '2026-04-25':
+`⏳ <b>2 days to TSV Bangkok</b>
+
+Almost there! 🛫
+
+Final-stretch checklist:
+
+✅ Booking reference received (check your email)
+✅ Online check-in opens ~48h out — do it early
+✅ Charge everything; pack chargers + power bank
+✅ Local currency / card set up
+✅ App installed, logged in, PIN changed
+
+—
+
+🏨 <b>Hotel:</b> Pullman Bangkok Hotel G
+
+✈️ <b>Outbound:</b> SQ 708 · 0930H Sun 26 Apr
+
+📍 Check-in opens <b>0600H at Changi T2</b>
+
+—
+
+📱 Open the app → pick your syndicate → pick your name → PIN
+https://57wbs1.github.io/TSV/
+
+—
+
+One more sleep after tonight. Rest up today. 🌙`,
+
   '2026-04-26':
 `🇹🇭 🛫 <b>Tomorrow is THE DAY</b>
 
@@ -574,12 +638,6 @@ function sendDailyReminder(forceDate) {
   return 'Sent reminder for ' + tmrDate;
 }
 
-// Force-test for any specific date (ignores the "is tomorrow a trip day" gate)
-function testDailyReminderFor_D1() { return sendDailyReminder('2026-04-26'); }
-function testDailyReminderFor_D2() { return sendDailyReminder('2026-04-27'); }
-function testDailyReminderFor_D3() { return sendDailyReminder('2026-04-28'); }
-function testDailyReminderFor_D4() { return sendDailyReminder('2026-04-29'); }
-function testDailyReminderFor_D5() { return sendDailyReminder('2026-04-30'); }
 
 // ── 2300H: Syn 1 SITREP (actual status) ──
 function sendEveningSitrep() {
@@ -659,10 +717,6 @@ function setupAllTriggers() {
   return '✓ 3 triggers installed: 1900H reminder · 2300H SITREP · 0200H EOD (all BKK daily)';
 }
 
-// Manual tests (run from editor to verify)
-function testDailyReminder() { return sendDailyReminder(); }
-function testEveningSitrep() { return sendEveningSitrep(); }
-function testMidnightSitrep() { return sendMidnightSitrep(); }
 
 // ════════════════════════════════════════════════════════════
 // TELEGRAM WEBHOOK — auto-reply to PMs from anyone except Caspar
