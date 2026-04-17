@@ -355,7 +355,6 @@ function setupModalSwipes() {
   attachSwipeDownClose(el('settings-modal'), '#settings-sheet');
   attachSwipeDownClose(el('member-editor'), '.editor-sheet', () => { _editingMemberId = null; });
   attachSwipeDownClose(el('event-editor'), '.editor-sheet');
-  attachSwipeDownClose(el('event-detail-modal'), '.visit-detail-sheet');
   attachSwipeDownClose(el('visit-detail-modal'), '.visit-detail-sheet');
   attachSwipeDownClose(el('buddy-modal'), '.buddy-sheet');
 }
@@ -832,23 +831,47 @@ function renderCalendar() {
     const cat = EVENT_CATEGORIES[ev.category] || EVENT_CATEGORIES.event;
     const isNow = isToday && isEventNow(ev, nowMins);
     const hasVisit = ev.visitId && getVisitById(ev.visitId);
+    const isExpanded = STATE.expandedEventId === ev.id;
+    const attn = isAttendanceEvent(ev);
+
+    let expansionHtml = '';
+    if (isExpanded) {
+      const oicLines = ev.oics && Object.keys(ev.oics).length
+        ? Object.entries(ev.oics).filter(([,v])=>v).map(([k,v])=>`<p><b>${oicLabel(k)}:</b> ${escapeHtml(v)}</p>`).join('')
+        : '';
+      expansionHtml = `
+        <div class="cal-event-expand">
+          ${ev.attire ? `<h5>👔 Attire</h5><p>${escapeHtml(ev.attire)}</p>` : ''}
+          ${ev.remarks ? `<h5>📝 Remarks</h5><p>${escapeHtml(ev.remarks)}</p>` : ''}
+          ${oicLines ? `<h5>👥 Functional OICs</h5>${oicLines}` : ''}
+          ${hasVisit ? `<h5>💡 Learning Visit</h5><p><a href="#" onclick="event.preventDefault(); switchTab('learnings'); openVisitDetail('${ev.visitId}')" style="color:var(--blue-600);font-weight:700">${escapeHtml(getVisitById(ev.visitId).title)} →</a></p>` : ''}
+          <div class="cee-actions">
+            ${attn ? `<button class="btn-attendance" onclick="event.stopPropagation(); showAttendancePicker('${ev.id}')">📋 Send Attendance</button>` : ''}
+            ${isAdmin() ? `<button class="btn btn-outline btn-xs" onclick="event.stopPropagation(); openEventEditor('${ev.id}')">✏️ Edit</button>` : ''}
+            <button class="btn btn-outline btn-xs" onclick="event.stopPropagation(); toggleEventExpand(null)">✕ Close</button>
+          </div>
+        </div>`;
+    }
+
     return `
       <div class="cal-event">
         <div class="cal-event-time">
           <div class="ce-start">${ev.startTime}</div>
           <div class="ce-end">${ev.endTime !== ev.startTime ? ev.endTime : ''}</div>
         </div>
-        <div class="cal-event-card ${isNow?'now':''}" style="border-left-color:${cat.color}" onclick="showEventDetail('${ev.id}')">
+        <div class="cal-event-card ${isNow?'now':''} ${isExpanded?'expanded':''}" style="border-left-color:${cat.color}" onclick="toggleEventExpand('${ev.id}')">
           <div class="ce-title">${cat.icon} ${escapeHtml(ev.title)}</div>
           ${ev.location ? `<div class="ce-loc">📍 ${escapeHtml(ev.location)}</div>` : ''}
           <div class="ce-badges">
             <span class="ce-badge cat" style="background:${cat.color}">${cat.label}</span>
             ${ev.attire ? `<span class="ce-badge attire">👔 ${escapeHtml(ev.attire)}</span>` : ''}
             ${hasVisit ? `<span class="ce-badge visit">💡 Learning Visit</span>` : ''}
+            ${attn ? `<span class="ce-badge" style="background:#10b981;color:white">📋 Attendance</span>` : ''}
             ${isNow ? `<span class="ce-badge" style="background:var(--green-500);color:white">● NOW</span>` : ''}
           </div>
         </div>
-      </div>`;
+      </div>
+      ${expansionHtml}`;
   }).join('');
 
   const scopeNotice = day.day === 3 ? `
@@ -866,9 +889,11 @@ function renderCalendar() {
         </div>
       </div>
       <div class="schedule-day-banner" style="background:linear-gradient(135deg, ${day.color}, ${day.color}cc)">
-        <div class="db-label">Day ${day.day} · ${day.label}</div>
-        <div class="db-theme">${day.icon} ${day.theme}</div>
-        <div class="db-date">${new Date(day.date).toLocaleDateString('en-GB', { weekday:'long', day:'numeric', month:'long' })}</div>
+        <div class="db-main">
+          <div class="db-label">Day ${day.day} · ${day.label}</div>
+          <div class="db-theme">${day.icon} ${day.theme}</div>
+        </div>
+        <div class="db-date">${new Date(day.date).toLocaleDateString('en-GB', { day:'numeric', month:'short' })}</div>
       </div>
     </div>
     ${scopeNotice}
@@ -911,8 +936,85 @@ function setupCalendarSwipe() {
   }, { passive: true });
 }
 
-// Event detail
+window.toggleEventExpand = function(eventId) {
+  STATE.expandedEventId = (STATE.expandedEventId === eventId) ? null : eventId;
+  renderCalendar();
+  // Scroll expanded event into view
+  if (STATE.expandedEventId) {
+    setTimeout(() => {
+      const cards = document.querySelectorAll('.cal-event-card.expanded');
+      cards[0]?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }, 50);
+  }
+};
+
+function isAttendanceEvent(ev) {
+  const haystack = [
+    ev.title || '',
+    ev.remarks || '',
+    ...Object.values(ev.oics || {})
+  ].join(' ').toLowerCase();
+  return /attendance|check.?in|parade state|headcount|accountability|gather.+board|last mile|reporting/i.test(haystack);
+}
+
+// ═══════════ ATTENDANCE SEND ══════════════════════════════════
+window.showAttendancePicker = function(eventId) {
+  const ev = CALENDAR_EVENTS.find(e => e.id === eventId);
+  if (!ev) return;
+  const groups = visibleGroups().filter(g => g !== 'Leadership');
+  if (!groups.length) { toast('No syndicate available'); return; }
+
+  const opts = groups.map(g => ({ key: g, label: formatGroupDisplay(g), count: membersInGroup(g).length }));
+  const rows = opts.map(o => `
+    <button class="adhoc-row" onclick="promptAttendanceCount('${o.key.replace(/'/g,"\\'")}', '${eventId}'); closeAdhocPicker()">
+      <span>${escapeHtml(o.label)}</span>
+      <span class="ah-count">${o.count} total</span>
+    </button>`).join('');
+
+  const wrap = document.createElement('div');
+  wrap.id = 'adhoc-picker';
+  wrap.className = 'adhoc-picker';
+  wrap.innerHTML = `
+    <div class="adhoc-sheet">
+      <h3>📋 Attendance Report</h3>
+      <p class="ah-sub">${escapeHtml(ev.title)} · ${ev.startTime}</p>
+      <p class="ah-sub" style="margin-top:-6px">Which syndicate?</p>
+      ${rows}
+      <button class="adhoc-cancel" onclick="closeAdhocPicker()">Cancel</button>
+    </div>`;
+  document.body.appendChild(wrap);
+};
+
+window.promptAttendanceCount = function(groupKey, eventId) {
+  const ev = CALENDAR_EVENTS.find(e => e.id === eventId);
+  const total = membersInGroup(groupKey).length;
+  const input = prompt(`${formatGroupDisplay(groupKey)}\n\nHow many present? (out of ${total})\n\nEvent: ${ev.title} at ${ev.startTime}`, String(total));
+  if (input === null) return;
+  const n = parseInt(input);
+  if (isNaN(n) || n < 0 || n > total) { toast('Invalid — enter 0 to ' + total); return; }
+
+  const bkk = bkkNow();
+  const dateLabel = bkk.toLocaleDateString('en-GB', {weekday:'short', day:'numeric', month:'short'});
+  const status = n === total ? '✅' : '⚠️';
+  const msg = `📋 <b>ATTENDANCE</b> ${status}
+${formatGroupDisplay(groupKey)}: <b>${n}/${total}</b> present
+Event: ${ev.title}
+Time: ${ev.startTime}H · ${dateLabel}
+Reported by: ${STATE.currentUser?.shortName || STATE.currentUser?.name || '—'}`;
+
+  TELEGRAM.send(msg, CONFIG.telegram.chatId).then(ok => {
+    if (ok) toast(`✅ Attendance sent: ${n}/${total}`);
+    else toast('❌ Failed to send');
+  });
+};
+
+// Kept for compatibility (no-op — now uses inline expansion)
 window.showEventDetail = function(eventId) {
+  toggleEventExpand(eventId);
+};
+
+// Old overlay-modal renderer (unused, kept to avoid breakage if called)
+function _legacyShowEventDetail(eventId) {
   const ev = CALENDAR_EVENTS.find(e => e.id === eventId);
   if (!ev) return;
   const cat = EVENT_CATEGORIES[ev.category] || EVENT_CATEGORIES.event;
@@ -948,7 +1050,7 @@ window.showEventDetail = function(eventId) {
   el('event-detail-modal').classList.remove('hidden');
 };
 
-window.hideEventDetail = function() { el('event-detail-modal').classList.add('hidden'); };
+window.hideEventDetail = function() { toggleEventExpand(null); };
 
 function oicLabel(k) {
   const labels = { tour:'Tour Agency', ops:'Operations', log:'Logistics', sec:'Security', safety:'Safety', learn:'Learning', sa:'SA to HOD' };

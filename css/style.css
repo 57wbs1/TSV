@@ -983,18 +983,24 @@ body::before {
 
 .schedule-day-banner {
   color: white;
-  border-radius: var(--r-lg);
-  padding: 14px 16px;
-  margin-bottom: 12px;
-  box-shadow: var(--shadow-md);
+  border-radius: var(--r-md);
+  padding: 8px 12px;
+  margin-bottom: 10px;
+  box-shadow: var(--shadow-sm);
   position: relative;
   overflow: hidden;
+  display: flex; align-items: center; gap: 10px;
 }
+.schedule-day-banner .db-label { font-size: 9.5px; font-weight: 800; letter-spacing: .08em; opacity: .75; text-transform: uppercase; }
+.schedule-day-banner .db-theme { font-size: 14px; font-weight: 800; letter-spacing: -0.01em; line-height: 1.1; }
+.schedule-day-banner .db-date  { font-size: 10.5px; opacity: .75; margin-top: 1px; }
+.schedule-day-banner .db-main  { flex: 1; min-width: 0; }
+
 .sticky-header {
   position: sticky;
   top: -2px;
   z-index: 20;
-  margin: -14px -14px 10px;
+  margin: -14px -14px 8px;
   border-radius: 0 0 var(--r-lg) var(--r-lg);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
@@ -1005,9 +1011,14 @@ body::before {
   margin: 0;
 }
 .day-tabs-wrap {
-  padding: 10px 14px 4px;
-  background: rgba(245,248,253,.9);
+  padding: 6px 12px 2px;
+  background: rgba(245,248,253,.92);
   backdrop-filter: blur(14px);
+}
+.day-tabs .day-tab { padding: 6px 12px; font-size: 12px; }
+
+@media (prefers-color-scheme: dark) {
+  .day-tabs-wrap { background: rgba(15,23,42,.9); }
 }
 .schedule-day-banner::before {
   content: '';
@@ -2215,6 +2226,52 @@ body::before {
   box-shadow: 0 0 0 2px rgba(16,185,129,.25), var(--shadow-md);
   border-left-width: 4px;
 }
+.cal-event-card.expanded {
+  box-shadow: 0 0 0 2px var(--blue-200), var(--shadow-md);
+}
+
+.cal-event-expand {
+  margin-top: 6px;
+  margin-left: 62px;  /* align with card (time col 54px + gap 8px) */
+  background: var(--n-0);
+  border: 1px solid var(--border-2);
+  border-left: 3px solid var(--blue-400);
+  border-radius: var(--r-md);
+  padding: 12px 14px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  animation: slideDownIn .2s var(--ease-out);
+  box-shadow: var(--shadow-xs);
+}
+.cal-event-expand h5 {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--text-2);
+  margin-top: 8px;
+  margin-bottom: 3px;
+}
+.cal-event-expand h5:first-child { margin-top: 0; }
+.cal-event-expand p { margin-bottom: 4px; }
+.cal-event-expand .cee-actions {
+  display: flex; gap: 6px;
+  margin-top: 10px; flex-wrap: wrap;
+}
+.btn-attendance {
+  background: linear-gradient(135deg, #059669, #10b981);
+  color: white;
+  padding: 8px 14px;
+  border: none;
+  border-radius: var(--r-full);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px;
+  box-shadow: 0 4px 10px rgba(16,185,129,.3);
+  transition: all .15s;
+}
+.btn-attendance:active { transform: scale(0.96); }
 .ce-title {
   font-size: 14px; font-weight: 700;
   letter-spacing: -0.01em;
