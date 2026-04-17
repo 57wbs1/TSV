@@ -310,6 +310,56 @@ function tryPin() {
 window.backToSynStep = backToSynStep;
 window.backToNameStep = backToNameStep;
 
+// ═══════ SWIPE-DOWN TO CLOSE for bottom sheet modals ════════
+function attachSwipeDownClose(modalEl, sheetSelector, onClose) {
+  const sheet = modalEl.querySelector(sheetSelector);
+  if (!sheet) return;
+  let startY = 0, currentY = 0, dragging = false, startScroll = 0;
+  const scrollContainer = sheet.querySelector('[id$="-body"], .editor-body') || sheet;
+
+  sheet.addEventListener('touchstart', e => {
+    startScroll = scrollContainer.scrollTop || 0;
+    if (startScroll > 0) return; // only if content scrolled to top
+    startY = e.touches[0].clientY;
+    dragging = true;
+    sheet.style.transition = 'none';
+  }, { passive: true });
+
+  sheet.addEventListener('touchmove', e => {
+    if (!dragging) return;
+    currentY = e.touches[0].clientY - startY;
+    if (currentY < 0) currentY = 0;
+    sheet.style.transform = `translateY(${currentY}px)`;
+  }, { passive: true });
+
+  sheet.addEventListener('touchend', () => {
+    if (!dragging) return;
+    sheet.style.transition = 'transform .25s var(--ease-out)';
+    if (currentY > 120) {
+      sheet.style.transform = 'translateY(100%)';
+      setTimeout(() => {
+        sheet.style.transform = '';
+        modalEl.classList.add('hidden');
+        if (onClose) onClose();
+      }, 240);
+    } else {
+      sheet.style.transform = '';
+    }
+    dragging = false;
+    currentY = 0;
+  });
+}
+
+function setupModalSwipes() {
+  attachSwipeDownClose(el('members-modal'), '.members-sheet');
+  attachSwipeDownClose(el('settings-modal'), '#settings-sheet');
+  attachSwipeDownClose(el('member-editor'), '.editor-sheet', () => { _editingMemberId = null; });
+  attachSwipeDownClose(el('event-editor'), '.editor-sheet');
+  attachSwipeDownClose(el('event-detail-modal'), '.visit-detail-sheet');
+  attachSwipeDownClose(el('visit-detail-modal'), '.visit-detail-sheet');
+  attachSwipeDownClose(el('buddy-modal'), '.buddy-sheet');
+}
+
 function logout() {
   localStorage.removeItem('tsv_user');
   STATE.currentUser = null;
@@ -335,7 +385,6 @@ function switchTab(tabId) {
   if (tabId === 'learnings') renderLearnings();
   if (tabId === 'ir')        renderIR();
   if (tabId === 'sop')       renderSOP();
-  if (tabId === 'settings')  renderSettings();
 }
 
 // ═══════════ IDENTITY ════════════════════════════════════════
@@ -670,6 +719,15 @@ function renderHome() {
       <span class="status-pill ${myStatus.status==='out'?'pill-out':'pill-in'}">${myStatus.status==='out'?'🔴 OUT':'🟢 IN'}</span>
     </div>
 
+    ${isAdmin() ? `
+    <div class="card" style="margin-top:12px">
+      <div class="card-header"><span class="icon">📡</span><h3>Admin — Reports</h3></div>
+      <div class="card-body">
+        <button class="btn btn-primary btn-block" onclick="showAdhocPicker()">📤 Send Adhoc SITREP</button>
+        <p style="font-size:11px;color:var(--text-2);margin-top:8px;text-align:center">2300H and 0200H reports run automatically in the background.</p>
+      </div>
+    </div>` : ''}
+
     ${myHypothesis ? `
     <div class="card" style="margin-top:12px">
       <div class="card-header" style="background:linear-gradient(135deg, #fef3c7, #fde68a)">
@@ -681,15 +739,6 @@ function renderHome() {
         <p style="font-size:13px;line-height:1.55;font-style:italic;color:var(--text-2);margin-bottom:10px">${escapeHtml(myHypothesis.loi)}</p>
         <div style="font-size:11px;font-weight:800;letter-spacing:.08em;color:var(--text-2);text-transform:uppercase;margin-bottom:6px">Hypothesis</div>
         <p style="font-size:13.5px;line-height:1.6">${escapeHtml(myHypothesis.hypothesis)}</p>
-      </div>
-    </div>` : ''}
-
-    ${isAdmin() ? `
-    <div class="card">
-      <div class="card-header"><span class="icon">📡</span><h3>Admin — Reports</h3></div>
-      <div class="card-body">
-        <button class="btn btn-primary btn-block" onclick="showAdhocPicker()">📤 Send Adhoc SITREP</button>
-        <p style="font-size:11px;color:var(--text-2);margin-top:8px;text-align:center">2300H and 0200H reports run automatically in the background.</p>
       </div>
     </div>` : ''}
   `;
@@ -840,6 +889,27 @@ function isEventNow(ev, nowMins) {
 
 window.selectCalendarDay = function(d) { STATE.scheduleDay = d; renderCalendar(); };
 window.setCalFilter = function(c) { STATE.calendarCategoryFilter = c; renderCalendar(); };
+
+// Swipe between days on Calendar tab
+function setupCalendarSwipe() {
+  const container = el('tab-calendar');
+  if (!container) return;
+  let sx = 0, sy = 0, tracking = false;
+  container.addEventListener('touchstart', e => {
+    if (e.touches.length !== 1) return;
+    sx = e.touches[0].clientX; sy = e.touches[0].clientY; tracking = true;
+  }, { passive: true });
+  container.addEventListener('touchend', e => {
+    if (!tracking) return;
+    tracking = false;
+    const dx = e.changedTouches[0].clientX - sx;
+    const dy = e.changedTouches[0].clientY - sy;
+    if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.5) return; // not horizontal swipe
+    const cur = STATE.scheduleDay;
+    if (dx < 0 && cur < DAYS.length) { STATE.scheduleDay = cur + 1; renderCalendar(); }
+    else if (dx > 0 && cur > 1)      { STATE.scheduleDay = cur - 1; renderCalendar(); }
+  }, { passive: true });
+}
 
 // Event detail
 window.showEventDetail = function(eventId) {
@@ -1026,25 +1096,21 @@ function renderLocation() {
         </div>
         <div class="status-buttons">
           ${myStatus.status==='out'
-            ? `<button class="btn btn-green" onclick="returnToHotel()">🏨 Return to Hotel</button>
-               <button class="btn btn-outline btn-sm" onclick="updateLocationText()">📍 Update Location</button>`
+            ? `<button class="btn btn-green" onclick="returnToHotel()">🏨 Return to Hotel</button>`
             : `<button class="btn btn-red" onclick="showBuddyModal()">🚶 Leaving Hotel</button>`
           }
-        </div>
-        <div style="margin-top:10px">
-          ${myStatus.lat && myStatus.lng ? `
-            <div class="tracking-indicator">
-              <div class="live-dot"></div>
-              <span>📡 GPS being shared · ${myStatus.lat.toFixed(4)}, ${myStatus.lng.toFixed(4)}</span>
-            </div>
-            <button class="btn btn-stop-track" onclick="stopTracking()" style="margin-top:10px">
-              🛑 STOP SHARING MY GPS
-            </button>`
-          : `<button class="btn btn-primary btn-block" onclick="shareGPS()">
-              📡 Share GPS Location
-            </button>`
+          ${myStatus.lat && myStatus.lng
+            ? `<button class="btn btn-stop-track" onclick="stopTracking()" style="padding:12px 8px;font-size:13px;animation:none;box-shadow:0 4px 10px rgba(220,20,60,.3)">🛑 Stop GPS</button>`
+            : `<button class="btn btn-primary" onclick="shareGPS()">📡 Share GPS</button>`
           }
         </div>
+        ${myStatus.status==='out' ? `
+          <button class="btn btn-outline btn-sm btn-block" onclick="updateLocationText()" style="margin-top:8px">📍 Update Location Text</button>` : ''}
+        ${myStatus.lat && myStatus.lng ? `
+          <div class="tracking-indicator" style="margin-top:10px">
+            <div class="live-dot"></div>
+            <span>GPS shared · ${myStatus.lat.toFixed(4)}, ${myStatus.lng.toFixed(4)}</span>
+          </div>` : ''}
       </div>
     </div>` : `<div class="alert alert-orange">Tap 👤 in header to sign in.</div>`}
 
@@ -1278,7 +1344,11 @@ window.openVisitDetail = function(visitId) {
 
     ${STATE.currentUser ? `
     <div class="visit-compose">
-      <textarea id="visit-compose-text" placeholder="Share your observation, ah-ha, or implication for SG/SAF..."></textarea>
+      <div class="visit-compose-label">
+        <span>✍️ Your Learning / Observation</span>
+        <button class="btn-draft" onclick="draftForMe('${visitId}')" style="margin-left:auto">✨ Draft for me</button>
+      </div>
+      <textarea id="visit-compose-text" placeholder="Type your observation, ah-ha moment, or implication for SG/SAF here…"></textarea>
       <div class="compose-toolbar">
         <div class="ahha-toggle ${STATE.composeAhha ? 'active' : ''}" onclick="toggleAhha()">
           💡 <span>${STATE.composeAhha ? 'Ah-Ha!' : 'Mark as Ah-Ha'}</span>
@@ -1317,6 +1387,7 @@ window.postVisitLearning = async function(visitId) {
     authorId: user.id, authorName: user.name,
     day: visit?.dayNum || '',
     visitId: visitId,
+    visitTitle: visit?.title || '',
     content: content,
     isAhha: STATE.composeAhha,
     timestamp: new Date().toISOString()
@@ -1324,9 +1395,35 @@ window.postVisitLearning = async function(visitId) {
   STATE.learnings.unshift(post);
   ta.value = '';
   STATE.composeAhha = false;
-  await API.post('addLearning', post);
-  toast('✅ Posted!');
-  openVisitDetail(visitId); // re-render
+
+  // Post to internal Learnings sheet AND to the Daily Learning Hotwash sheet
+  await Promise.all([
+    API.post('addLearning', post),
+    API.post('postHotwash', {
+      dayTab: String(25 + (visit?.dayNum || 1)),  // Day 1 → tab "26", Day 2 → "27", etc.
+      date: visit?.date || '',
+      visitTitle: visit?.title || '',
+      authorName: user.name,
+      syndicate: formatGroupDisplay(memberGroupKey(user)),
+      content: content,
+      isAhha: STATE.composeAhha ? 'Ah-Ha' : ''
+    })
+  ]);
+  toast('✅ Posted to app + hotwash sheet');
+  openVisitDetail(visitId);
+};
+
+// "Draft for me" — fills textarea with a curated, humanized starter
+window.draftForMe = function(visitId) {
+  const draft = getDraftForVisit(visitId);
+  if (!draft) { toast('No draft available for this visit'); return; }
+  const ta = el('visit-compose-text');
+  if (ta) {
+    ta.value = draft;
+    ta.focus();
+    ta.scrollTop = 0;
+  }
+  toast('✨ Draft inserted — edit freely');
 };
 
 // ═══════════ IR TAB ══════════════════════════════════════════
@@ -1505,6 +1602,21 @@ window.showMembersModal = function() {
 };
 window.hideMembersModal = function() { el('members-modal').classList.add('hidden'); };
 
+if (!STATE.expandedSyns) STATE.expandedSyns = new Set();
+
+window.toggleMgrGroup = function(safeId) {
+  const body = el(`mgr-body-${safeId}`);
+  const caret = el(`mgr-caret-${safeId}`);
+  const gk = body?.dataset?.groupkey;
+  if (!body) return;
+  body.classList.toggle('open');
+  if (caret) caret.textContent = body.classList.contains('open') ? '▲' : '▼';
+  if (gk) {
+    if (body.classList.contains('open')) STATE.expandedSyns.add(gk);
+    else STATE.expandedSyns.delete(gk);
+  }
+};
+
 window.renderMembersList = function() {
   const q = (el('members-search')?.value || '').toLowerCase();
   const filtered = MEMBERS.filter(m =>
@@ -1513,16 +1625,24 @@ window.renderMembersList = function() {
   el('members-list-container').innerHTML = groupOrder().map(gk => {
     const grp = filtered.filter(m => memberGroupKey(m) === gk);
     if (!grp.length) return '';
+    const safeId = gk.replace(/[^a-z0-9]/gi, '_');
+    // Open by default if search filter matches, else respect user's toggle state
+    const isOpen = q.length > 0 || STATE.expandedSyns.has(gk);
     return `
-      <div class="mgr-group" style="background:${synColor(gk)}">${gk} · ${grp.length}</div>
-      ${grp.map(m => `
-        <div class="mgr-row">
-          <div class="mgr-info">
-            <div class="mgr-name">${escapeHtml(m.name)}</div>
-            <div class="mgr-meta">${escapeHtml(m.role || '')}${m.rank ? ' · '+escapeHtml(m.rank) : ''} · ${escapeHtml(m.shortName || '—')}</div>
-          </div>
-          <button class="mgr-edit-btn" onclick="openMemberEditor('${m.id}')">Edit</button>
-        </div>`).join('')}`;
+      <div class="mgr-group" style="background:${synColor(gk)};cursor:pointer;display:flex;align-items:center;gap:8px;justify-content:space-between" onclick="toggleMgrGroup('${safeId}')">
+        <span>${formatGroupDisplay(gk)} · ${grp.length}</span>
+        <span id="mgr-caret-${safeId}" style="font-size:10px;opacity:.8">${isOpen?'▲':'▼'}</span>
+      </div>
+      <div class="mgr-body ${isOpen?'open':''}" id="mgr-body-${safeId}" data-groupkey="${escapeHtml(gk)}">
+        ${grp.map(m => `
+          <div class="mgr-row">
+            <div class="mgr-info">
+              <div class="mgr-name">${escapeHtml(m.name)}</div>
+              <div class="mgr-meta">${escapeHtml(m.role || '')}${m.rank ? ' · '+escapeHtml(m.rank) : ''} · ${escapeHtml(m.shortName || '—')}</div>
+            </div>
+            <button class="mgr-edit-btn" onclick="openMemberEditor('${m.id}')">Edit</button>
+          </div>`).join('')}
+      </div>`;
   }).join('') || '<div class="empty-state"><p>No members</p></div>';
 };
 
@@ -1606,7 +1726,7 @@ function startApp() {
   applyTheme();
   el('loading').style.display = 'none';
   el('app').classList.add('visible');
-  el('btn-switch-user').onclick = () => switchTab('settings');
+  el('btn-switch-user').onclick = showSettingsModal;
   const admin = el('btn-admin');
   admin.onclick = showMembersModal;
   if (isAdmin()) admin.classList.remove('hidden');
@@ -1617,6 +1737,8 @@ function startApp() {
   seedIfEmpty();
   setupReportReminders();
   setupSyn1AutoReports();
+  setupModalSwipes();
+  setupCalendarSwipe();
   requestNotificationPermission();
 
   // Ping check every 20s
@@ -1817,11 +1939,19 @@ function setupSyn1AutoReports() {
   }, 60000);
 }
 
-// ═══════════ SETTINGS TAB ════════════════════════════════════
+// ═══════════ SETTINGS MODAL ══════════════════════════════════
+window.showSettingsModal = function() {
+  el('settings-modal').classList.remove('hidden');
+  renderSettings();
+};
+window.hideSettingsModal = function() {
+  el('settings-modal').classList.add('hidden');
+};
+
 function renderSettings() {
   const user = STATE.currentUser;
   if (!user) {
-    el('tab-settings').innerHTML = '<div class="alert alert-orange">Sign in first.</div>';
+    el('settings-body').innerHTML = '<div class="alert alert-orange">Sign in first.</div>';
     return;
   }
   const gk = memberGroupKey(user);
@@ -1831,9 +1961,7 @@ function renderSettings() {
   const adminReqs = STATE.adminRequests || [];
   const pendingReqs = adminReqs.filter(r => r.status === 'pending');
 
-  el('tab-settings').innerHTML = `
-    <div class="section-title">⚙️ Settings</div>
-
+  el('settings-body').innerHTML = `
     <!-- Account -->
     <div class="settings-section">
       <div class="settings-section-header">👤 Account</div>

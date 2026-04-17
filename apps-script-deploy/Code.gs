@@ -6,6 +6,7 @@
 
 // Sheet ID — from https://docs.google.com/spreadsheets/d/<ID>/edit
 const SHEET_ID = '19IjTK0I_L2NXJ9afqTxf3GkCXbcONio4ORaw-54JOjY';
+const HOTWASH_SHEET_ID = '10gub3Ya6rgq70OnaLxf-yGkt8IrhTPC1f7r2Cj7TuMc';
 const SPREADSHEET = SpreadsheetApp.openById(SHEET_ID);
 
 // Sheet schemas
@@ -67,6 +68,7 @@ function doPost(e) {
       case 'markPingRead': data = markPingRead(body.id); break;
       case 'addAdminRequest':     data = addAdminRequest(body); break;
       case 'resolveAdminRequest': data = resolveAdminRequest(body); break;
+      case 'postHotwash':  data = postHotwash(body); break;
       default: return json({ ok: false, error: 'Unknown action: ' + action });
     }
     return json({ ok: true, data });
@@ -356,6 +358,39 @@ function addAdminRequest(data) {
     ''
   ]);
   return { id };
+}
+
+// ── HOTWASH ──────────────────────────────────────────────────
+function postHotwash(data) {
+  try {
+    const ss = SpreadsheetApp.openById(HOTWASH_SHEET_ID);
+    const tabName = String(data.dayTab || '');
+    let sheet = ss.getSheetByName(tabName);
+    // If tab doesn't exist, try variations, else create it
+    if (!sheet) {
+      const sheets = ss.getSheets();
+      sheet = sheets.find(s => s.getName().includes(tabName));
+    }
+    if (!sheet) {
+      sheet = ss.insertSheet(tabName);
+      sheet.appendRow(['Timestamp','Date','Visit','Author','Syndicate','Type','Content']);
+      sheet.getRange(1,1,1,7).setFontWeight('bold').setBackground('#f0f0f0');
+      sheet.setFrozenRows(1);
+    }
+    sheet.appendRow([
+      new Date().toISOString(),
+      data.date || '',
+      data.visitTitle || '',
+      data.authorName || '',
+      data.syndicate || '',
+      data.isAhha || '',
+      data.content || ''
+    ]);
+    logAction('postHotwash', data.authorName || '', tabName);
+    return { ok: true, tab: tabName };
+  } catch (e) {
+    return { error: e.message };
+  }
 }
 
 function resolveAdminRequest(data) {

@@ -376,11 +376,72 @@ const VISITS_SEED = [
 
 let VISITS = [...VISITS_SEED];
 
+// ── Curated drafts per visit (for "Draft for me" button) ──
+// Written short, specific, avoiding AI-slop phrases.
+const VISIT_DRAFTS = {
+  boat_tour: [
+    `Observation: River traffic moves on its own rhythm — cargo barges, tourist longtails, ferries crossing all coordinate without signals.\nImplication: When core flow is established over generations, formal control is light. Question for us: does SG rely on formal systems where Thailand relies on custom?\nFollow-up: ask how the river authority handles conflict cases.`,
+    `The riverside economy runs vertically — high-end hotels upriver, working docks and temples between, wet markets at the bends. No zoning master plan is apparent.\nImplication for SG: organic mixing could support resilience, but what does it mean for emergency access and enforcement? Worth probing.`,
+    `Temples and Grand Palace sit on the same waterway as container traffic. Sacred and commercial share space without friction. That choice of coexistence seems deliberate and very long-running.`
+  ],
+  true_digital: [
+    `TDP reads as a corporate campus more than a startup ecosystem — lots of True Group branding, foreign co-working tenants, fewer visible Thai-founded deeptech stories.\nImplication: Thailand's innovation narrative may be more about attracting capital than growing founders. Contrast with SG's mixed BTO/Block71/JTC model.\nQuestion: who is actually funding Thai seed-stage?`,
+    `Innovation ecosystem signals to watch: ratio of Thai-founded to foreign-tenant, depth of corporate venture involvement, whether state funding flows through banks or through equity vehicles.`,
+    `Observation: A11 of the facade is polished but the actual tenant mix reveals positioning. If the EEC wants to be more than a manufacturing hub, the startup pipeline has to look less like BKK coworking and more like engineering spin-outs.`
+  ],
+  isis: [
+    `ISIS framed Thailand's position as "strategic flexibility" — not neutrality, not alignment. Their read on US-China is pragmatic, not ideological. Worth contrasting with how SG academics frame the same space.\nQuestion: how does that flexibility hold up under sharper pressure, e.g. chip export controls?`,
+    `Observation: The academic tone on the monarchy was careful but not evasive. That tells us something about how Thai elites navigate internal legitimacy while talking to foreigners.\nImplication: watch which topics get volunteered versus which get deflected — the pattern matters more than any single answer.`,
+    `Key probe from the Q&A: whether Thai institutions treat ASEAN as a genuine hedge or as cover for bilateral deal-making. The answer reveals whether "ASEAN centrality" is strategy or branding.`
+  ],
+  scope_ayutthaya: [
+    `Heritage tourism is a revenue line, but the state treatment of Ayutthaya as a national memory site runs deeper. The ruins are carefully managed, not merely preserved — they're narrative infrastructure.\nImplication: soft power and domestic legitimacy share the same assets here. We don't have a clean SG equivalent.`,
+    `Observation: Visitor flow patterns, which temples are lit at night, what signage uses Thai-only versus multilingual — these are small signals about audience and intent. Worth noting which sites feel built for locals and which for tourists.`,
+    `The Thai-Burmese war story gets retold on the ground without bitterness but with clear framing. Historiography as quiet policy. Contrast with how SG tells its own origin narrative.`
+  ],
+  scope_eec: [
+    `EEC visible signals: port upgrades, industrial estates, rail connections. What's less visible: who actually owns what, and whether Thai firms are moving up the value chain or getting locked in as assemblers.\nQuestion: does BOI data match what we see on the ground?`,
+    `Observation: Japanese and Chinese investment footprints look different — Japanese is clustered automotive, Chinese is more mixed and newer. The diversification is real but uneven.\nImplication for SG: worth tracking which supply-chain segments Thailand is genuinely competing with us in.`,
+    `Infrastructure-wise the EEC looks more built-out than I expected. The question is utilisation. Empty estates and half-full ports tell a different story than press releases do.`
+  ],
+  scope_kanchanaburi: [
+    `The Death Railway and war cemetery are curated with restraint. Thai framing positions the country as witness rather than participant. That's a choice.\nImplication: how a state remembers traumatic episodes shapes how it positions itself regionally. Worth comparing to how SG handles the Sook Ching.`,
+    `Observation: Local economy visibly depends on memory tourism. The commercial layer around a solemn site raises the question of whether commemoration and commerce interfere with each other, or reinforce.`,
+    `On the ground the war story isn't anti-Japanese — it's more universal victim-of-empire. That framing keeps bilateral relations clean while still serving national identity. Useful pattern to note.`
+  ],
+  rta_cgsc: [
+    `RTA framing of the officer's role leaned toward "guardian" language more than operational detail. The monarchy references were frequent but brief, almost reflexive.\nImplication: the institution sees itself beyond elected civilian control. That shapes every other question — force development, border calls, readiness.`,
+    `Observation: The curriculum emphasis gives away priorities. If more time is spent on internal stability than conventional warfighting, that tells us what the institution actually trains for.`,
+    `Good probe for this one: what stays the same when governments change. The answer reveals what the RTA sees as its permanent mandate versus what's negotiable.`
+  ],
+  sg_embassy: [
+    `DAO read on current bilateral: steady, technical, few friction points. The real substance comes in what's not on the formal agenda — people-to-people, training exchanges, quiet coordination.\nQuestion: where are emerging areas of cooperation that could be force-multiplied?`,
+    `Observation: The Ambassador's framing of Thailand-SG relations was relational, not transactional. That matters in a region where transactional players are getting louder.\nImplication: soft capability — our diplomatic register — is an asset we should keep sharp.`,
+    `The embassy engagement revealed more about Thailand via outside lens than any local interlocutor would volunteer. Worth treating DAO reads as calibration, not just briefing.`
+  ]
+};
+
+function getDraftForVisit(visitId) {
+  const pool = VISIT_DRAFTS[visitId];
+  if (!pool || !pool.length) return '';
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+
 // ── Helper functions ─────────────────────────────────────────
+// Sort events with 00:00-05:59 treated as AFTER 23:59 (late-night cutoff)
+function timeToOffsetMinutes(timeStr) {
+  if (!timeStr || typeof timeStr !== 'string') return 0;
+  const parts = timeStr.split(':').map(Number);
+  const h = parts[0] || 0, m = parts[1] || 0;
+  const mins = h * 60 + m;
+  // 00:00-05:59 AM is considered "next day" — push after 23:59 by adding 24h
+  return h < 6 ? mins + 24 * 60 : mins;
+}
+
 function eventsForDay(dayNum) {
   return CALENDAR_EVENTS
     .filter(e => e.day === dayNum && e.isDeleted !== 'true' && e.isDeleted !== true)
-    .sort((a, b) => String(a.startTime).localeCompare(String(b.startTime)));
+    .sort((a, b) => timeToOffsetMinutes(a.startTime) - timeToOffsetMinutes(b.startTime));
 }
 
 function findDayByDate(dateStr) {

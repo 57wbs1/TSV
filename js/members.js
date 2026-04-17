@@ -64,11 +64,15 @@ function memberGroupKey(m) {
   return `${m.csc} Syn ${m.syndicate}`;
 }
 
-// Compact display: "57 CSC Syn 1" → "57 - SYN 1", "26th CSC (E) Syn 14" → "26 - SYN 14"
+// Compact display: "57 CSC Syn 1" → "57 SYN 1", "26th CSC (E) Syn 14" → "26E"
 function formatGroupDisplay(groupKey) {
-  if (groupKey === 'Leadership') return 'LEADERSHIP';
-  const match = groupKey.match(/^(\d+)(?:th)?\s*CSC\s*(?:\(E\))?\s*Syn\s*(\S+)$/i);
-  if (match) return `${match[1]} - SYN ${match[2]}`;
+  if (groupKey === 'Leadership') return 'Leadership';
+  // Executive courses: show compact "25E", "26E", "27E"
+  const execMatch = groupKey.match(/^(\d+)(?:th)?\s*CSC\s*\(E\)\s*Syn\s*(\S+)$/i);
+  if (execMatch) return `${execMatch[1]}E`;
+  // Main courses: "57 SYN 1"
+  const mainMatch = groupKey.match(/^(\d+)(?:th)?\s*CSC\s*Syn\s*(\S+)$/i);
+  if (mainMatch) return `${mainMatch[1]} SYN ${mainMatch[2]}`;
   return groupKey;
 }
 
@@ -82,18 +86,29 @@ function groupColorFor(groupKey) {
   return palette[hash % palette.length];
 }
 
-// Group order: Caspar's syndicate first, then Leadership, then others alpha
+// Group order: 57 SYN 1 → Leadership → 57 SYN 3 → 57 SYN 4 → 25E → 26E → 27E
 function computeGroupOrder() {
   const set = new Set();
   MEMBERS.forEach(m => set.add(memberGroupKey(m)));
   const all = [...set];
-  all.sort((a, b) => {
-    if (a === PRIORITY_GROUP) return -1;
-    if (b === PRIORITY_GROUP) return 1;
-    if (a === 'Leadership') return -1;
-    if (b === 'Leadership') return 1;
-    return a.localeCompare(b);
+  const priority = {};
+  priority[PRIORITY_GROUP] = 0;   // 57 CSC Syn 1
+  priority['Leadership'] = 1;
+  // Other 57 CSC syndicates get 10+n
+  // Executive courses get 20+n
+  all.forEach(gk => {
+    if (priority[gk] !== undefined) return;
+    if (/^57 CSC Syn /.test(gk)) {
+      const n = parseInt(gk.replace(/\D/g, '')) || 99;
+      priority[gk] = 10 + n;
+    } else if (/\(E\) Syn /.test(gk)) {
+      const m = gk.match(/^(\d+)/);
+      priority[gk] = 20 + (m ? parseInt(m[1]) : 99);
+    } else {
+      priority[gk] = 99;
+    }
   });
+  all.sort((a, b) => priority[a] - priority[b]);
   return all;
 }
 
