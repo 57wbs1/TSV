@@ -357,98 +357,202 @@ const DAYS_MAP = {
 // always available and can be tweaked freely without touching the app.
 const DAILY_PREVIEWS = {
   '2026-04-26':
-`🇹🇭 🛫 <b>Tomorrow is THE DAY — Sunday, 26 April</b>
+`🇹🇭 🛫 <b>Tomorrow is THE DAY</b>
+
+<b>Sunday, 26 April</b>
+
 <b>Day 1 · ✈️ Arrival & Innovation</b>
 
-Here we go! 🎉 Bright-and-early start at Changi T2 — check-in from 0600H, cohort photo at Dreamscape by 0730H, and we're wheels-up on <b>SQ 708 at 0930H</b>. ✈️
+Here we go! 🎉
 
-Land in Bangkok at 1130H, straight to lunch, then out to the <b>Chao Phraya River for a 3-hour Long Tail Boat tour</b> — the best way to feel the city's pulse. 🚤
+Bright-and-early start at Changi T2.
 
-Check into <b>Pullman Bangkok Hotel G</b> by 1830H, syndicate reflections, and Executive Time from 1930H — explore, eat, rest up. 🏨
+Check-in from 0600H.
+
+Cohort photo at Dreamscape by 0730H.
+
+Wheels-up on <b>SQ 708 at 0930H</b>. ✈️
+
+Land in Bangkok at 1130H, then straight to lunch.
+
+Out to the <b>Chao Phraya River</b> for a 3-hour Long Tail Boat tour 🚤 — the best way to feel the city's pulse.
+
+Check into <b>Pullman Bangkok Hotel G</b> by 1830H.
+
+Syndicate reflections, then Executive Time from 1930H — explore, eat, rest up. 🏨
+
+—
 
 👔 <b>Attire:</b> Smart Casual (long pants, collared top, covered shoes)
 
-📱 Full schedule in the app → https://57wbs1.github.io/TSV/
+📱 Full schedule in the app:
+https://57wbs1.github.io/TSV/
+
 📍 Please <b>update your status & room</b> in the app when you check in!
 
-Let's make it a great start — see everyone at the airport! 🌟`,
+Let's make it a great start.
+
+See everyone at the airport! 🌟`,
 
   '2026-04-27':
-`🌅 <b>Tomorrow — Monday, 27 April</b>
+`🌅 <b>Tomorrow</b>
+
+<b>Monday, 27 April</b>
+
 <b>Day 2 · 🎓 Military & Academic</b>
 
 Big day of learning ahead! 💡
 
-<b>Morning:</b> Bus out at 0830H for a guided tour of <b>True Digital Park</b> — startup culture meets corporate scale. Thailand's innovation story up close. 🏙️
+<b>Morning:</b>
 
-<b>Afternoon:</b> Quick change into No. 3 Uniform, then visit <b>ISIS at Chulalongkorn University</b> — two keynote addresses + Q&A on Thailand's security and international affairs. 🎓
+Bus out at 0830H for a guided tour of <b>True Digital Park</b>.
 
-Back to Pullman by 1630H for syndicate reflections, then Executive Time from 1730H.
+Startup culture meets corporate scale — Thailand's innovation story up close. 🏙️
 
-👔 <b>Attire:</b> Smart Casual AM · No. 3 Uniform from 1300H
+<b>Afternoon:</b>
 
-📱 Full details → https://57wbs1.github.io/TSV/
+Quick change into No. 3 Uniform.
+
+Visit <b>ISIS at Chulalongkorn University</b> — two keynote addresses + Q&A on Thailand's security and international affairs. 🎓
+
+Back to Pullman by 1630H for syndicate reflections.
+
+Executive Time from 1730H.
+
+—
+
+👔 <b>Attire:</b>
+Smart Casual AM · No. 3 Uniform from 1300H
+
+📱 Full details:
+https://57wbs1.github.io/TSV/
+
 📍 Syndicate ICs are tracking — please keep your <b>status</b> updated in the app.
 
 Rest well tonight! 🌙`,
 
   '2026-04-28':
-`🔍 <b>Tomorrow — Tuesday, 28 April</b>
+`🔍 <b>Tomorrow</b>
+
+<b>Tuesday, 28 April</b>
+
 <b>Day 3 · 🔍 SCOPE Day</b>
 
-Field research day! 🗺️ Time to put boots on the ground for the hypotheses.
+Field research day! 🗺️
+
+Time to put boots on the ground for the hypotheses.
 
 📍 <b>Syndicate sites:</b>
+
 • Ayutthaya — Heritage & Economy
 • Chonburi / Rayong — EEC Corridor
 • Kanchanaburi — Society & Memory
 
-We move out by 0800H. <b>Mandatory check-ins every 4 hours</b> — 1000H · 1400H · 1800H · 2200H. Keep your Syn IC in the loop! 📡
+Move out by 0800H.
+
+<b>Mandatory check-ins every 4 hours:</b>
+1000H · 1400H · 1800H · 2200H
+
+Keep your Syn IC in the loop! 📡
+
+—
 
 👔 <b>Attire:</b> Smart Casual
 
-📱 Group-specific details → https://57wbs1.github.io/TSV/
+📱 Group-specific details:
+https://57wbs1.github.io/TSV/
+
 📍 Status updates are <b>critical</b> on SCOPE day — please keep the app live throughout!
 
-Stay sharp, stay safe, and come back with the good stuff. 🎯`,
+Stay sharp, stay safe.
+
+Come back with the good stuff. 🎯`,
 
   '2026-04-29':
-`🏛️ <b>Tomorrow — Wednesday, 29 April</b>
+`🏛️ <b>Tomorrow</b>
+
+<b>Wednesday, 29 April</b>
+
 <b>Day 4 · 🏛️ Diplomatic & Policy</b>
 
 Our most formal day. Look sharp! 🎖️
 
-<b>Morning:</b> 0830H bus to the <b>Royal Thai Army Command & General Staff College</b> — Call on Comd, Exchange of Briefs, cohort discussion, campus tour. Rare chance to engage a partner military institution.
+<b>Morning:</b>
 
-<b>Afternoon:</b> SAF Officers head to the <b>Singapore Embassy</b> — engagements with DAO at 1400H and the SG Ambassador at 1500H. Int Officers return to hotel.
+0830H bus to the <b>Royal Thai Army Command &amp; General Staff College</b>.
+
+Call on Comd, Exchange of Briefs, cohort discussion, campus tour.
+
+A rare chance to engage a partner military institution. 🤝
+
+<b>Afternoon:</b>
+
+SAF Officers head to the <b>Singapore Embassy</b>.
+
+Engagement with DAO at 1400H.
+
+Engagement with the SG Ambassador at 1500H.
+
+Int Officers return to hotel.
 
 Back at Pullman by 1630H for syndicate reflections + comm huddle.
 
+—
+
 👔 <b>Attire:</b> No. 3 Uniform all day
 
-📱 Full details → https://57wbs1.github.io/TSV/
+📱 Full details:
+https://57wbs1.github.io/TSV/
+
 📍 Please keep your <b>status and room</b> updated in the app.
 
-Bring your A-game — both institutions are looking forward to meeting us. 🇸🇬🇹🇭`,
+Bring your A-game.
+
+Both institutions are looking forward to meeting us. 🇸🇬🇹🇭`,
 
   '2026-04-30':
-`🛫 <b>Tomorrow — Thursday, 30 April</b>
+`🛫 <b>Tomorrow</b>
+
+<b>Thursday, 30 April</b>
+
 <b>Day 5 · 🛫 Reflection & Departure</b>
 
 Last day together — let's bring it home. 🌅
 
-<b>Morning (0600–1030H):</b> Breakfast + syndicate-level reflections. Consolidate observations, link back to the PMESII hypotheses, prep the writeup.
+<b>Morning (0600–1030H):</b>
 
-Check-out by 1100H, buses roll at 1130H to <b>Suvarnabhumi</b>. Airport check-in + lunch (self-funded), attendance check at the gate by 1430H, and <b>SQ 709 departs 1530H</b>. ✈️
+Breakfast + syndicate-level reflections.
 
-Dinner on the plane, land at Changi T2 around 1900H, last man out of arrival hall = home.
+Consolidate observations, link back to the PMESII hypotheses, prep the writeup. ✍️
+
+Check-out by 1100H.
+
+Buses roll at 1130H to <b>Suvarnabhumi</b>.
+
+Airport check-in + lunch (self-funded).
+
+Attendance check at the gate by 1430H.
+
+<b>SQ 709 departs 1530H.</b> ✈️
+
+Dinner on the plane.
+
+Land at Changi T2 around 1900H.
+
+Last man out of arrival hall = home.
+
+—
 
 👔 <b>Attire:</b> Smart Casual
 
-📱 Full details → https://57wbs1.github.io/TSV/
+📱 Full details:
+https://57wbs1.github.io/TSV/
+
 📍 One more round of status updates tomorrow!
 
-Thanks for a great trip — see everyone at the gate! 👋`
+Thanks for a great trip.
+
+See everyone at the gate! 👋`
 };
 
 // Pass `forceDate` (e.g. '2026-04-26') to test any day regardless of today's date.
