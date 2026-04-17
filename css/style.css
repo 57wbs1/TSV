@@ -2339,6 +2339,82 @@ body::before {
 .room-member-role { font-size: 11px; color: var(--text-2); }
 
 /* ══════════════════════════════════════════════════════════
+   ADHOC SITREP PICKER
+   ══════════════════════════════════════════════════════════ */
+.adhoc-picker {
+  position: fixed; inset: 0;
+  background: rgba(15,23,42,.65);
+  backdrop-filter: blur(8px);
+  z-index: 7000;
+  display: flex; align-items: flex-end; justify-content: center;
+  padding: 14px;
+  padding-bottom: calc(var(--safe-b) + 14px);
+  animation: fadeIn .25s var(--ease-out);
+}
+.adhoc-sheet {
+  background: var(--n-0);
+  color: var(--text);
+  border-radius: var(--r-2xl);
+  padding: 20px 18px 14px;
+  width: 100%; max-width: 440px;
+  max-height: 85vh;
+  overflow-y: auto;
+  box-shadow: 0 -20px 60px rgba(0,0,0,.3);
+  animation: slideUp .35s var(--ease-out);
+  border: 1px solid var(--border-2);
+}
+.adhoc-sheet h3 {
+  font-size: 17px; font-weight: 800;
+  letter-spacing: -0.02em;
+  margin-bottom: 3px;
+  color: var(--text);
+  display: flex; align-items: center; gap: 8px;
+}
+.adhoc-sheet .ah-sub {
+  font-size: 13px; color: var(--text-2);
+  margin-bottom: 14px;
+}
+.adhoc-row {
+  display: flex; align-items: center; justify-content: space-between;
+  width: 100%;
+  padding: 14px 16px;
+  background: var(--blue-50);
+  border: 1.5px solid var(--blue-100);
+  border-radius: var(--r-md);
+  color: var(--blue-600);
+  font-size: 14px; font-weight: 700;
+  cursor: pointer;
+  margin-bottom: 7px;
+  transition: all .12s var(--ease-out);
+  letter-spacing: -0.005em;
+}
+.adhoc-row:active { transform: scale(0.98); background: var(--blue-100); }
+.adhoc-row .ah-count { font-size: 11px; font-weight: 600; opacity: .7; }
+.adhoc-row.mass {
+  background: linear-gradient(135deg, var(--blue-600), var(--blue-500));
+  color: white; border-color: transparent;
+  margin-top: 10px; justify-content: center; gap: 8px;
+  box-shadow: var(--shadow-primary);
+}
+.adhoc-row.mass:active { filter: brightness(.95); }
+.adhoc-cancel {
+  width: 100%; padding: 12px;
+  background: transparent; border: none;
+  color: var(--text-2); font-size: 14px; font-weight: 600;
+  margin-top: 8px; cursor: pointer;
+}
+
+/* Dark mode overrides — keep colors distinct */
+@media (prefers-color-scheme: dark) {
+  .adhoc-row {
+    background: rgba(74,125,214,.15);
+    border-color: rgba(74,125,214,.3);
+    color: #a8c4ff;
+  }
+  .adhoc-row:active { background: rgba(74,125,214,.25); }
+}
+
+/* ══════════════════════════════════════════════════════════
    PING BUTTON (syndicate-only)
    ══════════════════════════════════════════════════════════ */
 .btn-ping {

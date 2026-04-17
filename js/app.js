@@ -703,27 +703,29 @@ function renderHome() {
 
 // ═══════════ ADHOC SITREP PICKER ═════════════════════════════
 window.showAdhocPicker = function() {
-  const groups = groupOrder();
-  const opts = groups.filter(g => g !== 'Leadership').map(g => ({ key: g, label: formatGroupDisplay(g), count: membersInGroup(g).length }));
-  let html = `<div style="background:#fff;border-radius:var(--r-lg);padding:16px;max-width:400px;margin:0 auto">
-    <h3 style="font-size:16px;font-weight:800;margin-bottom:4px">📤 Send Adhoc SITREP</h3>
-    <p style="font-size:12px;color:var(--text-2);margin-bottom:12px">Which syndicate?</p>
-    <div style="display:flex;flex-direction:column;gap:6px">`;
-  opts.forEach(o => {
-    html += `<button class="btn btn-outline btn-block" style="justify-content:space-between" onclick="sendSyndicateSITREP('${o.key.replace(/'/g,"\\'")}'); closeAdhocPicker()">
-      <span>${escapeHtml(o.label)}</span><span style="opacity:.6;font-size:11px">${o.count} members</span>
-    </button>`;
-  });
-  html += `<button class="btn btn-primary btn-block" style="margin-top:6px" onclick="sendAllSITREPs(); closeAdhocPicker()">
-    📣 Mass send — all syndicates
-  </button>
-  <button class="btn btn-sm" style="background:transparent;color:var(--text-2);margin-top:6px" onclick="closeAdhocPicker()">Cancel</button>
-  </div></div>`;
+  const opts = groupOrder()
+    .filter(g => g !== 'Leadership')
+    .map(g => ({ key: g, label: formatGroupDisplay(g), count: membersInGroup(g).length }));
+
+  const rows = opts.map(o => `
+    <button class="adhoc-row" onclick="sendSyndicateSITREP('${o.key.replace(/'/g,"\\'")}'); closeAdhocPicker()">
+      <span>${escapeHtml(o.label)}</span>
+      <span class="ah-count">${o.count} ${o.count === 1 ? 'member' : 'members'}</span>
+    </button>`).join('');
 
   const wrap = document.createElement('div');
   wrap.id = 'adhoc-picker';
-  wrap.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(6px);z-index:7000;display:flex;align-items:flex-end;padding:16px;animation:fadeIn .25s';
-  wrap.innerHTML = `<div style="width:100%;animation:slideUp .3s">${html}</div>`;
+  wrap.className = 'adhoc-picker';
+  wrap.innerHTML = `
+    <div class="adhoc-sheet">
+      <h3>📤 Send Adhoc SITREP</h3>
+      <p class="ah-sub">Which syndicate?</p>
+      ${rows}
+      <button class="adhoc-row mass" onclick="sendAllSITREPs(); closeAdhocPicker()">
+        📣 Mass send — all syndicates
+      </button>
+      <button class="adhoc-cancel" onclick="closeAdhocPicker()">Cancel</button>
+    </div>`;
   document.body.appendChild(wrap);
 };
 window.closeAdhocPicker = function() { el('adhoc-picker')?.remove(); };
