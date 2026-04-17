@@ -165,23 +165,10 @@ function isAdmin() {
   return false;
 }
 
-// Who can see all syndicates (not just their own)?
-// Admins + Staff/Leadership members.
-function canSeeAllSyndicates() {
-  const u = STATE.currentUser;
-  if (!u) return false;
-  if (isAdmin()) return true;
-  if (u.csc === 'Staff' || u.syndicate === 'Leadership') return true;
-  return false;
-}
-
-// Filter group order for current user's visibility
-function visibleGroups() {
-  if (canSeeAllSyndicates()) return groupOrder();
-  const u = STATE.currentUser;
-  if (!u) return [];
-  return [memberGroupKey(u)];
-}
+// Everyone can see everyone — the per-syndicate scoping was too restrictive.
+// Kept as functions so call sites don't all need updating.
+function canSeeAllSyndicates() { return true; }
+function visibleGroups() { return groupOrder(); }
 function escapeHtml(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
 // ═══════════ LOGIN FLOW (Syndicate → Name → PIN) ═════════════
@@ -1343,10 +1330,6 @@ window.showBuddyModal = function() {
   if (!STATE.expandedBuddyGroups) STATE.expandedBuddyGroups = new Set();
   const user = STATE.currentUser;
   if (!user) return;
-  // Non-admins see only their own syndicate; auto-expand since single group
-  const canSeeAll = canSeeAllSyndicates();
-  const myGroup = memberGroupKey(user);
-  if (!canSeeAll) STATE.expandedBuddyGroups.add(myGroup);
   renderBuddyList();
 };
 window.hideBuddyModal = function() { el('buddy-modal').classList.add('hidden'); };
@@ -1355,9 +1338,7 @@ function renderBuddyList() {
   const list = el('buddy-list');
   const user = STATE.currentUser;
   if (!user) { list.innerHTML = ''; return; }
-  const canSeeAll = canSeeAllSyndicates();
-  const myGroup = memberGroupKey(user);
-  const groups = canSeeAll ? groupOrder() : [myGroup];
+  const groups = groupOrder();
   const selectedIds = new Set(
     [...document.querySelectorAll('.buddy-item.selected')].map(x => x.dataset.id)
   );
@@ -1370,20 +1351,24 @@ function renderBuddyList() {
     const safeId = gk.replace(/[^a-z0-9]/gi, '_');
     const itemsHtml = !isOpen ? '' : members.map(m => {
       const sel = selectedIds.has(m.id) ? 'selected' : '';
-      return `<div class="buddy-item ${sel}" data-id="${m.id}" onclick="this.classList.toggle('selected')">
+      return `<div class="buddy-item ${sel}" data-id="${m.id}" onclick="toggleBuddySelect(this)">
         <span class="bi-dot"></span>${escapeHtml(m.shortName || m.name)}
       </div>`;
     }).join('');
+    const selectedCount = members.filter(m => selectedIds.has(m.id)).length;
     return `
       <div class="buddy-group" id="bg-${safeId}">
         <div class="buddy-group-header" style="background:${synColor(gk)}"
           onclick="toggleBuddyGroup('${gk.replace(/'/g,"\\'")}')">
-          <span>${formatGroupDisplay(gk)} · ${members.length} available</span>
-          <span style="font-size:10px;opacity:.8">${isOpen?'▲':'▼'}</span>
+          <span>${formatGroupDisplay(gk)} <span style="opacity:.75;font-weight:600">· ${members.length}</span></span>
+          <span style="display:flex;align-items:center;gap:6px">
+            ${selectedCount ? `<span class="selcount">${selectedCount} selected</span>` : ''}
+            <span style="font-size:10px;opacity:.8">${isOpen?'▲':'▼'}</span>
+          </span>
         </div>
         ${isOpen ? `<div class="buddy-group-items">${itemsHtml}</div>` : ''}
       </div>`;
-  }).join('') || '<p style="padding:16px;color:var(--text-2);font-size:13px;text-align:center">No syndicate mates available.</p>';
+  }).join('') || '<p style="padding:16px;color:var(--text-2);font-size:13px;text-align:center">No members available.</p>';
 }
 
 window.toggleBuddyGroup = function(gk) {
@@ -1391,6 +1376,27 @@ window.toggleBuddyGroup = function(gk) {
   if (STATE.expandedBuddyGroups.has(gk)) STATE.expandedBuddyGroups.delete(gk);
   else STATE.expandedBuddyGroups.add(gk);
   renderBuddyList();
+};
+
+window.toggleBuddySelect = function(itemEl) {
+  itemEl.classList.toggle('selected');
+  // Update the selected-count pill in this group's header without full re-render
+  const groupEl = itemEl.closest('.buddy-group');
+  if (!groupEl) return;
+  const count = groupEl.querySelectorAll('.buddy-item.selected').length;
+  const header = groupEl.querySelector('.buddy-group-header');
+  const existing = header?.querySelector('.selcount');
+  if (count === 0) existing?.remove();
+  else {
+    if (existing) existing.textContent = count + ' selected';
+    else {
+      const right = header?.lastElementChild;
+      const pill = document.createElement('span');
+      pill.className = 'selcount';
+      pill.textContent = count + ' selected';
+      right?.insertBefore(pill, right.firstElementChild);
+    }
+  }
 };
 
 // Pre-share GPS from inside the buddy modal (before submitting)
