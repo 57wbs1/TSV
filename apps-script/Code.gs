@@ -17,7 +17,8 @@ const SHEETS = {
   INCIDENTS: { name: 'Incidents', headers: ['id','reportedBy','type','who','what','where','when','why','how','status','buddy','medicalFacility','actionsText','timestamp'] },
   LOG:       { name: 'Log',       headers: ['timestamp','action','actor','detail'] },
   PINGS:     { name: 'Pings',     headers: ['id','fromId','fromName','toId','message','timestamp','read'] },
-  ADMINREQ:  { name: 'AdminReq',  headers: ['id','fromId','fromName','fromGroup','message','timestamp','status','resolvedBy','resolvedAt','reason'] }
+  ADMINREQ:  { name: 'AdminReq',  headers: ['id','fromId','fromName','fromGroup','message','timestamp','status','resolvedBy','resolvedAt','reason'] },
+  CALENDAR:  { name: 'Calendar',  headers: ['id','day','startTime','endTime','title','location','category','attire','remarks','visitId','synicReport','oicsJson','isDeleted','createdAt','updatedAt'] }
 };
 
 // ── Response helper ──────────────────────────────────────────
@@ -351,49 +352,118 @@ const DAYS_MAP = {
   '2026-04-30': {day:5, theme:'Reflection & Departure',  icon:'🛫'}
 };
 
-// ── 1900H: Next-day preview + location reminder (to MAIN chat) ──
-// Pass `forceDate` (e.g. '2026-04-26') to bypass the trip-day check for testing.
+// ── 1900H: cheerful next-day preview (to MAIN chat) ──
+// Messages are hardcoded here (not read from Calendar sheet) so they're
+// always available and can be tweaked freely without touching the app.
+const DAILY_PREVIEWS = {
+  '2026-04-26':
+`🇹🇭 🛫 <b>Tomorrow is THE DAY — Sunday, 26 April</b>
+<b>Day 1 · ✈️ Arrival & Innovation</b>
+
+Here we go! 🎉 Bright-and-early start at Changi T2 — check-in from 0600H, cohort photo at Dreamscape by 0730H, and we're wheels-up on <b>SQ 708 at 0930H</b>. ✈️
+
+Land in Bangkok at 1130H, straight to lunch, then out to the <b>Chao Phraya River for a 3-hour Long Tail Boat tour</b> — the best way to feel the city's pulse. 🚤
+
+Check into <b>Pullman Bangkok Hotel G</b> by 1830H, syndicate reflections, and Executive Time from 1930H — explore, eat, rest up. 🏨
+
+👔 <b>Attire:</b> Smart Casual (long pants, collared top, covered shoes)
+
+📱 Full schedule in the app → https://57wbs1.github.io/TSV/
+📍 Please <b>update your status & room</b> in the app when you check in!
+
+Let's make it a great start — see everyone at the airport! 🌟`,
+
+  '2026-04-27':
+`🌅 <b>Tomorrow — Monday, 27 April</b>
+<b>Day 2 · 🎓 Military & Academic</b>
+
+Big day of learning ahead! 💡
+
+<b>Morning:</b> Bus out at 0830H for a guided tour of <b>True Digital Park</b> — startup culture meets corporate scale. Thailand's innovation story up close. 🏙️
+
+<b>Afternoon:</b> Quick change into No. 3 Uniform, then visit <b>ISIS at Chulalongkorn University</b> — two keynote addresses + Q&A on Thailand's security and international affairs. 🎓
+
+Back to Pullman by 1630H for syndicate reflections, then Executive Time from 1730H.
+
+👔 <b>Attire:</b> Smart Casual AM · No. 3 Uniform from 1300H
+
+📱 Full details → https://57wbs1.github.io/TSV/
+📍 Syndicate ICs are tracking — please keep your <b>status</b> updated in the app.
+
+Rest well tonight! 🌙`,
+
+  '2026-04-28':
+`🔍 <b>Tomorrow — Tuesday, 28 April</b>
+<b>Day 3 · 🔍 SCOPE Day</b>
+
+Field research day! 🗺️ Time to put boots on the ground for the hypotheses.
+
+📍 <b>Syndicate sites:</b>
+• Ayutthaya — Heritage & Economy
+• Chonburi / Rayong — EEC Corridor
+• Kanchanaburi — Society & Memory
+
+We move out by 0800H. <b>Mandatory check-ins every 4 hours</b> — 1000H · 1400H · 1800H · 2200H. Keep your Syn IC in the loop! 📡
+
+👔 <b>Attire:</b> Smart Casual
+
+📱 Group-specific details → https://57wbs1.github.io/TSV/
+📍 Status updates are <b>critical</b> on SCOPE day — please keep the app live throughout!
+
+Stay sharp, stay safe, and come back with the good stuff. 🎯`,
+
+  '2026-04-29':
+`🏛️ <b>Tomorrow — Wednesday, 29 April</b>
+<b>Day 4 · 🏛️ Diplomatic & Policy</b>
+
+Our most formal day. Look sharp! 🎖️
+
+<b>Morning:</b> 0830H bus to the <b>Royal Thai Army Command & General Staff College</b> — Call on Comd, Exchange of Briefs, cohort discussion, campus tour. Rare chance to engage a partner military institution.
+
+<b>Afternoon:</b> SAF Officers head to the <b>Singapore Embassy</b> — engagements with DAO at 1400H and the SG Ambassador at 1500H. Int Officers return to hotel.
+
+Back at Pullman by 1630H for syndicate reflections + comm huddle.
+
+👔 <b>Attire:</b> No. 3 Uniform all day
+
+📱 Full details → https://57wbs1.github.io/TSV/
+📍 Please keep your <b>status and room</b> updated in the app.
+
+Bring your A-game — both institutions are looking forward to meeting us. 🇸🇬🇹🇭`,
+
+  '2026-04-30':
+`🛫 <b>Tomorrow — Thursday, 30 April</b>
+<b>Day 5 · 🛫 Reflection & Departure</b>
+
+Last day together — let's bring it home. 🌅
+
+<b>Morning (0600–1030H):</b> Breakfast + syndicate-level reflections. Consolidate observations, link back to the PMESII hypotheses, prep the writeup.
+
+Check-out by 1100H, buses roll at 1130H to <b>Suvarnabhumi</b>. Airport check-in + lunch (self-funded), attendance check at the gate by 1430H, and <b>SQ 709 departs 1530H</b>. ✈️
+
+Dinner on the plane, land at Changi T2 around 1900H, last man out of arrival hall = home.
+
+👔 <b>Attire:</b> Smart Casual
+
+📱 Full details → https://57wbs1.github.io/TSV/
+📍 One more round of status updates tomorrow!
+
+Thanks for a great trip — see everyone at the gate! 👋`
+};
+
+// Pass `forceDate` (e.g. '2026-04-26') to test any day regardless of today's date.
 function sendDailyReminder(forceDate) {
   const bkk = bkkNow();
   const tmr = forceDate
     ? new Date(forceDate + 'T00:00:00+07:00')
     : new Date(bkk.getTime() + 24*60*60*1000);
   const tmrDate = forceDate || Utilities.formatDate(tmr, 'Asia/Bangkok', 'yyyy-MM-dd');
-  const d = DAYS_MAP[tmrDate];
-  if (!d) { logAction('reminder_skip', 'server', 'not trip day: ' + tmrDate); return 'Not a trip day: ' + tmrDate; }
 
-  const cal = SPREADSHEET.getSheetByName('Calendar');
-  if (!cal) { tgSend('⚠️ Calendar sheet not found', MAIN_CHAT); return 'No sheet'; }
-
-  const rows = cal.getDataRange().getValues();
-  const h = rows[0];
-  const idx = {
-    day: h.indexOf('day'), start: h.indexOf('startTime'),
-    title: h.indexOf('title'), cat: h.indexOf('category'),
-    attire: h.indexOf('attire'), del: h.indexOf('isDeleted')
-  };
-
-  const events = rows.slice(1)
-    .filter(r => parseInt(r[idx.day]) === d.day && r[idx.del] !== 'true' && r[idx.del] !== true)
-    .filter(r => r[idx.cat] !== 'free' && !String(r[idx.title]).toLowerCase().includes('cutoff'))
-    .map(r => ({ start: r[idx.start], title: r[idx.title], attire: r[idx.attire] }))
-    .sort((a, b) => timeNormalized(a.start) - timeNormalized(b.start));
-
-  const dateLabel = Utilities.formatDate(tmr, 'Asia/Bangkok', 'EEEE, d MMMM');
-  let msg = '🔔 <b>Tomorrow — ' + dateLabel + '</b>\n';
-  msg += 'Day ' + d.day + ' · ' + d.icon + ' ' + d.theme + '\n\n';
-
-  const max = 12;
-  events.slice(0, max).forEach(e => {
-    msg += '• ' + e.start + ' — ' + e.title;
-    if (e.attire) msg += '  <i>(' + e.attire + ')</i>';
-    msg += '\n';
-  });
-  if (events.length > max) msg += '  …and ' + (events.length - max) + ' more\n';
-
-  msg += '\n📱 Open the app for full details, attire, and locations:';
-  msg += '\nhttps://57wbs1.github.io/TSV/';
-  msg += '\n\n📍 Please keep your <b>status and room</b> updated in the app — especially when you check in/out of the hotel.';
+  const msg = DAILY_PREVIEWS[tmrDate];
+  if (!msg) {
+    logAction('reminder_skip', 'server', 'not trip day: ' + tmrDate);
+    return 'Not a trip-eve day: ' + tmrDate;
+  }
 
   tgSend(msg, MAIN_CHAT);
   logAction('reminder_sent', 'server', tmrDate);
