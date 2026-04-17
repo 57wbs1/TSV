@@ -17,7 +17,7 @@ const CONFIG = {
   //      - Who has access: Anyone
   //   5. Copy the Web App URL and paste below
   // ----------------------------------------------------------
-  apiUrl: 'YOUR_APPS_SCRIPT_WEB_APP_URL',
+  apiUrl: 'https://script.google.com/macros/s/AKfycbyrrHPMKvtAgjKUJIDfzf-VCzXddgcO4JCvJ3k7C3OqO50oF44-5esCvTID5XNRGrK3/exec',
 
   // Your Google Sheet ID (from the URL between /d/ and /edit)
   sheetId: '19IjTK0I_L2NXJ9afqTxf3GkCXbcONio4ORaw-54JOjY',
