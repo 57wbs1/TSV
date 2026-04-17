@@ -33,6 +33,13 @@ self.addEventListener('activate', e => {
       const keys = await caches.keys();
       await Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)));
       await self.clients.claim();
+
+      // Force-reload all open tabs/PWAs so they pick up the new code immediately.
+      // This is what saves us for users stuck on old v1 — no JS listener needed in their old code.
+      const clientList = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+      for (const client of clientList) {
+        try { if ('navigate' in client) await client.navigate(client.url); } catch(e) {}
+      }
     })()
   );
 });

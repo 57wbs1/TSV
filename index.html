@@ -15,6 +15,30 @@
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
+<script>
+/* SW self-heal: one-time purge for anyone stuck on the old v1 cache.
+   Runs before any other script. Lives inline in HTML so no cache can hide it. */
+(function(){
+  try {
+    var STAMP = '2026-04-17-v4';
+    if (localStorage.getItem('tsv_sw_reset') === STAMP) return;
+    if ('serviceWorker' in navigator && 'caches' in window) {
+      Promise.all([
+        navigator.serviceWorker.getRegistrations().then(function(rs){
+          return Promise.all(rs.map(function(r){ return r.unregister(); }));
+        }),
+        caches.keys().then(function(ks){
+          return Promise.all(ks.filter(function(k){ return k.indexOf('tsv-bkk-v4') !== 0; })
+                                .map(function(k){ return caches.delete(k); }));
+        })
+      ]).then(function(){
+        localStorage.setItem('tsv_sw_reset', STAMP);
+        window.location.reload();
+      });
+    }
+  } catch(e) { /* non-blocking */ }
+})();
+</script>
 
 <!-- ── Loading Screen ─────────────────────────────────────── -->
 <div id="loading">

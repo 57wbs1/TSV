@@ -1631,22 +1631,26 @@ function startApp() {
 // ═══════════ INIT ════════════════════════════════════════════
 window.addEventListener('load', () => {
   if ('serviceWorker' in navigator) {
+    let refreshingSW = false;
+    // When new SW takes control, silently reload ONCE (no prompt)
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (refreshingSW) return;
+      refreshingSW = true;
+      window.location.reload();
+    });
+
     navigator.serviceWorker.register('./sw.js').then(reg => {
-      // Detect when a new SW is waiting — prompt reload
       reg.addEventListener('updatefound', () => {
         const newSW = reg.installing;
         if (!newSW) return;
         newSW.addEventListener('statechange', () => {
           if (newSW.state === 'installed' && navigator.serviceWorker.controller) {
-            // New version available
-            if (confirm('A new version of the app is available. Reload now?')) {
-              newSW.postMessage('SKIP_WAITING');
-              window.location.reload();
-            }
+            // Tell new SW to activate — triggers controllerchange → auto-reload
+            newSW.postMessage('SKIP_WAITING');
           }
         });
       });
-      // Auto-check for updates every 60s when app is open
+      // Check for updates every 60s
       setInterval(() => reg.update().catch(() => {}), 60000);
     }).catch(() => {});
   }
