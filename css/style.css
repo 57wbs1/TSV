@@ -399,7 +399,7 @@ body::after {
 /* ══════════════════════════════════════════════════════════
    MODAL BASE (Identity, Buddy, Members)
    ══════════════════════════════════════════════════════════ */
-#identity-modal, #buddy-modal, #members-modal, #member-editor {
+#identity-modal, #buddy-modal, #members-modal, #member-editor, #event-editor {
   position: fixed; inset: 0;
   background: rgba(15,23,42,.55);
   display: flex; align-items: flex-end; justify-content: center;
@@ -408,10 +408,12 @@ body::after {
   -webkit-backdrop-filter: blur(8px);
   animation: fadeIn .25s var(--ease-out);
 }
-#identity-modal.hidden, #buddy-modal.hidden, #members-modal.hidden, #member-editor.hidden { display: none; }
+#identity-modal.hidden, #buddy-modal.hidden, #members-modal.hidden,
+#member-editor.hidden, #event-editor.hidden { display: none; }
 #buddy-modal    { z-index: 6400; }
 #members-modal  { z-index: 6400; }
 #member-editor  { z-index: 6600; }
+#event-editor   { z-index: 6600; }
 
 .identity-sheet, .buddy-sheet, .members-sheet, .editor-sheet {
   background: var(--n-0);
@@ -2671,9 +2673,9 @@ body::after {
   background: linear-gradient(135deg, var(--blue-50), #dbe7ff);
   border: 2px solid var(--blue-500);
   border-radius: var(--r-md);
-  padding: 14px 16px;
-  font-size: 13px;
-  line-height: 1.6;
+  padding: 10px 12px;
+  font-size: 11px;
+  line-height: 1.45;
   animation: slideDownIn .22s var(--ease-out);
   box-shadow: 0 8px 20px rgba(0,53,128,.15);
   color: var(--n-900);
@@ -2697,10 +2699,10 @@ body::after {
   z-index: -1;
 }
 .cal-event-expand .cee-title-row {
-  font-size: 14px; font-weight: 800;
+  font-size: 12px; font-weight: 800;
   letter-spacing: -0.01em;
-  margin-bottom: 10px;
-  padding-bottom: 8px;
+  margin-bottom: 6px;
+  padding-bottom: 5px;
   border-bottom: 1px solid rgba(0,53,128,.15);
   color: var(--blue-700);
 }
@@ -2708,34 +2710,41 @@ body::after {
   .cal-event-expand .cee-title-row { color: #a8c4ff; border-bottom-color: rgba(168,196,255,.2); }
 }
 .cal-event-expand h5 {
-  font-size: 10px;
+  font-size: 8.5px;
   font-weight: 800;
   letter-spacing: .06em;
   text-transform: uppercase;
   color: var(--text-2);
-  margin-top: 8px;
-  margin-bottom: 3px;
+  margin-top: 6px;
+  margin-bottom: 2px;
 }
 .cal-event-expand h5:first-child { margin-top: 0; }
-.cal-event-expand p { margin-bottom: 4px; }
+.cal-event-expand p { margin-bottom: 3px; font-size: 11px; line-height: 1.4; }
 .cal-event-expand .cee-actions {
-  display: flex; gap: 6px;
-  margin-top: 10px; flex-wrap: wrap;
+  display: flex; gap: 8px;
+  margin-top: 12px; flex-wrap: wrap;
+  align-items: stretch;
 }
+/* Send Attendance is THE primary action — make it dominant */
 .btn-attendance {
   background: linear-gradient(135deg, #059669, #10b981);
   color: white;
-  padding: 8px 14px;
+  padding: 14px 22px;
   border: none;
   border-radius: var(--r-full);
-  font-size: 12px;
-  font-weight: 700;
+  font-size: 15px;
+  font-weight: 800;
   cursor: pointer;
-  display: inline-flex; align-items: center; gap: 6px;
-  box-shadow: 0 4px 10px rgba(16,185,129,.3);
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  box-shadow: 0 6px 16px rgba(16,185,129,.4);
   transition: all .15s;
+  flex: 1 1 auto;
+  min-width: 170px;
+  letter-spacing: -.01em;
 }
-.btn-attendance:active { transform: scale(0.96); }
+.btn-attendance:active { transform: scale(0.97); }
+/* Edit/Close stay compact so Send Attendance visually dominates */
+.cee-actions .btn.btn-outline { flex: 0 0 auto; padding: 8px 10px; }
 .ce-title {
   font-size: 12.5px; font-weight: 800;   /* smaller but still bold */
   letter-spacing: -0.01em;
@@ -3121,7 +3130,6 @@ html.size-lg { --text-scale: 1.12; }
 .hero-theme, .hero-date, .hero-day-label,
 .event-item .event-name, .event-item .event-loc, .event-item .event-remarks,
 .cal-event-card .ce-title, .cal-event-card .ce-loc,
-.cal-event-expand, .cal-event-expand h5, .cal-event-expand p,
 .mgr-name, .mgr-meta,
 .m-name, .m-detail, .m-buddy,
 .card-body p, .card-body li, .card-body span:not(.status-pill):not(.badge),
