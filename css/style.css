@@ -1783,16 +1783,26 @@ body::after {
    MAP
    ══════════════════════════════════════════════════════════ */
 #map-container {
-  height: calc(100dvh - var(--header-h) - var(--nav-h) - var(--action-h, 0px) - var(--safe-b) - 200px);
-  min-height: 260px;
-  max-height: 60vh;
+  /* Fixed pixel height avoids iOS Safari's dvh wobble (address bar show/hide)
+     which was breaking Leaflet's tile-pane transforms during zoom. */
+  height: 58vh;
+  min-height: 320px;
+  max-height: 620px;
   border-radius: var(--r-lg);
   overflow: hidden;
   box-shadow: var(--shadow-md);
   border: 1px solid var(--border-2);
   margin-bottom: 10px;
+  position: relative;
+  contain: layout size;
 }
-#leaflet-map { height: 100%; width: 100%; }
+#leaflet-map {
+  height: 100%; width: 100%;
+  position: absolute; inset: 0;
+}
+/* Keep tile layer opaque during zoom so half-rendered tiles don't flash blank */
+#leaflet-map .leaflet-tile-pane { will-change: transform; }
+#leaflet-map .leaflet-fade-anim .leaflet-tile { transition: opacity .15s linear; }
 .map-legend {
   display: flex; gap: 16px; flex-wrap: wrap;
   padding: 10px 12px;

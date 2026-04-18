@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>TSV Bangkok 2026 — Install Guide</title>
+<style>
+  @page { size: A4; margin: 12mm; }
+  * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    color: #0f172a; margin: 0; line-height: 1.45;
+    background: #fff;
+  }
+  .page {
+    max-width: 186mm; margin: 0 auto; padding: 0;
+  }
+  .hero {
+    background: linear-gradient(135deg, #003580, #0058b3);
+    color: #fff;
+    border-radius: 10px;
+    padding: 18px 22px;
+    margin-bottom: 16px;
+    display: flex; align-items: center; gap: 14px;
+  }
+  .hero .flag { font-size: 38px; }
+  .hero h1 { margin: 0; font-size: 22px; letter-spacing: -0.01em; }
+  .hero p { margin: 3px 0 0; font-size: 11.5px; opacity: .9; }
+
+  .url-box {
+    border: 2px dashed #2563eb;
+    background: #eff6ff;
+    border-radius: 8px;
+    padding: 10px 14px;
+    margin-bottom: 14px;
+    font-size: 11.5px;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .url-box code {
+    font-family: 'SF Mono', Menlo, monospace;
+    font-size: 12px; font-weight: 700;
+    color: #1e40af;
+  }
+
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .col {
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 12px 14px;
+    background: #f8fafc;
+    page-break-inside: avoid;
+  }
+  .col-head {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 14px; font-weight: 800;
+    border-bottom: 2px solid #cbd5e1;
+    padding-bottom: 8px;
+    margin-bottom: 10px;
+  }
+  .col-head .plat-icon { font-size: 20px; }
+  .col-ios .col-head { color: #111827; border-color: #9ca3af; }
+  .col-and .col-head { color: #0f5132; border-color: #10b981; }
+
+  .callout {
+    background: #fef3c7;
+    border-left: 3px solid #f59e0b;
+    border-radius: 4px;
+    padding: 7px 10px;
+    font-size: 10.5px;
+    color: #78350f;
+    margin-bottom: 10px;
+    line-height: 1.4;
+  }
+
+  .step {
+    display: flex; gap: 10px;
+    margin-bottom: 10px;
+    page-break-inside: avoid;
+  }
+  .step-num {
+    width: 22px; height: 22px; flex-shrink: 0;
+    background: #2563eb; color: #fff;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 800;
+  }
+  .col-and .step-num { background: #10b981; }
+  .step-body { flex: 1; min-width: 0; }
+  .step-title { font-size: 11.5px; font-weight: 700; margin-bottom: 2px; }
+  .step-desc  { font-size: 10px; color: #475569; line-height: 1.5; }
+  .step-art {
+    margin-top: 5px;
+    border-radius: 4px;
+    display: block;
+    max-width: 100%;
+    height: auto;
+  }
+
+  .faq {
+    margin-top: 16px;
+    border-top: 2px solid #e2e8f0;
+    padding-top: 10px;
+    page-break-before: auto;
+  }
+  .faq h2 { font-size: 14px; margin: 0 0 6px; color: #0f172a; }
+  .faq-item { margin-bottom: 8px; }
+  .faq-q {
+    font-size: 11px; font-weight: 700; color: #1e40af;
+  }
+  .faq-a {
+    font-size: 10px; color: #475569; line-height: 1.5;
+  }
+
+  .footer {
+    margin-top: 12px;
+    border-top: 1px solid #e2e8f0;
+    padding-top: 8px;
+    font-size: 9px;
+    color: #94a3b8;
+    display: flex; justify-content: space-between;
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="hero">
+    <div class="flag">🇹🇭</div>
+    <div>
+      <h1>TSV Bangkok 2026 — Install App</h1>
+      <p>Add the PWA to your home screen · GKSCSC Thailand Study Visit · 26–30 Apr 2026</p>
+    </div>
+  </div>
+
+  <div class="url-box">
+    <div>
+      <div style="font-size:10px; color:#1e3a8a; text-transform:uppercase; letter-spacing:.05em; font-weight:800;">Open this link on your phone</div>
+      <code>https://57wbs1.github.io/TSV/</code>
+    </div>
+    <div style="font-size:26px;">📱</div>
+  </div>
+
+  <div class="cols">
+
+    <!-- iOS COLUMN -->
+    <div class="col col-ios">
+      <div class="col-head"><span class="plat-icon">🍎</span> iPhone (iOS)</div>
+      <div class="callout"><b>Use Safari</b> — not Chrome, not from inside Telegram. Only Safari can install PWAs on iOS.</div>
+
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <div class="step-title">Tap the <b>Share</b> button</div>
+          <div class="step-desc">Bottom centre of Safari — the square with an up-arrow.</div>
+          <svg class="step-art" viewBox="0 0 200 70" width="100%">
+            <rect x="2" y="2" width="196" height="66" rx="10" fill="#1f2937" stroke="#334155" stroke-width="1.5"/>
+            <rect x="78" y="16" width="44" height="40" rx="5" fill="#0b1120" stroke="#3b82f6" stroke-width="2"/>
+            <path d="M100 44 V25 M90 34 L100 25 L110 34" stroke="#3b82f6" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-body">
+          <div class="step-title">Scroll down → <b>Add to Home Screen</b></div>
+          <div class="step-desc">In the share sheet, swipe up on the grid of actions. Look for the icon with a ➕.</div>
+          <svg class="step-art" viewBox="0 0 200 92" width="100%">
+            <rect x="2" y="2" width="196" height="88" rx="10" fill="#1f2937" stroke="#334155" stroke-width="1.5"/>
+            <rect x="12" y="12" width="176" height="20" rx="5" fill="#0b1120"/>
+            <text x="20" y="25" fill="#e2e8f0" font-size="8" font-family="system-ui">Copy Link</text>
+            <rect x="12" y="36" width="176" height="20" rx="5" fill="#0b1120"/>
+            <text x="20" y="49" fill="#e2e8f0" font-size="8" font-family="system-ui">Add to Reading List</text>
+            <rect x="12" y="60" width="176" height="22" rx="5" fill="#0b3f2c" stroke="#10b981" stroke-width="1.5"/>
+            <text x="20" y="74" fill="#6ee7b7" font-size="8" font-weight="700" font-family="system-ui">Add to Home Screen</text>
+            <text x="172" y="76" fill="#6ee7b7" font-size="12" font-family="system-ui">＋</text>
+          </svg>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-body">
+          <div class="step-title">Tap <b>Add</b> top right</div>
+          <div class="step-desc">Icon lands on your home screen. Tap it to launch full-screen. Sign in once with your 4-digit PIN.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ANDROID COLUMN -->
+    <div class="col col-and">
+      <div class="col-head"><span class="plat-icon">🤖</span> Android</div>
+      <div class="callout" style="background:#d1fae5; border-color:#10b981; color:#065f46;">Use <b>Chrome</b> (default browser works too — Samsung Internet, Edge all fine).</div>
+
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <div class="step-title">Tap the <b>⋮ menu</b> top right</div>
+          <div class="step-desc">Three vertical dots next to the address bar.</div>
+          <svg class="step-art" viewBox="0 0 200 70" width="100%">
+            <rect x="2" y="2" width="196" height="66" rx="10" fill="#1f2937" stroke="#334155" stroke-width="1.5"/>
+            <rect x="12" y="14" width="154" height="20" rx="10" fill="#0b1120"/>
+            <text x="20" y="27" fill="#94a3b8" font-size="8" font-family="system-ui">57wbs1.github.io/TSV</text>
+            <circle cx="180" cy="24" r="2" fill="#e2e8f0"/>
+            <circle cx="180" cy="32" r="2" fill="#e2e8f0"/>
+            <circle cx="180" cy="40" r="2" fill="#e2e8f0"/>
+            <rect x="172" y="14" width="18" height="30" rx="3" fill="none" stroke="#10b981" stroke-width="2"/>
+          </svg>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-body">
+          <div class="step-title">Tap <b>Install app</b> or <b>Add to Home screen</b></div>
+          <div class="step-desc">One of these will appear. Chrome may also auto-prompt you with a banner.</div>
+          <svg class="step-art" viewBox="0 0 200 72" width="100%">
+            <rect x="2" y="2" width="196" height="68" rx="10" fill="#1f2937" stroke="#334155" stroke-width="1.5"/>
+            <rect x="12" y="10" width="176" height="20" rx="4" fill="#0b1120"/>
+            <text x="20" y="23" fill="#e2e8f0" font-size="8" font-family="system-ui">Share</text>
+            <rect x="12" y="36" width="176" height="24" rx="4" fill="#0b3f2c" stroke="#10b981" stroke-width="1.5"/>
+            <text x="20" y="52" fill="#6ee7b7" font-size="9" font-weight="700" font-family="system-ui">Install app</text>
+            <text x="170" y="53" fill="#6ee7b7" font-size="11" font-family="system-ui">⬇</text>
+          </svg>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-body">
+          <div class="step-title">Confirm <b>Install</b></div>
+          <div class="step-desc">App icon appears on your home screen. Launching from the icon runs it full-screen with offline support.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- FAQ -->
+  <div class="faq">
+    <h2>Quick FAQ</h2>
+
+    <div class="faq-item">
+      <div class="faq-q">Why install? Isn't opening the link enough?</div>
+      <div class="faq-a">Installing runs the app full-screen (no browser UI), launches faster, and works offline — your status updates will queue and sync when you're back online.</div>
+    </div>
+
+    <div class="faq-item">
+      <div class="faq-q">My PIN is <b>0000</b> by default</div>
+      <div class="faq-a">Change it after your first login via Settings → Account → Change PIN.</div>
+    </div>
+
+    <div class="faq-item">
+      <div class="faq-q">Location permission — why does it ask?</div>
+      <div class="faq-a">Only used when you tap "Leaving Hotel" so your buddies and the duty officer can see you on the map. You can deny it and still use the app; location just won't auto-capture.</div>
+    </div>
+
+    <div class="faq-item">
+      <div class="faq-q">Telegram notifications?</div>
+      <div class="faq-a">The bot sends automated reminders (0600H weather, 1900H preview, 2300H SITREP, 0200H curfew). You'll receive them in your syndicate's Telegram group — no setup needed.</div>
+    </div>
+  </div>
+
+  <div class="footer">
+    <span>TSV Bangkok 2026 · GKSCSC · Pullman Bangkok Hotel G</span>
+    <span>57wbs1.github.io/TSV</span>
+  </div>
+
+</div>
+</body>
+</html>

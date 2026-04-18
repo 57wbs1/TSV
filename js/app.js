@@ -2051,13 +2051,48 @@ window.updateLocationText = function() {
 function initMap() {
   if (STATE.map) {
     updateMapMarkers();
-    // Ensure map re-measures after tab switch / orientation / action-bar changes
-    setTimeout(() => STATE.map.invalidateSize(), 100);
+    // Re-measure after tab switch / orientation / action-bar / keyboard.
+    // Chain a second invalidate after animation completes — iOS Safari
+    // sometimes gives a wrong size on the first call right after layout.
+    setTimeout(() => STATE.map.invalidateSize(true), 50);
+    setTimeout(() => STATE.map.invalidateSize(true), 350);
     return;
   }
   if (typeof L === 'undefined') { setTimeout(initMap, 500); return; }
-  STATE.map = L.map('leaflet-map').setView([CONFIG.hotel.lat, CONFIG.hotel.lng], 13);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution:'© OpenStreetMap', maxZoom:19 }).addTo(STATE.map);
+  STATE.map = L.map('leaflet-map', {
+    // keepBuffer: keep a ring of off-screen tiles so pan/zoom doesn't
+    // expose blank gaps while Leaflet fetches new ones.
+    renderer: L.canvas(),
+    zoomAnimation: true,
+    fadeAnimation: true,
+    preferCanvas: false
+  }).setView([CONFIG.hotel.lat, CONFIG.hotel.lng], 13);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution:'© OpenStreetMap',
+    maxZoom:19,
+    keepBuffer: 4,   // default is 2 — more tiles off-screen = less flashing
+    updateWhenIdle: false,
+    updateWhenZooming: false
+  }).addTo(STATE.map);
+  // Safety net — if the container size ever drifts from the map's internal
+  // size (common after dvh changes when the iOS address bar toggles),
+  // invalidate on every zoom/move end.
+  STATE.map.on('zoomend moveend resize', () => {
+    // Throttle: only if size genuinely changed
+    const el = document.getElementById('leaflet-map');
+    if (!el) return;
+    const w = el.clientWidth, h = el.clientHeight;
+    const mapSize = STATE.map.getSize();
+    if (Math.abs(mapSize.x - w) > 2 || Math.abs(mapSize.y - h) > 2) {
+      STATE.map.invalidateSize(false);
+    }
+  });
+  // Also listen for viewport resize (iOS address bar show/hide fires this)
+  if (!STATE._mapResizeHandler) {
+    STATE._mapResizeHandler = () => { STATE.map?.invalidateSize(true); };
+    window.addEventListener('resize', STATE._mapResizeHandler);
+    window.addEventListener('orientationchange', STATE._mapResizeHandler);
+  }
   const hotelIcon = L.divIcon({
     html: `<div style="background:#003580;color:white;border-radius:50%;width:40px;height:40px;display:flex;align-items:center;justify-content:center;font-size:20px;border:3px solid white;box-shadow:0 4px 10px rgba(0,0,0,.3)">🏨</div>`,
     className:'', iconSize:[40,40], iconAnchor:[20,20]
