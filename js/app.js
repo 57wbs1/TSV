@@ -2639,13 +2639,12 @@ async function manualRefresh() {
 window.addEventListener('load', () => {
   if ('serviceWorker' in navigator) {
     let refreshingSW = false;
-    let appBooted = false;
-    window.addEventListener('load', () => { setTimeout(() => { appBooted = true; }, 2500); }, { once: true });
-    // When new SW takes control, silently reload — but NEVER mid-boot (that's what
-    // was hanging the app: controllerchange firing before startApp() finished).
+    // SW's activate no longer force-navigates clients (fixed earlier), so it's
+    // safe to simply reload whenever a new SW takes control. The old guard was
+    // setting refreshingSW=true when skipping during boot, which PERMANENTLY
+    // blocked future reloads — that's why v42→v44 never reached users.
     navigator.serviceWorker.addEventListener('controllerchange', () => {
       if (refreshingSW) return;
-      if (!appBooted) { refreshingSW = true; return; }  // skip reload mid-init
       refreshingSW = true;
       window.location.reload();
     });
@@ -2656,13 +2655,10 @@ window.addEventListener('load', () => {
         if (!newSW) return;
         newSW.addEventListener('statechange', () => {
           if (newSW.state === 'installed' && navigator.serviceWorker.controller) {
-            // Tell new SW to activate — only after boot so we don't kill mid-init
-            if (appBooted) newSW.postMessage('SKIP_WAITING');
-            else setTimeout(() => newSW.postMessage('SKIP_WAITING'), 3000);
+            newSW.postMessage('SKIP_WAITING');
           }
         });
       });
-      // Check for updates every 5 min (was 60s — too chatty)
       setInterval(() => reg.update().catch(() => {}), 5 * 60 * 1000);
     }).catch(() => {});
   }
