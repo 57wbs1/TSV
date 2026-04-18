@@ -93,10 +93,12 @@ html, body {
   letter-spacing: -0.01em;
   -webkit-text-size-adjust: 100%;
 }
-/* Match status-bar area to header color — no black flash above the blue header */
-html { background: var(--blue-900); }
-@supports (background: color-mix(in srgb, red, blue)) {
-  html { background: color-mix(in srgb, var(--blue-900) 100%, transparent); }
+/* html bg = nav bg. The header has its own gradient that paints over the top
+   safe-area, so html only shows when safe-area-bottom isn't fully covered
+   by the nav — making it match the nav color hides any gap cleanly. */
+html { background: #ffffff; }
+@media (prefers-color-scheme: dark) {
+  html { background: #0b1120; }
 }
 
 /* Allow pinch-to-zoom on media only, but block double-tap-to-zoom everywhere */
