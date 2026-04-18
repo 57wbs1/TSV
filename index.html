@@ -20,7 +20,7 @@
    Runs before any other script. Lives inline in HTML so no cache can hide it. */
 (function(){
   try {
-    var STAMP = '2026-04-17-v4';
+    var STAMP = '2026-04-18-v5';
     if (localStorage.getItem('tsv_sw_reset') === STAMP) return;
     if ('serviceWorker' in navigator && 'caches' in window) {
       Promise.all([
