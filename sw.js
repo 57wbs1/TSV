@@ -1,5 +1,5 @@
 // Bump this version number on every deploy to invalidate the cache.
-const CACHE_NAME = 'tsv-bkk-v37-' + '20260418v';
+const CACHE_NAME = 'tsv-bkk-v38-' + '20260418v2';
 
 const APP_SHELL = [
   './index.html',
@@ -34,13 +34,10 @@ self.addEventListener('activate', e => {
       const keys = await caches.keys();
       await Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)));
       await self.clients.claim();
-
-      // Force-reload all open tabs/PWAs so they pick up the new code immediately.
-      // This is what saves us for users stuck on old v1 — no JS listener needed in their old code.
-      const clientList = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-      for (const client of clientList) {
-        try { if ('navigate' in client) await client.navigate(client.url); } catch(e) {}
-      }
+      // NOTE: no forced client.navigate() here — that raced with the
+      // client-side `controllerchange` → window.location.reload() handler
+      // and caused the app to hang mid-load after a deploy. The client
+      // already auto-reloads once when the new SW takes control.
     })()
   );
 });

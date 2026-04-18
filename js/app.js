@@ -741,44 +741,45 @@ async function syncCalendar() {
 
 async function seedIfEmpty() {
   if (STATE.offlineMode) return;
-  const members = await API.get('getMembers');
+  // Only admins should run seed/migration — no reason for 50 regular users
+  // to each hit the API with seed checks on every cold start.
+  if (!hasAdminRights()) return;
+  // Run in background — don't block startup on any of this.
+  (async () => {
+    const members = await API.get('getMembers');
+    if (Array.isArray(members)) {
+      if (members.length === 0) {
+        await API.post('seedMembers', { members: DEFAULT_MEMBERS });
+      } else {
+        const existingIds = new Set(members.map(m => String(m.id)));
+        const missing = DEFAULT_MEMBERS.filter(m => !existingIds.has(m.id));
+        if (missing.length) await API.post('seedMembers', { members: missing });
 
-  if (Array.isArray(members)) {
-    if (members.length === 0) {
-      await API.post('seedMembers', { members: DEFAULT_MEMBERS });
-    } else {
-      // Add any NEW defaults that aren't in sheet yet (Jon Quek, Grace, Umbra, etc.)
-      const existingIds = new Set(members.map(m => String(m.id)));
-      const missing = DEFAULT_MEMBERS.filter(m => !existingIds.has(m.id));
-      if (missing.length) await API.post('seedMembers', { members: missing });
-
-      // One-time migration: soft-delete stale entries from previous seeds
-      const STALE_IDS = [
-        'sl', 'dysl', 'safety_ic', 'security_ic', 'log_ic', 'learning_ic', 'comm_ic',
-        '57s1_ic', '57s3_ic', '57s4_ic',
-        '57s1_m1','57s1_m2','57s1_m3','57s1_m4','57s1_m5','57s1_m6','57s1_m7',
-        '57s3_m1','57s3_m2','57s3_m3','57s3_m4','57s3_m5','57s3_m6','57s3_m7',
-        '57s4_m1','57s4_m2','57s4_m3','57s4_m4','57s4_m5','57s4_m6','57s4_m7',
-        '25es18_m1','25es18_m2','25es18_m3','25es18_m4','25es18_m5','25es18_m6','25es18_m7',
-        '26es14_m1','26es14_m2','26es14_m3','26es14_m4','26es14_m5','26es14_m6','26es14_m7',
-        '27es18_m1','27es18_m2','27es18_m3','27es18_m4','27es18_m5','27es18_m6','27es18_m7'
-      ];
-      if (localStorage.getItem('tsv_migrated_v2') !== '1') {
-        const toRemove = members.filter(m =>
-          STALE_IDS.includes(String(m.id)) && m.isDeleted !== 'true' && m.isDeleted !== true
-        );
-        for (const m of toRemove) {
-          await API.post('deleteMember', { id: m.id, actor: 'migration_v2' });
+        // One-time migration — parallel, not sequential
+        const STALE_IDS = [
+          'sl', 'dysl', 'safety_ic', 'security_ic', 'log_ic', 'learning_ic', 'comm_ic',
+          '57s1_ic', '57s3_ic', '57s4_ic',
+          '57s1_m1','57s1_m2','57s1_m3','57s1_m4','57s1_m5','57s1_m6','57s1_m7',
+          '57s3_m1','57s3_m2','57s3_m3','57s3_m4','57s3_m5','57s3_m6','57s3_m7',
+          '57s4_m1','57s4_m2','57s4_m3','57s4_m4','57s4_m5','57s4_m6','57s4_m7',
+          '25es18_m1','25es18_m2','25es18_m3','25es18_m4','25es18_m5','25es18_m6','25es18_m7',
+          '26es14_m1','26es14_m2','26es14_m3','26es14_m4','26es14_m5','26es14_m6','26es14_m7',
+          '27es18_m1','27es18_m2','27es18_m3','27es18_m4','27es18_m5','27es18_m6','27es18_m7'
+        ];
+        if (localStorage.getItem('tsv_migrated_v2') !== '1') {
+          const toRemove = members.filter(m =>
+            STALE_IDS.includes(String(m.id)) && m.isDeleted !== 'true' && m.isDeleted !== true
+          );
+          await Promise.all(toRemove.map(m =>
+            API.post('deleteMember', { id: m.id, actor: 'migration_v2' })
+          ));
+          localStorage.setItem('tsv_migrated_v2', '1');
         }
-        localStorage.setItem('tsv_migrated_v2', '1');
       }
     }
-  }
-
-  const cal = await API.get('getCalendar');
-  if (Array.isArray(cal) && cal.length === 0) await API.post('seedCalendar', { events: CALENDAR_SEED });
-  await syncMembers();
-  await syncCalendar();
+    const cal = await API.get('getCalendar');
+    if (Array.isArray(cal) && cal.length === 0) await API.post('seedCalendar', { events: CALENDAR_SEED });
+  })().catch(() => {});
 }
 
 function safeJson(s) { try { return JSON.parse(s); } catch { return {}; } }
@@ -796,9 +797,8 @@ function startPolling() {
   Object.keys(STATE._timers || {}).forEach(k => clearInterval(STATE._timers[k]));
   STATE._timers = {};
 
-  // Initial sync
-  syncMembers().then(syncStatuses);
-  syncCalendar();
+  // Initial sync — parallel, fire-and-forget so startup isn't blocked
+  Promise.all([syncMembers(), syncStatuses(), syncCalendar()]).catch(() => {});
 
   // Refresh when user comes back to the tab/app
   if (!STATE._visHandler) {
@@ -2504,6 +2504,8 @@ function startApp() {
   const admin = el('btn-admin');
   admin.onclick = showMembersModal;
   if (isAdmin()) admin.classList.remove('hidden');
+  const refreshBtn = el('btn-refresh');
+  if (refreshBtn) refreshBtn.onclick = manualRefresh;
   document.querySelectorAll('.nav-btn').forEach(btn => btn.addEventListener('click', () => switchTab(btn.dataset.tab)));
   STATE.scheduleDay = (getCurrentDay() || DAYS[0]).day;
   switchTab('home');
@@ -2525,14 +2527,35 @@ function startApp() {
   document.addEventListener('touchend', () => { setTimeout(() => { STATE.isTouching = false; }, 200); }, { passive: true });
   document.addEventListener('touchcancel', () => { STATE.isTouching = false; }, { passive: true });
 
-  // Ping check every 20s
+  // Ping check every 60s (was 20s — 50 users × 20s = too many writes)
   checkMyPings();
-  setInterval(checkMyPings, 20000);
+  setInterval(checkMyPings, 60000);
 
-  // Admin requests sync for super-admin
+  // Admin requests sync for super-admin — every 2 min is plenty
   if (STATE.currentUser?.id === CONFIG.superAdminId) {
     syncAdminRequests();
-    setInterval(syncAdminRequests, 30000);
+    setInterval(syncAdminRequests, 2 * 60 * 1000);
+  }
+}
+
+// Manual refresh — triggered by header 🔄 button
+async function manualRefresh() {
+  const btn = el('btn-refresh');
+  if (btn) btn.classList.add('spinning');
+  try {
+    await Promise.all([
+      syncMembers(),
+      syncStatuses(),
+      syncCalendar(),
+      syncLearnings(),
+      STATE.learnSubTab === 'reflections' ? syncReflections() : Promise.resolve()
+    ]);
+    refreshWeather();
+    toast('✓ Refreshed');
+  } catch {
+    toast('⚠ Refresh failed');
+  } finally {
+    if (btn) setTimeout(() => btn.classList.remove('spinning'), 400);
   }
 }
 
@@ -2540,9 +2563,13 @@ function startApp() {
 window.addEventListener('load', () => {
   if ('serviceWorker' in navigator) {
     let refreshingSW = false;
-    // When new SW takes control, silently reload ONCE (no prompt)
+    let appBooted = false;
+    window.addEventListener('load', () => { setTimeout(() => { appBooted = true; }, 2500); }, { once: true });
+    // When new SW takes control, silently reload — but NEVER mid-boot (that's what
+    // was hanging the app: controllerchange firing before startApp() finished).
     navigator.serviceWorker.addEventListener('controllerchange', () => {
       if (refreshingSW) return;
+      if (!appBooted) { refreshingSW = true; return; }  // skip reload mid-init
       refreshingSW = true;
       window.location.reload();
     });
@@ -2553,13 +2580,14 @@ window.addEventListener('load', () => {
         if (!newSW) return;
         newSW.addEventListener('statechange', () => {
           if (newSW.state === 'installed' && navigator.serviceWorker.controller) {
-            // Tell new SW to activate — triggers controllerchange → auto-reload
-            newSW.postMessage('SKIP_WAITING');
+            // Tell new SW to activate — only after boot so we don't kill mid-init
+            if (appBooted) newSW.postMessage('SKIP_WAITING');
+            else setTimeout(() => newSW.postMessage('SKIP_WAITING'), 3000);
           }
         });
       });
-      // Check for updates every 60s
-      setInterval(() => reg.update().catch(() => {}), 60000);
+      // Check for updates every 5 min (was 60s — too chatty)
+      setInterval(() => reg.update().catch(() => {}), 5 * 60 * 1000);
     }).catch(() => {});
   }
   setupPinKeypad();
