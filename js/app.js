@@ -2625,10 +2625,26 @@ function startApp() {
 }
 
 // Manual refresh — triggered by header 🔄 button
+// Also checks for app updates: if a new SW is waiting, skip-waiting + reload.
 async function manualRefresh() {
   const btn = el('btn-refresh');
   if (btn) btn.classList.add('spinning');
   try {
+    // Check for new app version first — if there is one, take it and reload.
+    if ('serviceWorker' in navigator) {
+      try {
+        const reg = await navigator.serviceWorker.getRegistration();
+        if (reg) {
+          await reg.update();
+          if (reg.waiting) {
+            reg.waiting.postMessage('SKIP_WAITING');
+            // controllerchange listener will reload us
+            toast('⬇️ New version, reloading…');
+            return;
+          }
+        }
+      } catch {}
+    }
     await Promise.all([
       syncMembers(),
       syncStatuses(),
