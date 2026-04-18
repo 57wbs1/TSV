@@ -605,57 +605,35 @@ body::after {
   letter-spacing: -0.005em;
 }
 
-/* ── Pinned Action Bar (above bottom nav) ──────────────── */
-#pinned-action-bar {
-  position: fixed;
-  left: 0; right: 0;
-  bottom: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px) * var(--safe-factor, 1) + var(--nav-pad-b, 0px));
-  z-index: 90;
-  padding: 8px 12px;
-  background: rgba(255,255,255,.88);
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  border-top: 1px solid rgba(226,232,240,.6);
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  transition: transform .2s var(--ease-out);
-}
-#pinned-action-bar.hidden { display: none; }
-@media (prefers-color-scheme: dark) {
-  #pinned-action-bar {
-    background: rgba(15,23,42,.88);
-    border-top-color: rgba(51,65,85,.5);
-  }
-}
+/* ── Nav Action Row (inside bottom nav, above tab row) ─── */
 .pab-primary {
   flex: 1;
-  padding: 13px 16px;
+  padding: 10px 12px;
   border: none;
-  border-radius: var(--r-lg);
-  font-size: 15px;
+  border-radius: var(--r-md);
+  font-size: 14px;
   font-weight: 800;
   letter-spacing: -0.01em;
   cursor: pointer;
   color: white;
-  display: flex; align-items: center; justify-content: center; gap: 8px;
+  display: flex; align-items: center; justify-content: center; gap: 6px;
   transition: transform .12s var(--ease-out);
-  box-shadow: var(--shadow-md);
+  box-shadow: var(--shadow-sm);
 }
 .pab-primary:active { transform: scale(0.98); }
 .pab-primary.leaving { background: linear-gradient(135deg, var(--red-600), var(--red-500)); }
 .pab-primary.returning { background: linear-gradient(135deg, var(--green-600), var(--green-500)); }
 .pab-gps {
   flex-shrink: 0;
-  width: 52px;
-  height: 48px;
+  width: 44px;
+  height: 40px;
   border: none;
-  border-radius: var(--r-lg);
-  font-size: 20px;
+  border-radius: var(--r-md);
+  font-size: 17px;
   cursor: pointer;
   display: flex; align-items: center; justify-content: center;
   transition: transform .12s var(--ease-out);
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-xs);
 }
 .pab-gps:active { transform: scale(0.93); }
 .pab-gps.share {
@@ -679,17 +657,25 @@ body::after {
    BOTTOM NAV (glass)
    ══════════════════════════════════════════════════════════ */
 #bottom-nav {
-  /* --safe-factor (0-1) controls how much of iOS safe-area to respect:
-     1.0 = full safe-area padding (home-indicator safe, default)
-     0.0 = ignore safe-area, nav goes flush to physical bottom */
-  height: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px) * var(--safe-factor, 1) + var(--nav-pad-b, 0px));
   padding-bottom: calc(env(safe-area-inset-bottom, 0px) * var(--safe-factor, 1) + var(--nav-pad-b, 0px));
   background: #ffffff;
   border-top: 1px solid rgba(226,232,240,.9);
   display: flex;
-  align-items: flex-end;
+  flex-direction: column;
   position: fixed; bottom: 0; left: 0; right: 0;
   z-index: 100;
+}
+#nav-action-row {
+  display: flex;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-2);
+}
+#nav-action-row.hidden { display: none; }
+#nav-tabs-row {
+  display: flex;
+  height: var(--nav-h);
+  align-items: stretch;
 }
 @media (prefers-color-scheme: dark) {
   #bottom-nav {

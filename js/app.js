@@ -2796,7 +2796,7 @@ function showPingBanner(ping) {
 
 // ═══════════ PINNED ACTION BAR (one-handed quick actions) ═══
 function renderPinnedActionBar() {
-  const bar = el('pinned-action-bar');
+  const bar = el('nav-action-row');
   if (!bar) return;
   const user = STATE.currentUser;
   if (!user) {
@@ -2818,8 +2818,9 @@ function renderPinnedActionBar() {
 
   bar.innerHTML = primary + gps;
   bar.classList.remove('hidden');
-  // Reserve space so content doesn't get hidden under the bar
-  document.documentElement.style.setProperty('--action-h', '64px');
+  // Action row is now inside nav (no separate fixed element).
+  // Reserve 56px of extra main-content padding-bottom for the action row.
+  document.documentElement.style.setProperty('--action-h', '56px');
 }
 
 // ═══════════ STOP TRACKING ═══════════════════════════════════
