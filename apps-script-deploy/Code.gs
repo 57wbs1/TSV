@@ -19,7 +19,8 @@ const SHEETS = {
   PINGS:     { name: 'Pings',     headers: ['id','fromId','fromName','toId','message','timestamp','read'] },
   ADMINREQ:  { name: 'AdminReq',  headers: ['id','fromId','fromName','fromGroup','message','timestamp','status','resolvedBy','resolvedAt','reason'] },
   CALENDAR:  { name: 'Calendar',  headers: ['id','day','startTime','endTime','title','location','category','attire','remarks','visitId','synicReport','oicsJson','isDeleted','createdAt','updatedAt'] },
-  REFLECTIONS: { name: 'Reflections', headers: ['id','authorId','authorName','syndicate','day','content','timestamp'] }
+  REFLECTIONS: { name: 'Reflections', headers: ['id','authorId','authorName','syndicate','day','content','timestamp'] },
+  STATUSLOG:   { name: 'StatusLog',   headers: ['timestamp','memberId','status','locationText','lat','lng','buddyWith','actor'] }
 };
 
 // ── Response helper ──────────────────────────────────────────
@@ -42,6 +43,7 @@ function doGet(e) {
       case 'getStatuses': data = readStatuses(); break;
       case 'getLearnings':data = readLearnings(); break;
       case 'getReflections': data = readReflections(); break;
+      case 'getStatusLog': data = readStatusLog(e.parameter.memberId || ''); break;
       case 'getPings':    data = getPings(e.parameter.userId || ''); break;
       case 'fixAllPins':  data = fixAllPins(); break;
       case 'resetCasparPin': data = resetCasparPin(); break;
@@ -55,6 +57,27 @@ function doGet(e) {
 }
 
 // ── POST handler ─────────────────────────────────────────────
+// Actions that mutate state require a valid `actor` that exists in the
+// Members sheet. Prevents a random drive-by with the URL from writing
+// junk. Not cryptographically secure (the client code is public), but
+// blocks everything short of someone pulling a real member ID from git.
+const ACTOR_REQUIRED = new Set([
+  'updateStatus','addLearning','addReflection','addIncident',
+  'addMember','updateMember','deleteMember','seedMembers',
+  'sendPing','addAdminRequest','resolveAdminRequest','postHotwash',
+  'sendTelegram'
+]);
+
+function _validateActor(actor) {
+  if (!actor) return false;
+  // Allow internal / migration actors
+  if (actor === 'migration_v2' || actor === 'system' || actor === SUPER_ADMIN_ID) return true;
+  try {
+    const rows = readSheet(SHEETS.MEMBERS);
+    return rows.some(r => String(r.id) === String(actor) && r.isDeleted !== 'true' && r.isDeleted !== true);
+  } catch (e) { return true; /* fail open if sheet read fails */ }
+}
+
 function doPost(e) {
   try {
     const body = JSON.parse(e.postData.contents || '{}');
@@ -65,6 +88,12 @@ function doPost(e) {
     }
 
     const action = (body.action || '').trim();
+
+    // Actor gate — mutating actions must come from a known member
+    if (ACTOR_REQUIRED.has(action) && !_validateActor(body.actor)) {
+      return json({ ok: false, error: 'Unauthorized: unknown actor' });
+    }
+
     let data;
 
     switch (action) {
@@ -75,12 +104,13 @@ function doPost(e) {
       case 'addMember':    data = addMember(body); break;
       case 'updateMember': data = updateMember(body); break;
       case 'deleteMember': data = deleteMember(body); break;
-      case 'seedMembers':  data = seedMembers(body.members || []); break;
+      case 'seedMembers':  data = seedMembers(body.members || [], body.actor); break;
       case 'sendPing':     data = sendPing(body); break;
       case 'markPingRead': data = markPingRead(body.id); break;
       case 'addAdminRequest':     data = addAdminRequest(body); break;
       case 'resolveAdminRequest': data = resolveAdminRequest(body); break;
       case 'postHotwash':  data = postHotwash(body); break;
+      case 'sendTelegram': data = sendTelegramFromServer(body); break;
       default: return json({ ok: false, error: 'Unknown action: ' + action });
     }
     return json({ ok: true, data });
@@ -204,9 +234,22 @@ function deleteMember(data) {
 }
 
 // Seed: only adds members that don't already exist (by id)
-function seedMembers(members) {
+function seedMembers(members, actor) {
   if (!members.length) return { added: 0 };
+
+  // Mutex — one seed per 10 min. Stops two admins opening the app at the
+  // same time from each writing the same rows.
+  const props = PropertiesService.getScriptProperties();
+  const lastSeed = parseInt(props.getProperty('lastSeedTs') || '0');
+  const nowTs = Date.now();
+  if (nowTs - lastSeed < 10 * 60 * 1000) {
+    logAction('seedMembers', actor || '', 'skipped-mutex');
+    return { added: 0, skipped: 'mutex-cooling' };
+  }
+  props.setProperty('lastSeedTs', String(nowTs));
+
   const sheet = getOrCreateSheet(SHEETS.MEMBERS);
+  _ensurePinColumnText(sheet);
   const existing = sheet.getDataRange().getValues().slice(1).map(r => r[0]);
   let added = 0;
   const now = new Date().toISOString();
@@ -215,12 +258,38 @@ function seedMembers(members) {
     if (!existing.includes(m.id)) {
       sheet.appendRow([m.id, m.name || '', m.shortName || m.name || '', m.rank || '',
                        m.role || 'Member', m.csc || '', m.syndicate || '',
-                       m.pin || '0000', m.isAdmin || 'false', 'false', now, now]);
+                       _padPin(m.pin), m.isAdmin || 'false', 'false', now, now]);
       added++;
     }
   });
-  logAction('seedMembers', '', `added ${added}`);
+  // Re-enforce pin text format on all new rows
+  _ensurePinColumnText(sheet);
+  logAction('seedMembers', actor || '', `added ${added}`);
   return { added, total: members.length };
+}
+
+// ── Telegram relay ───────────────────────────────────────────
+// Clients no longer ship the bot token (which would be public on GitHub).
+// They POST here, server-side holds the token + sends.
+const TELEGRAM_BOT_TOKEN = '8623156706:AAHv8vGrjxr1Kj4s8_k3EoruBlx1l_EhziQ';
+
+function sendTelegramFromServer(data) {
+  const text = data.text || '';
+  const chatId = data.chatId || '';
+  const parseMode = data.parseMode || 'HTML';
+  if (!text || !chatId) return { ok: false, error: 'missing text/chatId' };
+  try {
+    const res = UrlFetchApp.fetch('https://api.telegram.org/bot' + TELEGRAM_BOT_TOKEN + '/sendMessage', {
+      method: 'post',
+      contentType: 'application/json',
+      payload: JSON.stringify({ chat_id: chatId, text: text, parse_mode: parseMode }),
+      muteHttpExceptions: true
+    });
+    const body = JSON.parse(res.getContentText());
+    return body;
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
 }
 
 // ────────────────────────────────────────────────────────────
@@ -261,8 +330,30 @@ function updateStatus(data) {
     sheet.appendRow(newRow);
   }
 
+  // Append-only audit trail — never overwritten, so admins can reconstruct
+  // a member's IN/OUT history even if the live row is later overwritten.
+  try {
+    const logSheet = getOrCreateSheet(SHEETS.STATUSLOG);
+    logSheet.appendRow([
+      now,
+      data.memberId || '',
+      data.status || 'in_hotel',
+      data.locationText || '',
+      data.lat || '',
+      data.lng || '',
+      buddyStr,
+      data.actor || data.memberId || ''
+    ]);
+  } catch (e) { /* non-blocking — live status already saved */ }
+
   logAction('updateStatus', data.memberId, data.status);
   return { updated: data.memberId };
+}
+
+function readStatusLog(memberId) {
+  const rows = readSheet(SHEETS.STATUSLOG);
+  if (!memberId) return rows.slice(-500).reverse();  // last 500 globally
+  return rows.filter(r => r.memberId === memberId).reverse();
 }
 
 // ────────────────────────────────────────────────────────────

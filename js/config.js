@@ -35,16 +35,10 @@ const CONFIG = {
   //    Find "chat":{"id": ...}
   // ----------------------------------------------------------
   telegram: {
-    botToken: '8623156706:AAHv8vGrjxr1Kj4s8_k3EoruBlx1l_EhziQ',
-
-    // For testing: set this to YOUR personal Telegram user ID
-    // How: message @getmyid_bot in Telegram, copy the number, paste below
-    // Later: replace with the group chat ID (starts with -100...)
+    // Bot token is now stored server-side in Apps Script (see sendTelegramFromServer).
+    // The client only holds chat IDs — it POSTs text + chatId to the relay endpoint.
     chatId:   '922547929',
-
-    irChatId: '922547929',  // for IR reports
-
-    // Syn 1 chat (for automated 2300H & 0200H reports — ONLY Syn 1 sends automatically)
+    irChatId: '922547929',
     syn1ChatId: '922547929'
   },
 

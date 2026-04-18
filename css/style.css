@@ -417,6 +417,35 @@ body::after {
 #event-editor   { z-index: 6600; }
 #pin-change-modal { z-index: 6800; }
 
+/* Floating activity chips — top-right below the header */
+#saving-chip, #queue-indicator {
+  position: fixed;
+  top: calc(var(--header-h) + var(--safe-t) + 8px);
+  right: 12px;
+  z-index: 7500;
+  padding: 5px 11px;
+  border-radius: var(--r-full);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .02em;
+  box-shadow: 0 4px 14px rgba(0,0,0,.25);
+  animation: fadeIn .15s var(--ease-out);
+  pointer-events: none;
+}
+#saving-chip {
+  background: rgba(59,130,246,.95);
+  color: #fff;
+  backdrop-filter: blur(6px);
+}
+#queue-indicator {
+  top: calc(var(--header-h) + var(--safe-t) + 42px);
+  background: rgba(245,158,11,.95);
+  color: #78350f;
+  cursor: pointer;
+  pointer-events: auto;
+}
+#saving-chip.hidden, #queue-indicator.hidden { display: none; }
+
 .pin-change-sheet {
   background: var(--n-0);
   width: 100%; max-width: 420px;

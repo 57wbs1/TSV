@@ -43,30 +43,113 @@ const API = {
   },
   async post(action, data) {
     if (!this.configured) { STATE.apiState = 'unconfigured'; return null; }
-    // Auto-lock the matching sync domain for the duration of this mutation
-    // so the corresponding sync can't race and overwrite fresh local state
-    // with a stale server response.
+    // Always include an `actor` (server gate requires it for mutations).
+    const payload = { action, actor: (data && data.actor) || STATE.currentUser?.id || '', ...data };
+    if (!payload.actor && STATE.currentUser?.id) payload.actor = STATE.currentUser.id;
     const domain = MUTATION_DOMAIN[action];
     if (domain) lockSync(domain);
+    beginSaving(action);
     try {
       const res = await fetch(CONFIG.apiUrl, {
         method: 'POST',
-        body: JSON.stringify({ action, ...data }),
+        body: JSON.stringify(payload),
         headers: { 'Content-Type': 'text/plain' }
       });
       const json = await res.json();
       STATE.apiState = 'online';
       STATE.offlineMode = false;
+      if (!json.ok && json.error) console.warn('[API]', action, json.error);
       return json.ok ? json.data : null;
     } catch (e) {
       STATE.apiState = navigator.onLine ? 'error' : 'offline';
       STATE.offlineMode = true;
+      // Queue non-idempotent writes for retry when back online.
+      if (QUEUEABLE_ACTIONS.has(action)) enqueueWrite(action, payload);
       return null;
     } finally {
       if (domain) unlockSync(domain);
+      endSaving(action);
     }
   }
 };
+
+// Type-coercion guards — Google Sheets auto-converts numeric-looking strings
+// to numbers on write. These helpers force them back to predictable JS types.
+function cStr(v, fallback = '') { return v == null || v === '' ? fallback : String(v); }
+function cNum(v) { const n = parseFloat(v); return isNaN(n) ? null : n; }
+function cBool(v) { return v === true || v === 'true' || v === 'TRUE' || v === 1 || v === '1'; }
+
+// Actions we'll retry later if the POST fails. Reads + idempotent operations
+// are excluded. Excluded also: sendPing, sendTelegram (time-sensitive, stale
+// retry is worse than drop).
+const QUEUEABLE_ACTIONS = new Set([
+  'updateStatus', 'addLearning', 'addReflection', 'addIncident',
+  'postHotwash', 'updateMember'
+]);
+const QUEUE_KEY = 'tsv_offline_queue_v1';
+
+function loadQueue() {
+  try { return JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]'); } catch { return []; }
+}
+function saveQueue(q) { try { localStorage.setItem(QUEUE_KEY, JSON.stringify(q)); } catch {} }
+function enqueueWrite(action, payload) {
+  const q = loadQueue();
+  q.push({ action, payload, ts: Date.now(), tries: 0 });
+  saveQueue(q);
+  updateQueueIndicator();
+}
+async function flushQueue() {
+  if (!navigator.onLine) return;
+  let q = loadQueue();
+  if (!q.length) return;
+  const keep = [];
+  for (const entry of q) {
+    if (!API.configured) { keep.push(entry); continue; }
+    try {
+      const res = await fetch(CONFIG.apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: JSON.stringify(entry.payload)
+      });
+      const json = await res.json();
+      if (!json.ok) {
+        entry.tries = (entry.tries || 0) + 1;
+        if (entry.tries < 5) keep.push(entry);  // drop after 5 failed tries
+      }
+    } catch {
+      entry.tries = (entry.tries || 0) + 1;
+      if (entry.tries < 5) keep.push(entry);
+    }
+  }
+  saveQueue(keep);
+  updateQueueIndicator();
+  if (keep.length === 0 && q.length > 0) toast(`✓ Synced ${q.length} pending changes`);
+}
+function updateQueueIndicator() {
+  const n = loadQueue().length;
+  const el0 = el('queue-indicator');
+  if (!el0) return;
+  if (n === 0) { el0.classList.add('hidden'); return; }
+  el0.classList.remove('hidden');
+  el0.textContent = `⏳ ${n} pending`;
+}
+
+// Saving indicator — shows a floating chip while any mutation is in flight.
+let _savingCount = 0;
+function beginSaving() {
+  _savingCount++;
+  const chip = el('saving-chip');
+  if (chip) chip.classList.remove('hidden');
+}
+function endSaving() {
+  _savingCount = Math.max(0, _savingCount - 1);
+  if (_savingCount === 0) {
+    const chip = el('saving-chip');
+    if (chip) chip.classList.add('hidden');
+  }
+}
+window.addEventListener('online', () => { flushQueue(); });
+setInterval(() => { if (navigator.onLine) flushQueue(); }, 45 * 1000);
 
 // Which sync domain each mutating action touches. Used by API.post to auto-
 // lock the matching sync() so it can't run during the mutation.
@@ -85,23 +168,23 @@ window.addEventListener('online',  () => { if (STATE.currentTab === 'home') rend
 window.addEventListener('offline', () => { STATE.apiState = 'offline'; if (STATE.currentTab === 'home') renderHome(); });
 
 // ═══════════ TELEGRAM ════════════════════════════════════════
+// The bot token is no longer in the client — we relay through Apps Script
+// so the token stays server-side. See sendTelegramFromServer() in Code.gs.
 const TELEGRAM = {
-  async send(text, chatId) {
-    const token = CONFIG.telegram.botToken;
+  async send(text, chatId, parseMode) {
     const cid = chatId || CONFIG.telegram.chatId;
-    if (!token || token.startsWith('YOUR_') || !cid || cid.startsWith('YOUR_')) {
-      toast('⚠️ Telegram not configured in config.js');
+    if (!cid || String(cid).startsWith('YOUR_')) {
+      toast('⚠️ Telegram chat not configured');
       return false;
     }
-    try {
-      const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chat_id: cid, text, parse_mode: 'HTML' })
-      });
-      const json = await res.json();
-      return json.ok;
-    } catch (e) { toast('❌ Telegram send failed'); return false; }
+    const user = STATE.currentUser;
+    const resp = await API.post('sendTelegram', {
+      chatId: String(cid),
+      text,
+      parseMode: parseMode || 'HTML',
+      actor: user?.id || 'system'
+    });
+    return !!(resp && resp.ok !== false);
   },
 
   buildEveningReport() {
@@ -745,13 +828,17 @@ async function syncMembers() {
   _lastMembersHash = hash;
 
   MEMBERS = data.map(row => ({
-    id: String(row.id), name: row.name || '', shortName: row.shortName || row.name || '',
-    rank: row.rank || '', role: row.role || 'Member',
-    csc: row.csc || '', syndicate: String(row.syndicate || ''),
-    // Google Sheets auto-converts '0000' to number 0 and '1234' to number 1234 —
-    // force back to a 4-digit string so PIN comparison (always string) works.
-    pin: String(row.pin ?? '0000').padStart(4, '0'),
-    isAdmin: row.isAdmin === 'true' || row.isAdmin === true
+    id: cStr(row.id),
+    name: cStr(row.name),
+    shortName: cStr(row.shortName, cStr(row.name)),
+    rank: cStr(row.rank),
+    role: cStr(row.role, 'Member'),
+    csc: cStr(row.csc),
+    syndicate: cStr(row.syndicate),
+    // Sheets coerces '0000' → 0 and '1234' → 1234 — always force back to
+    // a 4-digit zero-padded string so PIN comparison (string) works.
+    pin: cStr(row.pin, '0000').padStart(4, '0'),
+    isAdmin: cBool(row.isAdmin)
   }));
   if (STATE.currentUser) {
     const me = MEMBERS.find(m => m.id === STATE.currentUser.id);
@@ -779,14 +866,14 @@ async function syncStatuses() {
   if (!data) return;
   const map = {};
   data.forEach(r => {
-    if (r.id) map[r.id] = {
-      status: r.status || 'in_hotel',
-      locationText: r.locationText || '',
-      lat: parseFloat(r.lat) || null,
-      lng: parseFloat(r.lng) || null,
-      buddyWith: r.buddyWith || '',
-      roomNumber: r.roomNumber || '',
-      lastUpdated: r.lastUpdated || ''
+    if (r.id) map[cStr(r.id)] = {
+      status: cStr(r.status, 'in_hotel'),
+      locationText: cStr(r.locationText),
+      lat: cNum(r.lat),
+      lng: cNum(r.lng),
+      buddyWith: cStr(r.buddyWith),
+      roomNumber: cStr(r.roomNumber),
+      lastUpdated: cStr(r.lastUpdated)
     };
   });
   // Skip re-render if nothing actually changed — prevents jank on idle polling
@@ -836,18 +923,18 @@ async function syncCalendar() {
   _lastCalendarHash = hash;
   // Merge: Sheet is source of truth when present
   CALENDAR_EVENTS = data.map(r => ({
-    id: String(r.id),
-    day: parseInt(r.day),
-    startTime: r.startTime,
-    endTime: r.endTime,
-    title: r.title,
-    location: r.location,
-    category: r.category,
-    attire: r.attire,
-    visitId: r.visitId,
-    remarks: r.remarks,
+    id: cStr(r.id),
+    day: parseInt(r.day) || 1,
+    startTime: cStr(r.startTime),
+    endTime: cStr(r.endTime),
+    title: cStr(r.title),
+    location: cStr(r.location),
+    category: cStr(r.category),
+    attire: cStr(r.attire),
+    visitId: cStr(r.visitId),
+    remarks: cStr(r.remarks),
     oics: r.oics ? (typeof r.oics === 'string' ? safeJson(r.oics) : r.oics) : {},
-    isDeleted: r.isDeleted
+    isDeleted: cBool(r.isDeleted)
   }));
   if (anyModalOpen() || STATE.isTouching) return;
   if (STATE.currentTab === 'calendar') renderCalendar();
@@ -2385,37 +2472,25 @@ window.updateIRPreview = function() {
 
 window.sendIR = async function() {
   if (!window._irText) return toast('Fill in details first');
-  // Telegram supports Markdown (with *bold*) via parse_mode. Use sendMessage with Markdown.
-  const token = CONFIG.telegram.botToken;
-  const cid = CONFIG.telegram.irChatId;
-  try {
-    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: cid, text: window._irText, parse_mode: 'Markdown' })
-    });
-    const json = await res.json();
-    if (json.ok) {
-      toast('✅ IR sent!');
-      await API.post('addIncident', {
-        reportedBy: STATE.currentUser?.id || 'unknown',
-        type: STATE.irType || 'NEW',
-        nature: el('ir-nature')?.value || '',
-        description: el('ir-desc')?.value || '',
-        statusTime: el('ir-status-time')?.value || '',
-        statusText: el('ir-status-text')?.value || '',
-        when: el('ir-when')?.value || '',
-        where: el('ir-where')?.value || '',
-        group: el('ir-group')?.value || '',
-        nokInformed: STATE.irNOK || 'N/A',
-        followup: el('ir-followup')?.value || '',
-        reportedTime: el('ir-reportedTime')?.value || '',
-        reportedBy: el('ir-by')?.value || ''
-      });
-    } else {
-      toast('❌ Telegram send failed');
-    }
-  } catch (e) { toast('❌ Send failed'); }
+  const ok = await TELEGRAM.send(window._irText, CONFIG.telegram.irChatId, 'Markdown');
+  if (!ok) return toast('❌ Telegram send failed');
+  toast('✅ IR sent!');
+  await API.post('addIncident', {
+    reportedBy: STATE.currentUser?.id || 'unknown',
+    actor: STATE.currentUser?.id || '',
+    type: STATE.irType || 'NEW',
+    nature: el('ir-nature')?.value || '',
+    description: el('ir-desc')?.value || '',
+    statusTime: el('ir-status-time')?.value || '',
+    statusText: el('ir-status-text')?.value || '',
+    when: el('ir-when')?.value || '',
+    where: el('ir-where')?.value || '',
+    group: el('ir-group')?.value || '',
+    nokInformed: STATE.irNOK || 'N/A',
+    followup: el('ir-followup')?.value || '',
+    reportedTime: el('ir-reportedTime')?.value || '',
+    reportedByName: el('ir-by')?.value || ''
+  });
 };
 
 window.copyIR = function() {
@@ -2644,6 +2719,8 @@ function startApp() {
   applySavedLayout();
   el('loading').style.display = 'none';
   el('app').classList.add('visible');
+  updateQueueIndicator();
+  flushQueue();  // drain anything queued from a previous offline session
   // ⚙️ header button removed — Settings is now a dedicated tab in the bottom nav
   const admin = el('btn-admin');
   admin.onclick = showMembersModal;
