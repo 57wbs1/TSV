@@ -479,27 +479,27 @@ function attachSwipeRightClose(modalEl, sheetSelector, onClose) {
     if (!locked) {
       if (Math.abs(dy) > Math.abs(dx)) { dragging = false; return; }
       locked = true;
+      // Kill backdrop-filter the moment we commit to a horizontal drag — it was
+      // creating a stacking context that stopped the main app from showing through
+      // even when the modal's bg alpha reached 0.
+      modalEl.style.backdropFilter = 'none';
+      modalEl.style.webkitBackdropFilter = 'none';
     }
-    if (dx < 0) { currentX = 0; sheet.style.transform = ''; modalEl.style.backgroundColor = ''; modalEl.style.backdropFilter = ''; return; }
+    if (dx < 0) { currentX = 0; sheet.style.transform = ''; modalEl.style.backgroundColor = ''; return; }
     currentX = dx;
     sheet.style.transform = `translateX(${currentX}px)`;
-    // Fade backdrop proportionally: full → transparent as sheet travels to edge
     const progress = Math.min(currentX / window.innerWidth, 1);
     const alpha = 0.55 * (1 - progress);
-    const blur = 8 * (1 - progress);
     modalEl.style.backgroundColor = `rgba(15,23,42,${alpha})`;
-    modalEl.style.backdropFilter = `blur(${blur}px)`;
-    modalEl.style.webkitBackdropFilter = `blur(${blur}px)`;
   }, { passive: true });
 
   sheet.addEventListener('touchend', () => {
     if (!dragging) return;
     sheet.style.transition = 'transform .22s var(--ease-out)';
-    modalEl.style.transition = 'background-color .22s var(--ease-out), backdrop-filter .22s var(--ease-out)';
+    modalEl.style.transition = 'background-color .22s var(--ease-out)';
     if (currentX > 100) {
       sheet.style.transform = 'translateX(100%)';
       modalEl.style.backgroundColor = 'rgba(15,23,42,0)';
-      modalEl.style.backdropFilter = 'blur(0px)';
       setTimeout(() => {
         sheet.style.transform = '';
         sheet.style.transition = '';
@@ -2269,7 +2269,7 @@ function renderIR() {
       <div class="card-header"><span class="icon">📞</span><h3>Emergency Numbers</h3></div>
       <div class="card-body">
         <div class="contact-grid">
-          ${EMERGENCY_CONTACTS.map(c => `<div class="contact-card"><div class="c-flag">${c.flag}</div><div class="c-label">${c.label}</div><div class="c-number"><a href="tel:${c.number}">${c.number}</a></div></div>`).join('')}
+          ${EMERGENCY_CONTACTS.map(c => `<a class="contact-card" href="tel:${c.dial || c.number}"><div class="c-flag">${c.flag}</div><div class="c-label">${c.label}</div><div class="c-number">${c.number}</div></a>`).join('')}
         </div>
       </div>
     </div>
@@ -2386,7 +2386,7 @@ function renderSOP() {
     </div>
     <div class="section-title">Emergency Contacts</div>
     <div class="contact-grid" style="margin-bottom:12px">
-      ${EMERGENCY_CONTACTS.map(c => `<div class="contact-card"><div class="c-flag">${c.flag}</div><div class="c-label">${c.label}</div><div class="c-number"><a href="tel:${c.number}">${c.number}</a></div></div>`).join('')}
+      ${EMERGENCY_CONTACTS.map(c => `<a class="contact-card" href="tel:${c.dial || c.number}"><div class="c-flag">${c.flag}</div><div class="c-label">${c.label}</div><div class="c-number">${c.number}</div></a>`).join('')}
     </div>
     <div class="section-title">Standard Operating Procedures</div>
     <div class="sop-grid">

@@ -1818,33 +1818,46 @@ body::after {
 
 .contact-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 6px;
   margin-bottom: 14px;
 }
 .contact-card {
-  background: var(--n-0);
+  background: linear-gradient(135deg, #dc2626, #991b1b);
   border-radius: var(--r-md);
-  box-shadow: var(--shadow-sm);
-  border: 1px solid var(--border-2);
-  padding: 12px 14px;
-  transition: all .15s var(--ease-out);
+  box-shadow: 0 3px 10px rgba(220,38,38,.28);
+  border: 1px solid rgba(255,255,255,.15);
+  padding: 7px 8px;
+  transition: transform .12s var(--ease-out);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  text-decoration: none;
+  color: #fff !important;
+  min-height: 78px;
 }
-.contact-card:active { transform: scale(0.98); }
-.contact-card .c-flag { font-size: 22px; margin-bottom: 5px; }
+.contact-card:active { transform: scale(0.96); }
+.contact-card .c-flag { font-size: 16px; margin-bottom: 2px; line-height: 1; }
 .contact-card .c-label {
-  font-size: 10px; color: var(--text-2);
-  font-weight: 700; letter-spacing: .03em;
+  font-size: 8.5px; color: rgba(255,255,255,.85) !important;
+  font-weight: 700; letter-spacing: .02em;
   text-transform: uppercase;
+  line-height: 1.1;
 }
 .contact-card .c-number {
-  font-size: 16px; font-weight: 800;
-  color: var(--blue-600);
-  margin-top: 3px;
+  font-size: 12px; font-weight: 800;
+  color: #ffffff !important;
+  margin-top: 2px;
   letter-spacing: -0.01em;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
-.contact-card a { text-decoration: none; color: inherit; }
+/* SG-flag variants use a blue gradient for subtle differentiation */
+.contact-card:nth-child(n+4) {
+  background: linear-gradient(135deg, #2563eb, #1e40af);
+  box-shadow: 0 3px 10px rgba(37,99,235,.28);
+}
 
 /* ══════════════════════════════════════════════════════════
    BUDDY MODAL

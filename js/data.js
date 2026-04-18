@@ -554,12 +554,12 @@ const SOPS = [
 ];
 
 const EMERGENCY_CONTACTS = [
-  { label: 'Thailand Police',         number: '191',            flag: '🇹🇭' },
-  { label: 'Ambulance / Fire',        number: '1669',           flag: '🇹🇭' },
-  { label: 'Tourist Police',          number: '1155',           flag: '🇹🇭' },
-  { label: 'SG Embassy Bangkok',      number: '+66 2 286 2111', flag: '🇸🇬' },
-  { label: 'SAFTI MI Ops Room',       number: '6799 7200',      flag: '🇸🇬' },
-  { label: 'DFO',                     number: '9667 1559',      flag: '🇸🇬' },
+  { label: 'Thailand Police',    number: '191',            dial: '191',          flag: '🇹🇭' },
+  { label: 'Ambulance / Fire',   number: '1669',           dial: '1669',         flag: '🇹🇭' },
+  { label: 'Tourist Police',     number: '1155',           dial: '1155',         flag: '🇹🇭' },
+  { label: 'SG Embassy Bangkok', number: '+66 2 286 2111', dial: '+6622862111',  flag: '🇸🇬' },
+  { label: 'SAFTI MI Ops Room',  number: '+65 6799 7200',  dial: '+6567997200',  flag: '🇸🇬' },
+  { label: 'DFO',                number: '+65 9667 1559',  dial: '+6596671559',  flag: '🇸🇬' },
 ];
 
 const REFLECTION_TEMPLATE = `What did we observe?
