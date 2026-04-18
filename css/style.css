@@ -2994,10 +2994,36 @@ body::after {
 .admin-request-card .arc-info { flex: 1; }
 .admin-request-card .arc-actions { display: flex; gap: 6px; margin-top: 8px; }
 
-/* Root-level size classes — use zoom on #app so everything scales */
-html.size-sm #app { zoom: 0.9; }
-html.size-md #app { zoom: 1.0; }
-html.size-lg #app { zoom: 1.15; }
+/* Text size scaler — only affects text, not layout */
+:root { --text-scale: 1; }
+html.size-sm { --text-scale: 0.9; }
+html.size-md { --text-scale: 1.0; }
+html.size-lg { --text-scale: 1.12; }
+
+/* Scale text on content elements only (card body text, titles, hypothesis
+   blocks, learning posts, detail panels). Layout elements — nav labels,
+   buttons, icons, badges — stay fixed so the app's proportions are stable. */
+.ne-event, .ne-location, .ne-remarks, .ne-attire,
+.visit-title, .visit-sub,
+.visit-hero h3, .visit-hero-sub, .visit-hero-meta,
+.info-block p, .info-block h4, .learning-outcomes-list,
+.learning-post .post-body, .post-author,
+.hero-theme, .hero-date, .hero-day-label,
+.event-item .event-name, .event-item .event-loc, .event-item .event-remarks,
+.cal-event-card .ce-title, .cal-event-card .ce-loc,
+.cal-event-expand, .cal-event-expand h5, .cal-event-expand p,
+.mgr-name, .mgr-meta,
+.m-name, .m-detail, .m-buddy,
+.card-body p, .card-body li, .card-body span:not(.status-pill):not(.badge),
+.sop-card-body, .sop-card-body h4, .sop-card-body p, .sop-card-body li,
+.sop-card-header .sop-title,
+.settings-section h3, .sr-label, .sr-value,
+.alert, .empty-state p,
+.ir-preview {
+  font-size: calc(1em * var(--text-scale, 1));
+}
+/* Paragraphs inside main tab content */
+#main-content p { font-size: calc(1em * var(--text-scale, 1)); }
 
 /* ══════════════════════════════════════════════════════════
    UTILITIES

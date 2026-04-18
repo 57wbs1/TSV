@@ -2537,7 +2537,11 @@ function renderSettings() {
     <div class="settings-section">
       <div class="settings-section-header">📱 App Display</div>
 
-      <div class="settings-row"><div class="sr-label">Text Size</div></div>
+      <div class="settings-row">
+        <div class="sr-label">Text Size
+          <div class="sr-value">Scales body text only — card sizes stay fixed</div>
+        </div>
+      </div>
       <div style="padding:0 16px 14px">
         <div class="size-chooser">
           <button class="${sizePref==='sm'?'active':''}" onclick="setSize('sm')">A-</button>
