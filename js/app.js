@@ -1830,6 +1830,14 @@ function renderLearnings() {
     <div class="section-title">Visits & Tours</div>
     <div class="visit-grid">${visitCards}</div>
 
+    <div class="card" style="margin-top:12px">
+      <div class="card-header"><span class="icon">📝</span><h3>Reflection Template</h3></div>
+      <div class="card-body">
+        <pre style="font-size:11.5px;line-height:1.65;white-space:pre-wrap;color:var(--text);margin:0">${REFLECTION_TEMPLATE}</pre>
+        <button class="btn btn-outline btn-sm mt-8" onclick="copyReflectionTemplate()">📋 Copy Template</button>
+      </div>
+    </div>
+
     <div style="margin-top:20px" class="section-title">All Learnings Feed</div>
     ${renderLearningFeed(STATE.learnings, null)}
   `;
@@ -1983,44 +1991,93 @@ window.draftForMe = function(visitId) {
 
 // ═══════════ IR TAB ══════════════════════════════════════════
 function renderIR() {
+  const me = STATE.currentUser;
+  const myGroup = me ? formatGroupDisplay(memberGroupKey(me)) : '';
+  const myName = me ? `${me.rank ? me.rank + ' ' : ''}${me.name}` : '';
   el('tab-ir').innerHTML = `
     <div class="ir-header-banner">
       <h2>🚨 Incident Report</h2>
-      <p>5Ws 1H · Sends via Telegram</p>
+      <p>Send to IR chat via Telegram</p>
     </div>
     <div class="ir-form">
-      <h3>Incident Details</h3>
       <div class="form-group">
-        <label>Incident Type</label>
-        <select id="ir-type" onchange="updateIRPreview()">
-          <option value="">— Select type —</option>
-          <option>Reporting Sick</option><option>Incident / Injury</option>
-          <option>Vehicle Accident</option><option>Vehicle Breakdown</option>
-          <option>Security / Natural Disaster</option><option>Uncontactable Personnel</option>
-          <option>Lost / Stolen Passport</option><option>Airport Issue</option><option>Other</option>
+        <label>Report Type</label>
+        <div class="size-chooser">
+          <button id="ir-type-new"    class="active" onclick="setIRType('NEW')">🆕 New</button>
+          <button id="ir-type-update"            onclick="setIRType('UPDATE')">🔄 Update</button>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>1) Nature of Incident</label>
+        <select id="ir-nature" onchange="updateIRPreview()">
+          <option value="">— Select —</option>
+          <option>Security</option>
+          <option>Safety</option>
+          <option>Medical</option>
+          <option>Administrative</option>
+          <option>Other</option>
         </select>
       </div>
-      <div class="form-group"><div class="w-label"><div class="w-code">W</div>WHO</div><input id="ir-who" type="text" placeholder="Name, rank, syndicate" oninput="updateIRPreview()"></div>
-      <div class="form-group"><div class="w-label"><div class="w-code">W</div>WHAT</div><textarea id="ir-what" placeholder="Brief description" oninput="updateIRPreview()"></textarea></div>
-      <div class="form-group"><div class="w-label"><div class="w-code">W</div>WHERE</div><input id="ir-where" type="text" placeholder="Location" oninput="updateIRPreview()"></div>
-      <div class="form-group"><div class="w-label"><div class="w-code">W</div>WHEN</div><input id="ir-when" type="text" placeholder="e.g. 28 Apr, 2145H" oninput="updateIRPreview()"></div>
-      <div class="form-group"><div class="w-label"><div class="w-code">W</div>WHY</div><input id="ir-why" type="text" placeholder="Cause / reason" oninput="updateIRPreview()"></div>
-      <div class="form-group"><div class="w-label"><div class="w-code">H</div>HOW</div><textarea id="ir-how" placeholder="Sequence of events" oninput="updateIRPreview()"></textarea></div>
-      <div class="form-group"><label>Status / Condition</label><input id="ir-status" type="text" placeholder="e.g. Stable, at BNH Hospital" oninput="updateIRPreview()"></div>
-      <div class="form-group"><label>Accompanying Buddy</label><input id="ir-buddy" type="text" oninput="updateIRPreview()"></div>
-      <div class="form-group"><label>Medical Facility</label><input id="ir-medical" type="text" oninput="updateIRPreview()"></div>
-      <div class="form-group"><label>Actions Taken</label><textarea id="ir-actions" oninput="updateIRPreview()"></textarea></div>
+
+      <div class="form-group">
+        <label>2) Brief Description</label>
+        <textarea id="ir-desc" placeholder="E.g. On 270426 0900hrs, MAJ Tan reported sick at…" oninput="updateIRPreview()"></textarea>
+      </div>
+
+      <div class="form-group">
+        <label>3) Status Update</label>
+        <input id="ir-status-time" type="text" placeholder="Timestamp — DDMMYY / HHHHRS" oninput="updateIRPreview()">
+        <textarea id="ir-status-text" placeholder="E.g. On 270426 0900hrs, MAJ Tan was diagnosed with…" style="margin-top:6px" oninput="updateIRPreview()"></textarea>
+      </div>
+
+      <div class="form-group">
+        <label>4) Date/Time of Incident</label>
+        <input id="ir-when" type="text" placeholder="DDMMYY / HHHHRS — e.g. 270426 / 0900HRS" oninput="updateIRPreview()">
+      </div>
+
+      <div class="form-group">
+        <label>5) Location of Incident</label>
+        <input id="ir-where" type="text" placeholder="Name of place &amp; full address" oninput="updateIRPreview()">
+      </div>
+
+      <div class="form-group">
+        <label>6) Course / Syn Involved</label>
+        <input id="ir-group" type="text" placeholder="E.g. 57th CSC, Syn 1" value="${escapeHtml(myGroup ? (myGroup.includes('SYN') ? '57th CSC, ' + myGroup.replace('57 ','Syn ') : myGroup) : '')}" oninput="updateIRPreview()">
+      </div>
+
+      <div class="form-group">
+        <label>7) Follow-up Action — Informed NOK?</label>
+        <div class="size-chooser">
+          <button id="ir-nok-y" onclick="setIRNOK('Y')">✅ Yes</button>
+          <button id="ir-nok-n" onclick="setIRNOK('N')">❌ No</button>
+          <button id="ir-nok-na" class="active" onclick="setIRNOK('N/A')">— N/A</button>
+        </div>
+        <input id="ir-followup" type="text" placeholder="Additional follow-up notes" style="margin-top:6px" oninput="updateIRPreview()">
+      </div>
+
+      <div class="form-group">
+        <label>8) Date/Time of Report to TSV Main Committee</label>
+        <input id="ir-reportedTime" type="text" placeholder="DDMMYY / HHHHRS" oninput="updateIRPreview()">
+      </div>
+
+      <div class="form-group">
+        <label>10) Reported By</label>
+        <input id="ir-by" type="text" placeholder="Rank / Name" value="${escapeHtml(myName)}" oninput="updateIRPreview()">
+      </div>
     </div>
+
     <div class="card">
-      <div class="card-header"><span class="icon">📋</span><h3>Message Preview</h3></div>
+      <div class="card-header"><span class="icon">📋</span><h3>Telegram Preview</h3></div>
       <div class="card-body">
         <div class="ir-preview" id="ir-preview">Fill in fields above…</div>
         <div class="ir-actions">
-          <button class="btn btn-red" style="flex:1" onclick="sendIR()">📤 Send via Telegram</button>
+          <button class="btn btn-red" style="flex:1" onclick="sendIR()">📤 Send to IR Chat</button>
           <button class="btn btn-outline btn-sm" onclick="copyIR()">📋 Copy</button>
         </div>
       </div>
     </div>
+
     <div class="card">
       <div class="card-header"><span class="icon">📞</span><h3>Emergency Numbers</h3></div>
       <div class="card-body">
@@ -2030,50 +2087,105 @@ function renderIR() {
       </div>
     </div>
   `;
+  STATE.irType = STATE.irType || 'NEW';
+  STATE.irNOK = STATE.irNOK || 'N/A';
   updateIRPreview();
 }
+
+window.setIRType = function(t) {
+  STATE.irType = t;
+  el('ir-type-new').classList.toggle('active', t === 'NEW');
+  el('ir-type-update').classList.toggle('active', t === 'UPDATE');
+  updateIRPreview();
+};
+window.setIRNOK = function(v) {
+  STATE.irNOK = v;
+  el('ir-nok-y').classList.toggle('active', v === 'Y');
+  el('ir-nok-n').classList.toggle('active', v === 'N');
+  el('ir-nok-na').classList.toggle('active', v === 'N/A');
+  updateIRPreview();
+};
+
 window.updateIRPreview = function() {
   const v = id => el(id)?.value?.trim() || '';
-  const now = new Date().toLocaleString('en-GB', { dateStyle:'medium', timeStyle:'short' });
-  const text = `🚨 INCIDENT REPORT (${v('ir-type') || 'General'})
-Reported by: ${STATE.currentUser?.name || 'Unknown'}
-Time of Report: ${now}
+  const type = STATE.irType || 'NEW';
+  const nok = STATE.irNOK || 'N/A';
 
-1️⃣ WHO: ${v('ir-who') || '—'}
-2️⃣ WHAT: ${v('ir-what') || '—'}
-3️⃣ WHERE: ${v('ir-where') || '—'}
-4️⃣ WHEN: ${v('ir-when') || now}
-5️⃣ WHY: ${v('ir-why') || '—'}
-6️⃣ HOW: ${v('ir-how') || '—'}
+  const parts = [];
+  parts.push(`*${type}*`);
+  parts.push('');
+  parts.push(`*Nature Of Incident:*`);
+  parts.push(v('ir-nature') || '—');
+  parts.push('');
+  parts.push(`*2) Brief Description:*`);
+  parts.push(v('ir-desc') || '—');
+  parts.push('');
+  parts.push(`*3) Status Updates:*`);
+  const stTime = v('ir-status-time');
+  const stText = v('ir-status-text');
+  if (stTime) parts.push(stTime);
+  if (stText) parts.push(stText);
+  if (!stTime && !stText) parts.push('—');
+  parts.push('');
+  parts.push(`*4) Date/Time Of Incident*`);
+  parts.push(v('ir-when') || '—');
+  parts.push('');
+  parts.push(`*5) Location Of Incident:*`);
+  parts.push(v('ir-where') || '—');
+  parts.push('');
+  parts.push(`*6) Course/Syn Involved:*`);
+  parts.push(v('ir-group') || '—');
+  parts.push('');
+  parts.push(`*7) Follow-up Action:*`);
+  parts.push(`Informed NOK? ${nok}${v('ir-followup') ? ' · ' + v('ir-followup') : ''}`);
+  parts.push('');
+  parts.push(`*8) Date/Time of report to TSV Main Committee:*`);
+  parts.push(v('ir-reportedTime') || '—');
+  parts.push('');
+  parts.push(`*10) Reported By:*`);
+  parts.push(v('ir-by') || '—');
 
-📋 Status: ${v('ir-status') || '—'}
-👥 Buddy: ${v('ir-buddy') || '—'}
-🏥 Medical: ${v('ir-medical') || '—'}
-
-✅ Actions Taken:
-${v('ir-actions') || '—'}
-
-— via TSV PWA`;
+  const text = parts.join('\n');
   const p = el('ir-preview');
   if (p) p.textContent = text;
   window._irText = text;
 };
+
 window.sendIR = async function() {
   if (!window._irText) return toast('Fill in details first');
-  const ok = await TELEGRAM.send(window._irText, CONFIG.telegram.irChatId);
-  if (ok) {
-    toast('✅ IR sent!');
-    await API.post('addIncident', {
-      reportedBy: STATE.currentUser?.id || 'unknown',
-      type: el('ir-type')?.value || '', who: el('ir-who')?.value || '',
-      what: el('ir-what')?.value || '', where: el('ir-where')?.value || '',
-      when: el('ir-when')?.value || '', why: el('ir-why')?.value || '',
-      how: el('ir-how')?.value || '', status: el('ir-status')?.value || '',
-      buddy: el('ir-buddy')?.value || '', medicalFacility: el('ir-medical')?.value || '',
-      actionsText: el('ir-actions')?.value || ''
+  // Telegram supports Markdown (with *bold*) via parse_mode. Use sendMessage with Markdown.
+  const token = CONFIG.telegram.botToken;
+  const cid = CONFIG.telegram.irChatId;
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: cid, text: window._irText, parse_mode: 'Markdown' })
     });
-  }
+    const json = await res.json();
+    if (json.ok) {
+      toast('✅ IR sent!');
+      await API.post('addIncident', {
+        reportedBy: STATE.currentUser?.id || 'unknown',
+        type: STATE.irType || 'NEW',
+        nature: el('ir-nature')?.value || '',
+        description: el('ir-desc')?.value || '',
+        statusTime: el('ir-status-time')?.value || '',
+        statusText: el('ir-status-text')?.value || '',
+        when: el('ir-when')?.value || '',
+        where: el('ir-where')?.value || '',
+        group: el('ir-group')?.value || '',
+        nokInformed: STATE.irNOK || 'N/A',
+        followup: el('ir-followup')?.value || '',
+        reportedTime: el('ir-reportedTime')?.value || '',
+        reportedBy: el('ir-by')?.value || ''
+      });
+    } else {
+      toast('❌ Telegram send failed');
+    }
+  } catch (e) { toast('❌ Send failed'); }
 };
+
 window.copyIR = function() {
   if (!window._irText) return;
   navigator.clipboard.writeText(window._irText).then(() => toast('📋 Copied'));
@@ -2100,13 +2212,6 @@ function renderSOP() {
           </div>
           <div class="sop-card-body" id="sop-body-${s.id}">${s.content}</div>
         </div>`).join('')}
-    </div>
-    <div class="card" style="margin-top:12px">
-      <div class="card-header"><span class="icon">📝</span><h3>Reflection Template</h3></div>
-      <div class="card-body">
-        <pre style="font-size:12px;line-height:1.7;white-space:pre-wrap;color:var(--text)">${REFLECTION_TEMPLATE}</pre>
-        <button class="btn btn-outline btn-sm mt-8" onclick="copyReflectionTemplate()">📋 Copy</button>
-      </div>
     </div>
   `;
 }
@@ -2609,9 +2714,9 @@ function renderSettings() {
           <div class="sr-label">iOS Safe-Area
             <div class="sr-value">0% = nav flush to phone bottom · 100% = respects home indicator</div>
           </div>
-          <div id="lay-safe-val" style="font-size:12px;font-weight:700;color:var(--blue-600);font-variant-numeric:tabular-nums">${Math.round((parseFloat(localStorage.getItem('tsv_lay_safe')||'0.4'))*100)}%</div>
+          <div id="lay-safe-val" style="font-size:12px;font-weight:700;color:var(--blue-600);font-variant-numeric:tabular-nums">${Math.round((parseFloat(localStorage.getItem('tsv_lay_safe')||'0.2'))*100)}%</div>
         </div>
-        <input type="range" min="0" max="1" step="0.05" value="${localStorage.getItem('tsv_lay_safe')||'0.4'}"
+        <input type="range" min="0" max="1" step="0.05" value="${localStorage.getItem('tsv_lay_safe')||'0.2'}"
           oninput="setLayoutOffset('safe', this.value)" style="width:100%;accent-color:var(--blue-600)">
       </div>
 
@@ -2736,8 +2841,8 @@ function applySavedLayout() {
   const n  = localStorage.getItem('tsv_lay_nav');
   const nh = localStorage.getItem('tsv_lay_navh');
   const sf = localStorage.getItem('tsv_lay_safe');
-  // Default safe-factor = 0.4 (match native apps' tight bottom gap)
-  document.documentElement.style.setProperty('--safe-factor', sf !== null ? sf : '0.4');
+  // Default safe-factor = 0.2 (tight gap, matches typical native app compactness)
+  document.documentElement.style.setProperty('--safe-factor', sf !== null ? sf : '0.2');
   if (h !== null)  document.documentElement.style.setProperty('--header-h', h + 'px');
   if (n !== null)  document.documentElement.style.setProperty('--nav-pad-b', n + 'px');
   if (nh !== null) document.documentElement.style.setProperty('--nav-h', nh + 'px');

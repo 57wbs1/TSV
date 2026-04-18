@@ -1158,24 +1158,24 @@ body::after {
    SCHEDULE TAB
    ══════════════════════════════════════════════════════════ */
 .day-tabs {
-  display: flex; gap: 6px;
-  overflow-x: auto; padding: 4px 2px 10px;
-  scrollbar-width: none;
-  -webkit-overflow-scrolling: touch;
+  display: flex; gap: 5px;
+  padding: 4px 2px 6px;
+  width: 100%;
 }
-.day-tabs::-webkit-scrollbar { display: none; }
 .day-tab {
-  flex-shrink: 0;
-  padding: 10px 16px;
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 8px 0;
   border-radius: var(--r-full);
   border: 1px solid var(--border);
-  font-size: 13px; font-weight: 700;
+  font-size: 12px; font-weight: 700;
   cursor: pointer;
   background: var(--n-0);
   color: var(--text-2);
   box-shadow: var(--shadow-xs);
   transition: all .18s var(--ease-out);
   letter-spacing: -0.005em;
+  text-align: center;
 }
 .day-tab:active { transform: scale(0.96); }
 .day-tab.active {
@@ -1187,27 +1187,27 @@ body::after {
 
 .schedule-day-banner {
   color: white;
-  border-radius: var(--r-md);
-  padding: 8px 12px;
-  margin-bottom: 10px;
-  box-shadow: var(--shadow-sm);
+  border-radius: var(--r-sm);
+  padding: 5px 10px;
+  margin-bottom: 8px;
+  box-shadow: var(--shadow-xs);
   position: relative;
   overflow: hidden;
-  display: flex; align-items: center; gap: 10px;
+  display: flex; align-items: center; gap: 8px;
 }
-.schedule-day-banner .db-label { font-size: 9.5px; font-weight: 800; letter-spacing: .08em; opacity: .75; text-transform: uppercase; }
-.schedule-day-banner .db-theme { font-size: 14px; font-weight: 800; letter-spacing: -0.01em; line-height: 1.1; }
-.schedule-day-banner .db-date  { font-size: 10.5px; opacity: .75; margin-top: 1px; }
+.schedule-day-banner .db-label { font-size: 8px; font-weight: 800; letter-spacing: .06em; opacity: .75; text-transform: uppercase; }
+.schedule-day-banner .db-theme { font-size: 12px; font-weight: 800; letter-spacing: -0.01em; line-height: 1.1; }
+.schedule-day-banner .db-date  { font-size: 9px; opacity: .75; margin-top: 0; }
 .schedule-day-banner .db-main  { flex: 1; min-width: 0; }
 
 .sticky-header {
   position: sticky;
-  top: -2px;
+  top: calc(var(--header-h) + var(--safe-t));
   z-index: 20;
-  margin: -14px -14px 8px;
+  margin: -18px -14px 8px;    /* pull up into tab padding so no gap below header */
+  padding-bottom: 0;
   border-radius: 0 0 var(--r-lg) var(--r-lg);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  background: var(--bg);
 }
 .sticky-header .schedule-day-banner,
 .sticky-header .day-tabs-wrap {
@@ -1627,28 +1627,28 @@ body::after {
 .ir-header-banner {
   background: linear-gradient(135deg, var(--red-700), var(--red-500));
   color: white;
-  border-radius: var(--r-lg);
-  padding: 16px;
-  margin-bottom: 14px;
+  border-radius: var(--r-md);
+  padding: 8px 12px;
+  margin-bottom: 8px;
   text-align: center;
-  box-shadow: var(--shadow-red);
+  box-shadow: var(--shadow-sm);
   position: relative;
   overflow: hidden;
 }
 .ir-header-banner::before {
   content: '🚨';
   position: absolute;
-  font-size: 120px;
+  font-size: 60px;
   opacity: .08;
-  right: -10px; top: -20px;
+  right: -5px; top: -10px;
 }
 .ir-header-banner h2 {
-  font-size: 20px; font-weight: 800;
-  letter-spacing: -0.02em;
+  font-size: 14px; font-weight: 800;
+  letter-spacing: -0.015em;
 }
 .ir-header-banner p {
-  font-size: 12px; opacity: .85;
-  margin-top: 4px;
+  font-size: 10px; opacity: .85;
+  margin-top: 2px;
 }
 .ir-form {
   background: var(--n-0);
@@ -2027,8 +2027,12 @@ body::after {
   background: var(--n-100);
   border-radius: var(--r-md);
   padding: 3px;
-  margin-bottom: 12px;
+  margin: -18px -14px 10px;      /* stick flush under header like day-banner */
   gap: 3px;
+  position: sticky;
+  top: calc(var(--header-h) + var(--safe-t));
+  z-index: 20;
+  box-shadow: 0 2px 10px rgba(0,0,0,.1);
 }
 .subtab-btn {
   flex: 1;
@@ -2141,23 +2145,23 @@ body::after {
    ══════════════════════════════════════════════════════════ */
 .learn-intro {
   background: linear-gradient(135deg, #fef3c7, #fde68a);
-  border-radius: var(--r-lg);
-  padding: 14px 16px;
-  margin-bottom: 14px;
+  border-radius: var(--r-md);
+  padding: 7px 10px;
+  margin-bottom: 8px;
   border: 1px solid #fcd34d;
   color: #78350f;
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-xs);
   position: relative;
   overflow: hidden;
 }
 .learn-intro h3 {
-  font-size: 15px;
+  font-size: 11px;
   font-weight: 800;
-  letter-spacing: -0.015em;
-  margin-bottom: 4px;
-  display: flex; align-items: center; gap: 6px;
+  letter-spacing: -0.01em;
+  margin-bottom: 2px;
+  display: flex; align-items: center; gap: 4px;
 }
-.learn-intro p { font-size: 12px; line-height: 1.5; }
+.learn-intro p { font-size: 10px; line-height: 1.35; }
 
 .visit-grid {
   display: flex;
@@ -2505,38 +2509,38 @@ body::after {
 .cal-event-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
 }
 .cal-event {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   align-items: stretch;
 }
 .cal-event-time {
-  width: 54px;
+  width: 48px;
   flex-shrink: 0;
-  padding-top: 10px;
+  padding-top: 7px;
   text-align: right;
 }
 .cal-event-time .ce-start {
-  font-size: 13px; font-weight: 800;
+  font-size: 12px; font-weight: 800;        /* bold retained */
   color: var(--text);
   letter-spacing: -0.01em;
   font-variant-numeric: tabular-nums;
   line-height: 1.1;
 }
 .cal-event-time .ce-end {
-  font-size: 10px; color: var(--text-3);
+  font-size: 9px; color: var(--text-3);
   font-variant-numeric: tabular-nums;
-  margin-top: 2px;
+  margin-top: 1px;
 }
 .cal-event-dot { display: none; }
 .cal-event-card {
   flex: 1;
   background: var(--n-0);
   border: 1px solid var(--border-2);
-  border-radius: var(--r-md);
-  padding: 10px 14px;
+  border-radius: var(--r-sm);
+  padding: 7px 10px;
   box-shadow: var(--shadow-xs);
   cursor: pointer;
   transition: all .15s var(--ease-out);
@@ -2625,22 +2629,22 @@ body::after {
 }
 .btn-attendance:active { transform: scale(0.96); }
 .ce-title {
-  font-size: 14px; font-weight: 700;
+  font-size: 12.5px; font-weight: 800;   /* smaller but still bold */
   letter-spacing: -0.01em;
-  line-height: 1.3;
+  line-height: 1.25;
 }
 .ce-loc {
-  font-size: 11px; color: var(--text-2);
-  margin-top: 2px;
-  display: flex; align-items: center; gap: 3px;
+  font-size: 10px; color: var(--text-2);
+  margin-top: 1px;
+  display: flex; align-items: center; gap: 2px;
 }
 .ce-badges {
-  display: flex; gap: 5px; flex-wrap: wrap;
-  margin-top: 6px;
+  display: flex; gap: 4px; flex-wrap: wrap;
+  margin-top: 4px;
 }
 .ce-badge {
-  font-size: 9.5px; font-weight: 700;
-  padding: 2px 7px;
+  font-size: 8.5px; font-weight: 700;
+  padding: 1.5px 6px;
   border-radius: var(--r-full);
   letter-spacing: .02em;
 }
