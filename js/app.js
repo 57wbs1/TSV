@@ -2510,12 +2510,12 @@ function renderSettings() {
       </div>
       <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:8px">
         <div style="display:flex;justify-content:space-between;align-items:center">
-          <div class="sr-label">Nav Bottom Gap
-            <div class="sr-value">Space between tabs and home indicator</div>
+          <div class="sr-label">Extra Nav Gap
+            <div class="sr-value">Extra space above home indicator (in addition to safe area)</div>
           </div>
-          <div id="lay-nav-val" style="font-size:12px;font-weight:700;color:var(--blue-600);font-variant-numeric:tabular-nums">${(localStorage.getItem('tsv_lay_nav') || '16')}px</div>
+          <div id="lay-nav-val" style="font-size:12px;font-weight:700;color:var(--blue-600);font-variant-numeric:tabular-nums">${(localStorage.getItem('tsv_lay_nav') || '0')}px</div>
         </div>
-        <input type="range" min="0" max="40" step="1" value="${localStorage.getItem('tsv_lay_nav')||'16'}"
+        <input type="range" min="0" max="40" step="1" value="${localStorage.getItem('tsv_lay_nav')||'0'}"
           oninput="setLayoutOffset('nav', this.value)" style="width:100%;accent-color:var(--blue-600)">
       </div>
       <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:8px">
