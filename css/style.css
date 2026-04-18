@@ -715,10 +715,13 @@ body::after {
   display: flex; flex-direction: column;
   align-items: center; gap: 2px;
   justify-content: flex-end;
-  height: var(--nav-h);           /* fill the usable (above safe-area) portion */
+  height: var(--nav-h);
   transition: all .18s var(--ease-out);
-  color: var(--text-3);
+  color: #475569;                 /* clearer slate, higher contrast */
   position: relative;
+}
+@media (prefers-color-scheme: dark) {
+  .nav-btn { color: #cbd5e1; }   /* light slate on dark — very readable */
 }
 .nav-btn .nav-icon {
   font-size: 20px; line-height: 1;
@@ -726,12 +729,13 @@ body::after {
   filter: grayscale(1) opacity(.55);
 }
 .nav-btn .nav-label {
-  font-size: 9.5px; font-weight: 700;
-  letter-spacing: .02em;
+  font-size: 10.5px; font-weight: 700;
+  letter-spacing: .01em;
   transition: color .15s;
 }
-.nav-btn.active {
-  color: var(--blue-600);
+.nav-btn.active { color: var(--blue-600); }
+@media (prefers-color-scheme: dark) {
+  .nav-btn.active { color: #7dd3fc; }   /* bright cyan-blue on dark */
 }
 .nav-btn.active .nav-icon {
   filter: grayscale(0) opacity(1);
@@ -1461,9 +1465,12 @@ body::after {
   background: var(--n-0);
   font-size: 12px; font-weight: 700;
   cursor: pointer;
-  color: var(--text-2);
+  color: #475569;        /* high-contrast slate for clear readability */
   transition: all .15s var(--ease-out);
   letter-spacing: -0.005em;
+}
+@media (prefers-color-scheme: dark) {
+  .filter-chip { color: #cbd5e1; }
 }
 .filter-chip:active { transform: scale(0.95); }
 .filter-chip.active {
@@ -2031,11 +2038,14 @@ body::after {
   border-radius: calc(var(--r-md) - 2px);
   font-size: 13px;
   font-weight: 700;
-  color: var(--text-2);
+  color: #475569;        /* higher contrast slate */
   cursor: pointer;
   display: flex; align-items: center; justify-content: center; gap: 6px;
   transition: all .15s var(--ease-out);
   letter-spacing: -0.005em;
+}
+@media (prefers-color-scheme: dark) {
+  .subtab-btn { color: #cbd5e1; }
 }
 .subtab-btn.active {
   background: var(--n-0);
@@ -2480,8 +2490,11 @@ body::after {
   font-size: 11px; font-weight: 700;
   display: flex; align-items: center; gap: 4px;
   cursor: pointer;
-  color: var(--text-2);
+  color: #475569;
   transition: all .15s;
+}
+@media (prefers-color-scheme: dark) {
+  .cat-chip { color: #cbd5e1; }
 }
 .cat-chip.active {
   border-color: transparent;

@@ -2605,9 +2605,9 @@ function renderSettings() {
           <div class="sr-label">iOS Safe-Area
             <div class="sr-value">0% = nav flush to phone bottom · 100% = respects home indicator</div>
           </div>
-          <div id="lay-safe-val" style="font-size:12px;font-weight:700;color:var(--blue-600);font-variant-numeric:tabular-nums">${Math.round((parseFloat(localStorage.getItem('tsv_lay_safe')||'1'))*100)}%</div>
+          <div id="lay-safe-val" style="font-size:12px;font-weight:700;color:var(--blue-600);font-variant-numeric:tabular-nums">${Math.round((parseFloat(localStorage.getItem('tsv_lay_safe')||'0.4'))*100)}%</div>
         </div>
-        <input type="range" min="0" max="1" step="0.05" value="${localStorage.getItem('tsv_lay_safe')||'1'}"
+        <input type="range" min="0" max="1" step="0.05" value="${localStorage.getItem('tsv_lay_safe')||'0.4'}"
           oninput="setLayoutOffset('safe', this.value)" style="width:100%;accent-color:var(--blue-600)">
       </div>
 
@@ -2732,10 +2732,11 @@ function applySavedLayout() {
   const n  = localStorage.getItem('tsv_lay_nav');
   const nh = localStorage.getItem('tsv_lay_navh');
   const sf = localStorage.getItem('tsv_lay_safe');
+  // Default safe-factor = 0.4 (match native apps' tight bottom gap)
+  document.documentElement.style.setProperty('--safe-factor', sf !== null ? sf : '0.4');
   if (h !== null)  document.documentElement.style.setProperty('--header-h', h + 'px');
   if (n !== null)  document.documentElement.style.setProperty('--nav-pad-b', n + 'px');
   if (nh !== null) document.documentElement.style.setProperty('--nav-h', nh + 'px');
-  if (sf !== null) document.documentElement.style.setProperty('--safe-factor', sf);
 }
 window.setTheme = function(t) {
   localStorage.setItem('tsv_theme', t);
