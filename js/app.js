@@ -737,11 +737,11 @@ function setupPullToRefresh() {
   main.addEventListener('touchmove', (e) => {
     if (!pulling || refreshing) return;
     pullDist = e.touches[0].clientY - startY;
-    if (pullDist < 0) { pulling = false; indicator.style.transform = 'translate(-50%, -50px)'; return; }
-    if (main.scrollTop > 0) { pulling = false; indicator.style.transform = 'translate(-50%, -50px)'; return; }
-    // Dampened movement
+    if (pullDist < 0) { pulling = false; resetIndicator(); return; }
+    if (main.scrollTop > 0) { pulling = false; resetIndicator(); return; }
+    indicator.style.visibility = 'visible';
     const y = Math.min(pullDist * 0.5, 80);
-    indicator.style.transform = `translate(-50%, ${y - 50}px)`;
+    indicator.style.transform = `translate(-50%, ${y - 60}px)`;
     indicator.style.opacity = Math.min(pullDist / threshold, 1);
     const icon = indicator.querySelector('.ptr-icon');
     if (pullDist > threshold) {
@@ -752,6 +752,12 @@ function setupPullToRefresh() {
       indicator.classList.remove('ptr-ready');
     }
   }, { passive: true });
+
+  function resetIndicator() {
+    indicator.style.transform = 'translate(-50%, -60px)';
+    indicator.style.opacity = '0';
+    setTimeout(() => { if (!refreshing) indicator.style.visibility = 'hidden'; }, 150);
+  }
 
   main.addEventListener('touchend', async () => {
     if (!pulling || refreshing) return;
@@ -772,13 +778,11 @@ function setupPullToRefresh() {
       toast('✓ Refreshed');
       setTimeout(() => {
         indicator.classList.remove('ptr-refreshing', 'ptr-ready');
-        indicator.style.transform = 'translate(-50%, -50px)';
-        indicator.style.opacity = '0';
         refreshing = false;
+        resetIndicator();
       }, 500);
     } else {
-      indicator.style.transform = 'translate(-50%, -50px)';
-      indicator.style.opacity = '0';
+      resetIndicator();
     }
   }, { passive: true });
 }

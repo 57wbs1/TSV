@@ -68,9 +68,10 @@
   --r-full: 9999px;
 
   /* Layout */
-  --nav-h:   68px;
-  --header-h:60px;
+  --nav-h:   62px;
+  --header-h:46px;
   --safe-b:  env(safe-area-inset-bottom, 0px);
+  --safe-t:  env(safe-area-inset-top, 0px);
 
   /* Easing */
   --ease-out: cubic-bezier(.22,1,.36,1);
@@ -91,6 +92,11 @@ html, body {
   font-feature-settings: "cv11", "ss01", "ss03";
   letter-spacing: -0.01em;
   -webkit-text-size-adjust: 100%;
+}
+/* Match status-bar area to header color — no black flash above the blue header */
+html { background: var(--blue-900); }
+@supports (background: color-mix(in srgb, red, blue)) {
+  html { background: color-mix(in srgb, var(--blue-900) 100%, transparent); }
 }
 
 /* Allow pinch-to-zoom on media only, but block double-tap-to-zoom everywhere */
@@ -493,20 +499,31 @@ body::after {
 
 /* ── Header ──────────────────────────────────────────────── */
 #app-header {
-  min-height: var(--header-h);
+  height: calc(var(--header-h) + var(--safe-t));
   background: linear-gradient(135deg, var(--blue-900) 0%, var(--blue-600) 60%, var(--blue-500) 100%);
-  display: flex; align-items: center;
-  padding: env(safe-area-inset-top, 0) 14px 0;
+  display: flex; align-items: flex-end;
+  padding: 0 14px 6px;
+  padding-top: var(--safe-t);
   padding-left: max(14px, env(safe-area-inset-left));
   padding-right: max(14px, env(safe-area-inset-right));
-  padding-bottom: 8px;
-  gap: 10px;
+  gap: 8px;
   color: white; flex-shrink: 0;
-  box-shadow: 0 4px 14px rgba(0,26,64,.2);
+  box-shadow: 0 2px 10px rgba(0,26,64,.25);
   position: relative;
   overflow: hidden;
 }
 #app-header > * { position: relative; z-index: 2; }
+#app-header .flag {
+  width: 30px; height: 30px;
+  font-size: 18px;
+}
+#app-header #btn-admin, #app-header #btn-switch-user {
+  width: 32px; height: 32px;
+  font-size: 16px;
+}
+#header-time { font-size: 12px; padding: 3px 9px; }
+#app-header .title h1 { font-size: 14px; }
+#app-header .title p { font-size: 10px; margin-top: 0; }
 #app-header::after {
   content: '';
   position: absolute; inset: 0;
@@ -562,7 +579,10 @@ body::after {
 #main-content {
   flex: 1; overflow-y: auto;
   overflow-x: hidden;
+  overscroll-behavior-y: contain;   /* kill the iOS rubber-band black gap */
+  -webkit-overflow-scrolling: touch;
   width: 100%; max-width: 100%;
+  background: var(--bg);            /* same bg as body so no flash if rubber-band slips */
   padding-bottom: calc(var(--nav-h) + var(--action-h, 0px) + var(--safe-b) + 28px);
   scroll-behavior: smooth;
 }
@@ -647,10 +667,11 @@ body::after {
 }
 .tab-content {
   display: none;
-  padding: 14px 14px 8px;
+  padding: 10px 14px 8px;
   animation: fadeIn .25s var(--ease-out);
 }
 .tab-content.active { display: block; }
+.tab-content > .section-title:first-child { padding-top: 4px; }
 
 /* ══════════════════════════════════════════════════════════
    BOTTOM NAV (glass)
@@ -1947,21 +1968,25 @@ body::after {
    ══════════════════════════════════════════════════════════ */
 #ptr-indicator {
   position: fixed;
-  top: calc(var(--header-h) + env(safe-area-inset-top, 0));
+  top: calc(var(--header-h) + var(--safe-t) + 8px);
   left: 50%;
-  transform: translate(-50%, -50px);
-  width: 42px; height: 42px;
+  transform: translate(-50%, -60px);
+  width: 38px; height: 38px;
   border-radius: var(--r-full);
   background: var(--card);
   border: 1px solid var(--border);
   box-shadow: 0 4px 14px rgba(0,0,0,.15);
   display: flex; align-items: center; justify-content: center;
-  font-size: 18px;
+  font-size: 17px;
   z-index: 85;
   opacity: 0;
-  transition: transform .12s var(--ease-out), opacity .12s;
+  visibility: hidden;
+  transition: transform .12s var(--ease-out), opacity .12s, visibility .12s;
   pointer-events: none;
 }
+#ptr-indicator[style*="opacity: 0"] { visibility: hidden; }
+#ptr-indicator.ptr-ready,
+#ptr-indicator.ptr-refreshing { visibility: visible; }
 #ptr-indicator.ptr-ready { background: linear-gradient(135deg, var(--blue-50), #dbe7ff); border-color: var(--blue-500); }
 #ptr-indicator.ptr-refreshing .ptr-icon { animation: spin 0.8s linear infinite; }
 
