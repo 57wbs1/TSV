@@ -589,8 +589,8 @@ body::after {
   -webkit-overflow-scrolling: touch;
   width: 100%; max-width: 100%;
   background: var(--bg);
-  /* Push content below the fixed header */
-  padding-top: calc(var(--header-h) + var(--safe-t) + 8px);
+  /* Push content below the fixed header — minimal 2px buffer */
+  padding-top: calc(var(--header-h) + var(--safe-t) + 2px);
   /* Reserve generous room at bottom so content always scrolls FULLY above the nav + action bar */
   padding-bottom: calc(var(--nav-h) + var(--action-h, 0px) + env(safe-area-inset-bottom, 0px) * var(--safe-factor, 1) + var(--nav-pad-b, 0px) + 80px);
   scroll-behavior: smooth;
@@ -654,11 +654,11 @@ body::after {
 }
 .tab-content {
   display: none;
-  padding: 10px 14px 8px;
+  padding: 4px 14px 8px;
   animation: fadeIn .25s var(--ease-out);
 }
 .tab-content.active { display: block; }
-.tab-content > .section-title:first-child { padding-top: 4px; }
+.tab-content > .section-title:first-child { padding-top: 2px; }
 
 /* ══════════════════════════════════════════════════════════
    BOTTOM NAV (glass)
@@ -1204,9 +1204,7 @@ body::after {
   position: sticky;
   top: calc(var(--header-h) + var(--safe-t));
   z-index: 20;
-  margin: -18px -14px 8px;    /* pull up into tab padding so no gap below header */
-  padding-bottom: 0;
-  border-radius: 0 0 var(--r-lg) var(--r-lg);
+  margin: 0 -14px 8px;        /* extend full width, no negative margin */
   background: var(--bg);
 }
 .sticky-header .schedule-day-banner,
@@ -2027,7 +2025,7 @@ body::after {
   background: var(--n-100);
   border-radius: var(--r-md);
   padding: 3px;
-  margin: -18px -14px 10px;      /* stick flush under header like day-banner */
+  margin: 0 0 10px;
   gap: 3px;
   position: sticky;
   top: calc(var(--header-h) + var(--safe-t));
