@@ -17,7 +17,9 @@ const STATE = {
   locationFilter: 'all',
   offlineMode: false,
   currentVisitId: null,
-  composeAhha: false
+  composeAhha: false,
+  learnSubTab: 'visits',
+  reflections: []
 };
 
 // ═══════════ API LAYER ═══════════════════════════════════════
@@ -471,7 +473,7 @@ function switchTab(tabId) {
   if (tabId === 'calendar')  renderCalendar();
   if (tabId === 'location')  renderLocation();
   if (tabId === 'rooms')     renderRooms();
-  if (tabId === 'learnings') renderLearnings();
+  if (tabId === 'learnings') { renderLearnings(); syncLearnings(); if (STATE.learnSubTab === 'reflections') syncReflections(); }
   if (tabId === 'ir')        renderIR();
   if (tabId === 'sop')       renderSOP();
   if (tabId === 'settings')  renderSettings();
@@ -700,6 +702,17 @@ async function syncLearnings() {
   if (!anyModalOpen() && STATE.currentTab === 'learnings') renderLearnings();
 }
 
+let _lastReflectionsHash = '';
+async function syncReflections() {
+  const data = await API.get('getReflections');
+  if (!Array.isArray(data)) return;
+  const hash = JSON.stringify(data);
+  if (hash === _lastReflectionsHash) return;
+  _lastReflectionsHash = hash;
+  STATE.reflections = data;
+  if (!anyModalOpen() && STATE.currentTab === 'learnings' && STATE.learnSubTab === 'reflections') renderLearnings();
+}
+
 async function syncCalendar() {
   const data = await API.get('getCalendar');
   if (!Array.isArray(data) || !data.length) return;
@@ -792,7 +805,10 @@ function startPolling() {
     STATE._visHandler = () => {
       if (!document.hidden) {
         syncStatuses();
-        if (STATE.currentTab === 'learnings') syncLearnings();
+        if (STATE.currentTab === 'learnings') {
+          syncLearnings();
+          if (STATE.learnSubTab === 'reflections') syncReflections();
+        }
       }
     };
     document.addEventListener('visibilitychange', STATE._visHandler);
@@ -858,7 +874,8 @@ function setupPullToRefresh() {
           syncMembers(),
           syncStatuses(),
           syncCalendar(),
-          syncLearnings()
+          syncLearnings(),
+          syncReflections()
         ]);
       } catch {}
       toast('✓ Refreshed');
@@ -1507,7 +1524,7 @@ function renderLocation() {
     <div class="filter-bar">${filterChips}</div>
     <div class="section-title">Team Status</div>
     ${synGroups}
-    <div class="alert alert-blue mt-12">↓ Pull down to refresh · swipe ← right for Map view</div>
+    <div class="mini-hint">↓ Pull to refresh · swipe ← for Map</div>
     </div>
   `;
 
@@ -1796,7 +1813,20 @@ function updateMapMarkers() {
 // ═══════════ LEARNINGS TAB (Visit-centric) ═══════════════════
 function renderLearnings() {
   const user = STATE.currentUser;
+  const sub = STATE.learnSubTab || 'visits';
 
+  el('tab-learnings').innerHTML = `
+    <div class="subtab-row" id="learn-subtabs">
+      <button class="subtab-btn ${sub === 'visits' ? 'active' : ''}" onclick="setLearnSubTab('visits')">💡 Visits</button>
+      <button class="subtab-btn ${sub === 'reflections' ? 'active' : ''}" onclick="setLearnSubTab('reflections')">📝 Reflections</button>
+    </div>
+    <div id="learn-content">
+      ${sub === 'visits' ? renderVisitsSubTab() : renderReflectionsSubTab()}
+    </div>
+  `;
+}
+
+function renderVisitsSubTab() {
   const visitCards = VISITS.map(v => {
     const dayMeta = DAYS.find(d => d.day === v.dayNum);
     const count = getLearningsForVisit(STATE.learnings, v.id).length;
@@ -1822,26 +1852,84 @@ function renderLearnings() {
     `;
   }).join('');
 
-  el('tab-learnings').innerHTML = `
+  return `
     <div class="learn-intro">
       <h3>💡 Learning & PMESII Hypotheses</h3>
-      <p>Each visit below has a guiding hypothesis. Tap to see learning outcomes and post your observations, ah-ha moments, or implications for SG/SAF.</p>
+      <p>Each visit has a guiding hypothesis. Tap to see learning outcomes and post your observations, ah-ha moments, or implications for SG/SAF.</p>
     </div>
     <div class="section-title">Visits & Tours</div>
     <div class="visit-grid">${visitCards}</div>
 
-    <div class="card" style="margin-top:12px">
-      <div class="card-header"><span class="icon">📝</span><h3>Reflection Template</h3></div>
+    <div style="margin-top:20px" class="section-title">All Learnings Feed</div>
+    ${renderLearningFeed(STATE.learnings, null)}
+  `;
+}
+
+function renderReflectionsSubTab() {
+  const user = STATE.currentUser;
+  const reflections = STATE.reflections || [];
+  const mine = user ? reflections.filter(r => r.authorId === user.id) : [];
+  const others = user ? reflections.filter(r => r.authorId !== user.id) : reflections;
+
+  const feedHtml = !reflections.length
+    ? `<div class="empty-state"><div class="icon">📝</div><p>No reflections posted yet.<br>Be the first to contribute!</p></div>`
+    : `<div class="learning-feed">${reflections.map(r => {
+        const time = r.timestamp ? new Date(r.timestamp).toLocaleString('en-GB', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' }) : '';
+        const dayMeta = r.day ? DAYS.find(d => d.day == r.day) : null;
+        return `
+          <div class="learning-post">
+            <div class="post-header">
+              <span class="post-author">${escapeHtml(r.authorName || 'Anonymous')}</span>
+              ${r.syndicate ? `<span class="post-day-badge" style="background:#64748b">${escapeHtml(r.syndicate)}</span>` : ''}
+              ${dayMeta ? `<span class="post-day-badge" style="background:${dayMeta.color}">Day ${dayMeta.day}</span>` : ''}
+              <span class="post-time">${time}</span>
+            </div>
+            <div class="post-body">${escapeHtml(r.content || '').replace(/\n/g,'<br>')}</div>
+          </div>`;
+      }).join('')}</div>`;
+
+  return `
+    <div class="learn-intro">
+      <h3>📝 Daily Reflections</h3>
+      <p>Use the template below to guide your end-of-day syndicate reflection. Posts go to the shared Reflections sheet and are visible to everyone.</p>
+    </div>
+
+    <div class="card" style="margin-bottom:12px">
+      <div class="card-header"><span class="icon">🧭</span><h3>Reflection Template</h3></div>
       <div class="card-body">
         <pre style="font-size:11.5px;line-height:1.65;white-space:pre-wrap;color:var(--text);margin:0">${REFLECTION_TEMPLATE}</pre>
         <button class="btn btn-outline btn-sm mt-8" onclick="copyReflectionTemplate()">📋 Copy Template</button>
       </div>
     </div>
 
-    <div style="margin-top:20px" class="section-title">All Learnings Feed</div>
-    ${renderLearningFeed(STATE.learnings, null)}
+    ${user ? `
+    <div class="visit-compose" style="background:linear-gradient(135deg,#eef2ff,#e0e7ff);border-color:#818cf8">
+      <div class="visit-compose-label" style="color:#3730a3">
+        <span>✍️ Post Your Reflection</span>
+      </div>
+      <textarea id="reflection-compose-text" placeholder="Paste your filled-in template or free-form reflection here…"></textarea>
+      <div class="compose-toolbar" style="display:flex;gap:8px;margin-top:10px;align-items:center">
+        <label style="font-size:12px;color:#3730a3;font-weight:700">Day:
+          <select id="reflection-day-select" style="margin-left:6px;padding:4px 8px;border-radius:6px;border:1px solid #c7d2fe">
+            <option value="">—</option>
+            ${DAYS.map(d => `<option value="${d.day}">Day ${d.day}</option>`).join('')}
+          </select>
+        </label>
+        <div style="flex:1"></div>
+        <button class="btn btn-primary btn-sm" onclick="postReflection()">Post</button>
+      </div>
+    </div>` : `<div class="alert alert-orange">Sign in to post a reflection.</div>`}
+
+    <div class="section-title" style="margin-top:18px">All Reflections (${reflections.length})</div>
+    ${feedHtml}
   `;
 }
+
+window.setLearnSubTab = function(tab) {
+  STATE.learnSubTab = tab;
+  renderLearnings();
+  if (tab === 'reflections') syncReflections();
+};
 
 function renderLearningFeed(learnings, visitIdFilter) {
   const filtered = visitIdFilter
@@ -1885,7 +1973,7 @@ window.openVisitDetail = function(visitId) {
   }).join(' ');
 
   const outcomes = v.learningOutcomes?.length
-    ? `<div class="info-block"><h4>📚 Learning Outcomes</h4><ul class="learning-outcomes-list">${v.learningOutcomes.map(o => `<li>${escapeHtml(o)}</li>`).join('')}</ul></div>`
+    ? `<div class="info-block outcomes-block"><h4>📚 Learning Outcomes</h4><ul class="learning-outcomes-list">${v.learningOutcomes.map(o => `<li>${escapeHtml(o)}</li>`).join('')}</ul></div>`
     : '';
 
   el('visit-detail-title').textContent = v.title;
@@ -1987,6 +2075,30 @@ window.draftForMe = function(visitId) {
     ta.scrollTop = 0;
   }
   toast('✨ Draft inserted — edit freely');
+};
+
+// ═══════════ REFLECTIONS ═════════════════════════════════════
+window.postReflection = async function() {
+  const ta = el('reflection-compose-text');
+  const content = ta?.value?.trim();
+  if (!content) return toast('Type your reflection first');
+  const user = STATE.currentUser;
+  if (!user) return toast('Sign in first');
+  const daySel = el('reflection-day-select');
+  const day = daySel?.value || '';
+  const post = {
+    authorId: user.id,
+    authorName: user.name,
+    syndicate: formatGroupDisplay(memberGroupKey(user)),
+    day: day,
+    content: content,
+    timestamp: new Date().toISOString()
+  };
+  STATE.reflections.unshift(post);
+  ta.value = '';
+  await API.post('addReflection', post);
+  toast('✅ Reflection posted');
+  renderLearnings();
 };
 
 // ═══════════ IR TAB ══════════════════════════════════════════

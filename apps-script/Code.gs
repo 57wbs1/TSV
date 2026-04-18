@@ -18,7 +18,8 @@ const SHEETS = {
   LOG:       { name: 'Log',       headers: ['timestamp','action','actor','detail'] },
   PINGS:     { name: 'Pings',     headers: ['id','fromId','fromName','toId','message','timestamp','read'] },
   ADMINREQ:  { name: 'AdminReq',  headers: ['id','fromId','fromName','fromGroup','message','timestamp','status','resolvedBy','resolvedAt','reason'] },
-  CALENDAR:  { name: 'Calendar',  headers: ['id','day','startTime','endTime','title','location','category','attire','remarks','visitId','synicReport','oicsJson','isDeleted','createdAt','updatedAt'] }
+  CALENDAR:  { name: 'Calendar',  headers: ['id','day','startTime','endTime','title','location','category','attire','remarks','visitId','synicReport','oicsJson','isDeleted','createdAt','updatedAt'] },
+  REFLECTIONS: { name: 'Reflections', headers: ['id','authorId','authorName','syndicate','day','content','timestamp'] }
 };
 
 // ── Response helper ──────────────────────────────────────────
@@ -40,6 +41,7 @@ function doGet(e) {
       case 'getMembers':  data = readMembers(); break;
       case 'getStatuses': data = readStatuses(); break;
       case 'getLearnings':data = readLearnings(); break;
+      case 'getReflections': data = readReflections(); break;
       case 'getPings':    data = getPings(e.parameter.userId || ''); break;
       case 'getAdminRequests': data = readSheet(SHEETS.ADMINREQ); break;
       default: return json({ ok: false, error: 'Unknown action: ' + action });
@@ -66,6 +68,7 @@ function doPost(e) {
     switch (action) {
       case 'updateStatus': data = updateStatus(body); break;
       case 'addLearning':  data = addLearning(body); break;
+      case 'addReflection':data = addReflection(body); break;
       case 'addIncident':  data = addIncident(body); break;
       case 'addMember':    data = addMember(body); break;
       case 'updateMember': data = updateMember(body); break;
@@ -247,6 +250,26 @@ function addLearning(data) {
     new Date().toISOString()
   ]);
   logAction('addLearning', data.authorId, (data.content || '').substring(0, 50));
+  return { id };
+}
+
+function readReflections() {
+  return readSheet(SHEETS.REFLECTIONS).reverse(); // newest first
+}
+
+function addReflection(data) {
+  const sheet = getOrCreateSheet(SHEETS.REFLECTIONS);
+  const id = 'R' + Date.now();
+  sheet.appendRow([
+    id,
+    data.authorId || '',
+    data.authorName || '',
+    data.syndicate || '',
+    data.day || '',
+    data.content || '',
+    new Date().toISOString()
+  ]);
+  logAction('addReflection', data.authorId, (data.content || '').substring(0, 50));
   return { id };
 }
 
