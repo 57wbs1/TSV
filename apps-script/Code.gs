@@ -96,10 +96,15 @@ function readMembers() {
   return rows.filter(r => r.isDeleted !== 'true' && r.isDeleted !== true);
 }
 
+// Super-admin gate — only Caspar can grant/revoke admin rights.
+// Matches CONFIG.superAdminId on the client.
+const SUPER_ADMIN_ID = 'caspar';
+
 function addMember(data) {
   const sheet = getOrCreateSheet(SHEETS.MEMBERS);
   const id = data.id || ('m_' + Date.now() + '_' + Math.floor(Math.random() * 1000));
   const now = new Date().toISOString();
+  const isAdminValue = (data.actor === SUPER_ADMIN_ID) ? (data.isAdmin || 'false') : 'false';
   sheet.appendRow([
     id,
     data.name || '',
@@ -109,7 +114,7 @@ function addMember(data) {
     data.csc || '',
     data.syndicate || '',
     data.pin || '0000',
-    data.isAdmin || 'false',
+    isAdminValue,
     'false',
     now,
     now
@@ -136,7 +141,9 @@ function updateMember(data) {
       row[headers.indexOf('syndicate')] = data.syndicate ?? row[headers.indexOf('syndicate')];
       if (data.pin !== undefined && headers.indexOf('pin') >= 0)
         row[headers.indexOf('pin')] = data.pin;
-      if (data.isAdmin !== undefined && headers.indexOf('isAdmin') >= 0)
+      // Only super-admin may change isAdmin. Silently drop for anyone else.
+      if (data.isAdmin !== undefined && headers.indexOf('isAdmin') >= 0
+          && data.actor === SUPER_ADMIN_ID)
         row[headers.indexOf('isAdmin')] = data.isAdmin;
       row[headers.indexOf('updatedAt')] = now;
       sheet.getRange(i + 1, 1, 1, headers.length).setValues([row]);
