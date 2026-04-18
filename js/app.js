@@ -2560,7 +2560,7 @@ function renderSettings() {
           <div class="sr-label">GKS Watermark Opacity</div>
           <div id="bg-opacity-val" style="font-size:12px;font-weight:700;color:var(--blue-600);font-variant-numeric:tabular-nums">${Math.round((parseFloat(localStorage.getItem('tsv_bg_opacity')||'0.08'))*100)}%</div>
         </div>
-        <input type="range" min="0" max="0.35" step="0.01" value="${localStorage.getItem('tsv_bg_opacity')||'0.08'}"
+        <input type="range" min="0" max="0.2" step="0.01" value="${localStorage.getItem('tsv_bg_opacity')||'0.08'}"
           oninput="setBgOpacity(this.value)" style="width:100%;accent-color:var(--blue-600)">
       </div>
       <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:8px">
@@ -2758,7 +2758,10 @@ function applySavedSize() {
 function applyBackgroundPrefs() {
   const op = localStorage.getItem('tsv_bg_opacity');
   const br = localStorage.getItem('tsv_bg_brightness');
-  document.documentElement.style.setProperty('--bg-opacity', op !== null ? op : '0.08');
+  // Cap opacity to 0.2 so existing users who cranked it don't get punch-through
+  const capped = op !== null ? Math.min(parseFloat(op), 0.2) : 0.06;
+  document.documentElement.style.setProperty('--bg-opacity', String(capped));
+  if (op !== null && parseFloat(op) > 0.2) localStorage.setItem('tsv_bg_opacity', '0.2');
   document.documentElement.style.setProperty('--bg-brightness', br !== null ? br : '1');
 }
 window.setBgOpacity = function(v) {

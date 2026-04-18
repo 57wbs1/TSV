@@ -130,7 +130,7 @@ body::after {
   opacity: var(--bg-opacity, 0.06);
   filter: brightness(var(--bg-brightness, 1));
   pointer-events: none;
-  z-index: 0;
+  z-index: -1;    /* behind ALL content (was 0 → punched through modals) */
 }
 @media (prefers-color-scheme: dark) {
   body::after { filter: brightness(var(--bg-brightness, 1)) invert(1) hue-rotate(180deg); }
@@ -590,8 +590,9 @@ body::after {
   width: 100%; max-width: 100%;
   background: var(--bg);
   /* Push content below the fixed header */
-  padding-top: calc(var(--header-h) + var(--safe-t));
-  padding-bottom: calc(var(--nav-h) + var(--action-h, 0px) + env(safe-area-inset-bottom, 0px) * var(--safe-factor, 1) + var(--nav-pad-b, 0px) + 28px);
+  padding-top: calc(var(--header-h) + var(--safe-t) + 8px);
+  /* Reserve generous room at bottom so content always scrolls FULLY above the nav + action bar */
+  padding-bottom: calc(var(--nav-h) + var(--action-h, 0px) + env(safe-area-inset-bottom, 0px) * var(--safe-factor, 1) + var(--nav-pad-b, 0px) + 80px);
   scroll-behavior: smooth;
 }
 .app-footer {
