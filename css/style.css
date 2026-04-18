@@ -875,6 +875,33 @@ body::after {
 .alert-blue   { background: #eff6ff; color: #1e40af; border-color: #bfdbfe; }
 .alert-green  { background: #f0fdf4; color: #166534; border-color: #bbf7d0; }
 
+/* Learn tab → Google Sheet deep-link */
+.sheet-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  margin: 6px 0 10px;
+  border-radius: var(--r-md);
+  background: linear-gradient(135deg, #e0f2fe, #dbeafe);
+  border: 1px solid rgba(14,165,233,.3);
+  color: #075985;
+  font-size: 12.5px;
+  font-weight: 700;
+  text-decoration: none;
+  box-shadow: 0 2px 6px rgba(14,165,233,.15);
+  transition: transform .15s ease, box-shadow .15s ease;
+}
+.sheet-link:active { transform: scale(0.99); }
+.sheet-link-arrow { margin-left: auto; font-size: 14px; opacity: .7; }
+@media (prefers-color-scheme: dark) {
+  .sheet-link {
+    background: linear-gradient(135deg, rgba(14,165,233,.15), rgba(59,130,246,.12));
+    border-color: rgba(14,165,233,.4);
+    color: #7dd3fc;
+  }
+}
+
 /* Mini hint — half-size of .alert, used for tracker pull/swipe tip */
 .mini-hint {
   padding: 5px 8px;
@@ -2290,14 +2317,7 @@ body::after {
   animation: slideUp .35s var(--ease-out);
   padding-bottom: var(--safe-b);
 }
-.visit-detail-sheet::before {
-  content: '';
-  display: block;
-  width: 40px; height: 4px;
-  background: var(--n-300);
-  border-radius: var(--r-full);
-  margin: 10px auto 4px;
-}
+/* drag-handle removed — modal closes via X button or swipe-right */
 #visit-detail-body, #event-detail-body {
   flex: 1;
   overflow-y: auto;
@@ -2305,9 +2325,9 @@ body::after {
 }
 .visit-hero {
   border-radius: var(--r-md);
-  padding: 8px 10px;
+  padding: 5px 8px;
   color: white;
-  margin-bottom: 8px;
+  margin-bottom: 5px;
   box-shadow: var(--shadow-sm);
   position: relative;
   overflow: hidden;
@@ -2316,30 +2336,30 @@ body::after {
   content: '';
   position: absolute;
   top: -30%; right: -10%;
-  width: 120px; height: 120px;
+  width: 80px; height: 80px;
   background: radial-gradient(circle, rgba(255,255,255,.18), transparent 60%);
 }
 .visit-hero-icon {
-  font-size: 20px; line-height: 1;
-  margin-bottom: 2px;
+  font-size: 13px; line-height: 1;
+  margin-bottom: 1px;
   position: relative;
-  filter: drop-shadow(0 2px 6px rgba(0,0,0,.25));
+  filter: drop-shadow(0 2px 4px rgba(0,0,0,.25));
 }
 .visit-hero h3 {
-  font-size: 13px; font-weight: 800;
+  font-size: 10px; font-weight: 800;
   letter-spacing: -0.01em;
   line-height: 1.15;
   position: relative;
 }
 .visit-hero-sub {
-  font-size: 10px; opacity: .85;
-  margin-top: 2px;
+  font-size: 8px; opacity: .85;
+  margin-top: 1px;
   position: relative;
 }
 .visit-hero-meta {
-  margin-top: 4px;
-  font-size: 9px; font-weight: 600;
-  padding: 2px 7px;
+  margin-top: 2px;
+  font-size: 7.5px; font-weight: 600;
+  padding: 1px 6px;
   background: rgba(255,255,255,.15);
   border-radius: var(--r-full);
   display: inline-block;
@@ -2373,11 +2393,11 @@ body::after {
   background: linear-gradient(135deg, #fef3c7, #fde68a);
   border-color: #fcd34d !important;
   color: #78350f;
-  padding: 8px 10px;
-  margin-bottom: 7px;
+  padding: 5px 7px;
+  margin-bottom: 5px;
 }
-.hypothesis-block h4 { color: #92400e; font-size: 9px; margin-bottom: 4px; }
-.hypothesis-block p { font-weight: 500; font-size: 11px; line-height: 1.45; }
+.hypothesis-block h4 { color: #92400e; font-size: 7.5px; margin-bottom: 3px; }
+.hypothesis-block p { font-weight: 500; font-size: 8.5px; line-height: 1.4; }
 
 .learning-outcomes-list {
   font-size: 10px; line-height: 1.5;
@@ -2422,7 +2442,8 @@ body::after {
 }
 .visit-compose textarea {
   width: 100%;
-  min-height: 180px;
+  min-height: 320px;
+  max-height: 60vh;
   border: 1.5px dashed rgba(245,158,11,.5);
   outline: none;
   padding: 14px;
@@ -2430,9 +2451,11 @@ body::after {
   font-size: 15px;
   line-height: 1.6;
   resize: vertical;
+  overflow-y: auto;
   font-family: inherit;
   color: var(--text);
   background: rgba(255,255,255,.85);
+  -webkit-overflow-scrolling: touch;
 }
 .visit-compose textarea:focus {
   border-color: #f59e0b;

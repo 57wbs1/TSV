@@ -448,8 +448,58 @@ function setupModalSwipes() {
   attachSwipeDownClose(el('members-modal'), '.members-sheet');
   attachSwipeDownClose(el('member-editor'), '.editor-sheet', () => { _editingMemberId = null; });
   attachSwipeDownClose(el('event-editor'), '.editor-sheet');
-  attachSwipeDownClose(el('visit-detail-modal'), '.visit-detail-sheet');
+  // visit-detail-modal: swipe-down was glitchy; use swipe-RIGHT instead (+ X button)
+  attachSwipeRightClose(el('visit-detail-modal'), '.visit-detail-sheet');
   attachSwipeDownClose(el('buddy-modal'), '.buddy-sheet');
+}
+
+// Swipe-right-to-close (used for visit detail — less prone to conflict with body scroll)
+function attachSwipeRightClose(modalEl, sheetSelector, onClose) {
+  const sheet = modalEl.querySelector(sheetSelector);
+  if (!sheet) return;
+  let startX = 0, startY = 0, currentX = 0, dragging = false, locked = false;
+
+  sheet.addEventListener('touchstart', e => {
+    startX = e.touches[0].clientX;
+    startY = e.touches[0].clientY;
+    // Only initiate from leftmost 30% of screen to avoid hijacking normal taps/text selection
+    if (startX > window.innerWidth * 0.30) return;
+    dragging = true;
+    locked = false;
+    currentX = 0;
+    sheet.style.transition = 'none';
+  }, { passive: true });
+
+  sheet.addEventListener('touchmove', e => {
+    if (!dragging) return;
+    const dx = e.touches[0].clientX - startX;
+    const dy = e.touches[0].clientY - startY;
+    if (!locked) {
+      if (Math.abs(dy) > Math.abs(dx)) { dragging = false; return; }  // vertical → let scroll win
+      locked = true;
+    }
+    if (dx < 0) { currentX = 0; sheet.style.transform = ''; return; }
+    currentX = dx;
+    sheet.style.transform = `translateX(${currentX}px)`;
+  }, { passive: true });
+
+  sheet.addEventListener('touchend', () => {
+    if (!dragging) return;
+    sheet.style.transition = 'transform .22s var(--ease-out)';
+    if (currentX > 100) {
+      sheet.style.transform = 'translateX(100%)';
+      setTimeout(() => {
+        sheet.style.transform = '';
+        modalEl.classList.add('hidden');
+        if (onClose) onClose();
+      }, 220);
+    } else {
+      sheet.style.transform = '';
+    }
+    dragging = false;
+    locked = false;
+    currentX = 0;
+  });
 }
 
 function logout() {
@@ -1814,12 +1864,17 @@ function updateMapMarkers() {
 function renderLearnings() {
   const user = STATE.currentUser;
   const sub = STATE.learnSubTab || 'visits';
+  const sheetUrl = `https://docs.google.com/spreadsheets/d/${CONFIG.sheetId}/edit`;
 
   el('tab-learnings').innerHTML = `
     <div class="subtab-row" id="learn-subtabs">
       <button class="subtab-btn ${sub === 'visits' ? 'active' : ''}" onclick="setLearnSubTab('visits')">💡 Visits</button>
       <button class="subtab-btn ${sub === 'reflections' ? 'active' : ''}" onclick="setLearnSubTab('reflections')">📝 Reflections</button>
     </div>
+    <a class="sheet-link" href="${sheetUrl}" target="_blank" rel="noopener">
+      <span>📊</span> Open Google Sheet · Hypotheses & Posts
+      <span class="sheet-link-arrow">↗</span>
+    </a>
     <div id="learn-content">
       ${sub === 'visits' ? renderVisitsSubTab() : renderReflectionsSubTab()}
     </div>
