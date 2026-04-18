@@ -2562,21 +2562,35 @@ window.saveMember = async function() {
   hideMemberEditor();
   await syncMembers();
   renderMembersList();
-  if (STATE.currentTab === 'location') renderLocation();
+  refreshRosterDependentTabs();
 };
 
 window.deleteMemberConfirm = async function() {
   if (!_editingMemberId) return;
   const m = getMemberById(_editingMemberId);
   if (!confirm(`Remove ${m?.name}?`)) return;
+  // Invalidate the hash so syncMembers can't early-return and skip re-seed
+  _lastMembersHash = '';
   MEMBERS = MEMBERS.filter(x => x.id !== _editingMemberId);
   await API.post('deleteMember', { id: _editingMemberId, actor: STATE.currentUser?.id || '' });
   hideMemberEditor();
   await syncMembers();
   renderMembersList();
-  if (STATE.currentTab === 'location') renderLocation();
+  refreshRosterDependentTabs();
   toast('🗑 Removed');
 };
+
+// Re-render every tab whose contents depend on the member roster (counts,
+// filter chips, syndicate groups, parade state). Called after any member
+// add/edit/delete. Forces render regardless of anyModalOpen() because the
+// user initiated this action and expects to see the result immediately.
+function refreshRosterDependentTabs() {
+  if (STATE.currentTab === 'home')     renderHome();
+  if (STATE.currentTab === 'location') renderLocation();
+  if (STATE.currentTab === 'rooms')    renderRooms();
+  if (STATE.currentTab === 'map')      updateMapMarkers?.();
+  renderPinnedActionBar();
+}
 
 // ═══════════ APP STARTUP ═════════════════════════════════════
 function startApp() {
