@@ -2324,10 +2324,10 @@ body::after {
   padding: 14px 18px 18px;
 }
 .visit-hero {
-  border-radius: var(--r-md);
-  padding: 5px 8px;
+  border-radius: var(--r-md) !important;
+  padding: 5px 8px !important;
   color: white;
-  margin-bottom: 5px;
+  margin-bottom: 5px !important;
   box-shadow: var(--shadow-sm);
   position: relative;
   overflow: hidden;
@@ -2340,25 +2340,26 @@ body::after {
   background: radial-gradient(circle, rgba(255,255,255,.18), transparent 60%);
 }
 .visit-hero-icon {
-  font-size: 13px; line-height: 1;
+  font-size: 13px !important; line-height: 1;
   margin-bottom: 1px;
   position: relative;
   filter: drop-shadow(0 2px 4px rgba(0,0,0,.25));
 }
 .visit-hero h3 {
-  font-size: 10px; font-weight: 800;
+  font-size: 11px !important; font-weight: 800;
   letter-spacing: -0.01em;
   line-height: 1.15;
   position: relative;
+  margin: 0 !important;
 }
 .visit-hero-sub {
-  font-size: 8px; opacity: .85;
+  font-size: 8.5px !important; opacity: .85;
   margin-top: 1px;
   position: relative;
 }
 .visit-hero-meta {
   margin-top: 2px;
-  font-size: 7.5px; font-weight: 600;
+  font-size: 8px !important; font-weight: 600;
   padding: 1px 6px;
   background: rgba(255,255,255,.15);
   border-radius: var(--r-full);
@@ -2393,21 +2394,22 @@ body::after {
   background: linear-gradient(135deg, #fef3c7, #fde68a);
   border-color: #fcd34d !important;
   color: #78350f;
-  padding: 5px 7px;
-  margin-bottom: 5px;
+  padding: 5px 7px !important;
+  margin-bottom: 5px !important;
 }
-.hypothesis-block h4 { color: #92400e; font-size: 7.5px; margin-bottom: 3px; }
-.hypothesis-block p { font-weight: 500; font-size: 8.5px; line-height: 1.4; }
+.hypothesis-block h4 { color: #92400e; font-size: 8.5px !important; margin-bottom: 3px !important; }
+.hypothesis-block p { font-weight: 500; font-size: 10px !important; line-height: 1.4 !important; margin: 0 !important; }
 
 .learning-outcomes-list {
-  font-size: 10px; line-height: 1.5;
+  font-size: 10px !important; line-height: 1.5 !important;
   padding-left: 14px;
+  margin: 0 !important;
 }
-.learning-outcomes-list li { margin-bottom: 2px; }
+.learning-outcomes-list li { margin-bottom: 2px; font-size: 10px !important; }
 
 /* Outcomes info-block trimmed too */
-.info-block.outcomes-block { padding: 8px 10px; margin-bottom: 7px; }
-.info-block.outcomes-block h4 { font-size: 9px; margin-bottom: 4px; }
+.info-block.outcomes-block { padding: 6px 9px !important; margin-bottom: 6px !important; }
+.info-block.outcomes-block h4 { font-size: 8.5px !important; margin-bottom: 3px !important; }
 
 .post-btn-block {
   background: linear-gradient(135deg, var(--gold-500), var(--gold-400));
@@ -2441,21 +2443,24 @@ body::after {
   }
 }
 .visit-compose textarea {
-  width: 100%;
-  min-height: 320px;
-  max-height: 60vh;
+  width: 100% !important;
+  min-height: 360px !important;
+  height: 360px;
+  max-height: 65vh;
   border: 1.5px dashed rgba(245,158,11,.5);
   outline: none;
-  padding: 14px;
+  padding: 14px !important;
   border-radius: var(--r-md);
-  font-size: 15px;
-  line-height: 1.6;
+  font-size: 15px !important;
+  line-height: 1.6 !important;
   resize: vertical;
-  overflow-y: auto;
+  overflow-y: auto !important;
   font-family: inherit;
   color: var(--text);
   background: rgba(255,255,255,.85);
   -webkit-overflow-scrolling: touch;
+  display: block;
+  box-sizing: border-box;
 }
 .visit-compose textarea:focus {
   border-color: #f59e0b;
@@ -3069,8 +3074,6 @@ html.size-lg { --text-scale: 1.12; }
    buttons, icons, badges — stay fixed so the app's proportions are stable. */
 .ne-event, .ne-location, .ne-remarks, .ne-attire,
 .visit-title, .visit-sub,
-.visit-hero h3, .visit-hero-sub, .visit-hero-meta,
-.info-block p, .info-block h4, .learning-outcomes-list,
 .learning-post .post-body, .post-author,
 .hero-theme, .hero-date, .hero-day-label,
 .event-item .event-name, .event-item .event-loc, .event-item .event-remarks,
@@ -3086,6 +3089,10 @@ html.size-lg { --text-scale: 1.12; }
 .ir-preview {
   font-size: calc(1em * var(--text-scale, 1));
 }
+/* NOTE: visit modal elements (.visit-hero h3/.hypothesis-block/.info-block p etc.)
+   are intentionally EXCLUDED — they have carefully-tuned pixel sizes that
+   `calc(1em * scale)` was resetting to ~15px inherited, making the modal look
+   way bigger than intended. */
 /* Paragraphs inside main tab content */
 #main-content p { font-size: calc(1em * var(--text-scale, 1)); }
 
