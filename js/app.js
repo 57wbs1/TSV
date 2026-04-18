@@ -2500,39 +2500,31 @@ function renderSettings() {
       <div class="settings-section-header">🎛️ Layout</div>
       <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:8px">
         <div style="display:flex;justify-content:space-between;align-items:center">
-          <div class="sr-label">Shift Content Up/Down
-            <div class="sr-value">Negative = up, positive = down</div>
+          <div class="sr-label">Header Height
+            <div class="sr-value">Top bar height — smaller = more content visible</div>
           </div>
-          <div id="lay-y-val" style="font-size:12px;font-weight:700;color:var(--blue-600);font-variant-numeric:tabular-nums">${parseInt(localStorage.getItem('tsv_lay_y')||'0')}px</div>
-        </div>
-        <input type="range" min="-40" max="40" step="1" value="${localStorage.getItem('tsv_lay_y')||'0'}"
-          oninput="setLayoutOffset('y', this.value)" style="width:100%;accent-color:var(--blue-600)">
-      </div>
-      <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:8px">
-        <div style="display:flex;justify-content:space-between;align-items:center">
-          <div class="sr-label">Shift Content Left/Right</div>
-          <div id="lay-x-val" style="font-size:12px;font-weight:700;color:var(--blue-600);font-variant-numeric:tabular-nums">${parseInt(localStorage.getItem('tsv_lay_x')||'0')}px</div>
-        </div>
-        <input type="range" min="-20" max="20" step="1" value="${localStorage.getItem('tsv_lay_x')||'0'}"
-          oninput="setLayoutOffset('x', this.value)" style="width:100%;accent-color:var(--blue-600)">
-      </div>
-      <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:8px">
-        <div style="display:flex;justify-content:space-between;align-items:center">
-          <div class="sr-label">Header Height</div>
           <div id="lay-hdr-val" style="font-size:12px;font-weight:700;color:var(--blue-600);font-variant-numeric:tabular-nums">${parseInt(localStorage.getItem('tsv_lay_hdr')||'46')}px</div>
         </div>
-        <input type="range" min="40" max="70" step="1" value="${localStorage.getItem('tsv_lay_hdr')||'46'}"
+        <input type="range" min="38" max="68" step="1" value="${localStorage.getItem('tsv_lay_hdr')||'46'}"
           oninput="setLayoutOffset('hdr', this.value)" style="width:100%;accent-color:var(--blue-600)">
       </div>
       <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:8px">
         <div style="display:flex;justify-content:space-between;align-items:center">
-          <div class="sr-label">Nav Bottom Padding
-            <div class="sr-value">Space below buttons (for home indicator)</div>
+          <div class="sr-label">Nav Bottom Gap
+            <div class="sr-value">Space between tabs and home indicator</div>
           </div>
-          <div id="lay-nav-val" style="font-size:12px;font-weight:700;color:var(--blue-600);font-variant-numeric:tabular-nums">auto</div>
+          <div id="lay-nav-val" style="font-size:12px;font-weight:700;color:var(--blue-600);font-variant-numeric:tabular-nums">${(localStorage.getItem('tsv_lay_nav') || '16')}px</div>
         </div>
-        <input type="range" min="0" max="40" step="1" value="${localStorage.getItem('tsv_lay_nav')||'-1'}"
+        <input type="range" min="0" max="40" step="1" value="${localStorage.getItem('tsv_lay_nav')||'16'}"
           oninput="setLayoutOffset('nav', this.value)" style="width:100%;accent-color:var(--blue-600)">
+      </div>
+      <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:8px">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div class="sr-label">Nav Tab Height</div>
+          <div id="lay-navh-val" style="font-size:12px;font-weight:700;color:var(--blue-600);font-variant-numeric:tabular-nums">${parseInt(localStorage.getItem('tsv_lay_navh')||'62')}px</div>
+        </div>
+        <input type="range" min="50" max="78" step="1" value="${localStorage.getItem('tsv_lay_navh')||'62'}"
+          oninput="setLayoutOffset('navh', this.value)" style="width:100%;accent-color:var(--blue-600)">
       </div>
       <div style="padding:0 16px 14px">
         <button class="btn btn-outline btn-block btn-sm" onclick="resetLayout()">↺ Reset Layout</button>
@@ -2625,35 +2617,27 @@ window.setSize = function(s) {
 
 window.setLayoutOffset = function(axis, val) {
   const v = parseInt(val);
-  if (axis === 'y')   { localStorage.setItem('tsv_lay_y', v);   document.documentElement.style.setProperty('--lay-y', v + 'px'); const l=el('lay-y-val'); if(l) l.textContent = v + 'px'; }
-  if (axis === 'x')   { localStorage.setItem('tsv_lay_x', v);   document.documentElement.style.setProperty('--lay-x', v + 'px'); const l=el('lay-x-val'); if(l) l.textContent = v + 'px'; }
-  if (axis === 'hdr') { localStorage.setItem('tsv_lay_hdr', v); document.documentElement.style.setProperty('--header-h', v + 'px'); const l=el('lay-hdr-val'); if(l) l.textContent = v + 'px'; }
-  if (axis === 'nav') {
-    localStorage.setItem('tsv_lay_nav', v);
-    document.documentElement.style.setProperty('--nav-pad-b', v < 0 ? 'env(safe-area-inset-bottom, 0px)' : v + 'px');
-    const l = el('lay-nav-val'); if (l) l.textContent = v < 0 ? 'auto' : v + 'px';
-  }
+  if (axis === 'hdr')  { localStorage.setItem('tsv_lay_hdr', v);  document.documentElement.style.setProperty('--header-h', v + 'px'); const l=el('lay-hdr-val'); if(l) l.textContent = v + 'px'; }
+  if (axis === 'nav')  { localStorage.setItem('tsv_lay_nav', v);  document.documentElement.style.setProperty('--nav-pad-b', v + 'px'); const l=el('lay-nav-val'); if(l) l.textContent = v + 'px'; }
+  if (axis === 'navh') { localStorage.setItem('tsv_lay_navh', v); document.documentElement.style.setProperty('--nav-h', v + 'px'); const l=el('lay-navh-val'); if(l) l.textContent = v + 'px'; }
 };
 
 window.resetLayout = function() {
-  ['tsv_lay_y','tsv_lay_x','tsv_lay_hdr','tsv_lay_nav'].forEach(k => localStorage.removeItem(k));
-  document.documentElement.style.removeProperty('--lay-y');
-  document.documentElement.style.removeProperty('--lay-x');
+  ['tsv_lay_hdr','tsv_lay_nav','tsv_lay_navh'].forEach(k => localStorage.removeItem(k));
   document.documentElement.style.removeProperty('--header-h');
   document.documentElement.style.removeProperty('--nav-pad-b');
+  document.documentElement.style.removeProperty('--nav-h');
   renderSettings();
   toast('↺ Layout reset to default');
 };
 
 function applySavedLayout() {
-  const y = localStorage.getItem('tsv_lay_y');
-  const x = localStorage.getItem('tsv_lay_x');
-  const h = localStorage.getItem('tsv_lay_hdr');
-  const n = localStorage.getItem('tsv_lay_nav');
-  if (y !== null) document.documentElement.style.setProperty('--lay-y', y + 'px');
-  if (x !== null) document.documentElement.style.setProperty('--lay-x', x + 'px');
-  if (h !== null) document.documentElement.style.setProperty('--header-h', h + 'px');
-  if (n !== null && parseInt(n) >= 0) document.documentElement.style.setProperty('--nav-pad-b', n + 'px');
+  const h  = localStorage.getItem('tsv_lay_hdr');
+  const n  = localStorage.getItem('tsv_lay_nav');
+  const nh = localStorage.getItem('tsv_lay_navh');
+  if (h !== null)  document.documentElement.style.setProperty('--header-h', h + 'px');
+  if (n !== null)  document.documentElement.style.setProperty('--nav-pad-b', n + 'px');
+  if (nh !== null) document.documentElement.style.setProperty('--nav-h', nh + 'px');
 }
 window.setTheme = function(t) {
   localStorage.setItem('tsv_theme', t);

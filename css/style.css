@@ -583,10 +583,7 @@ body::after {
   -webkit-overflow-scrolling: touch;
   width: 100%; max-width: 100%;
   background: var(--bg);
-  padding-top: var(--lay-y, 0px);
-  padding-left: var(--lay-x, 0px);
-  padding-right: calc(-1 * var(--lay-x, 0px));
-  padding-bottom: calc(var(--nav-h) + var(--action-h, 0px) + var(--nav-pad-b, var(--safe-b)) + 28px);
+  padding-bottom: calc(var(--nav-h) + var(--action-h, 0px) + var(--nav-pad-b, 16px) + 28px);
   scroll-behavior: smooth;
 }
 .app-footer {
@@ -610,7 +607,7 @@ body::after {
 #pinned-action-bar {
   position: fixed;
   left: 0; right: 0;
-  bottom: calc(var(--nav-h) + var(--safe-b));
+  bottom: calc(var(--nav-h) + var(--nav-pad-b, 16px));
   z-index: 90;
   padding: 8px 12px;
   background: rgba(255,255,255,.88);
@@ -680,8 +677,8 @@ body::after {
    BOTTOM NAV (glass)
    ══════════════════════════════════════════════════════════ */
 #bottom-nav {
-  height: calc(var(--nav-h) + var(--nav-pad-b, var(--safe-b)));
-  padding-bottom: var(--nav-pad-b, var(--safe-b));
+  height: calc(var(--nav-h) + var(--nav-pad-b, 16px));
+  padding-bottom: var(--nav-pad-b, 16px);
   background: #ffffff;
   border-top: 1px solid rgba(226,232,240,.9);
   display: flex;
