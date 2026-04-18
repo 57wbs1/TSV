@@ -37,9 +37,18 @@ const CONFIG = {
   telegram: {
     // Bot token is now stored server-side in Apps Script (see sendTelegramFromServer).
     // The client only holds chat IDs — it POSTs text + chatId to the relay endpoint.
-    chatId:   '922547929',
-    irChatId: '922547929',
-    syn1ChatId: '922547929'
+    //
+    // Routing map:
+    //   announceChatId — big group for pre-trip reminders (A1 only)
+    //   opsChatId      — operational comms (SITREPs, attendance, IR, etc.)
+    //
+    announceChatId: '-1003468474144',   // A1 · 1900H Daily Reminder (supergroup)
+    opsChatId:      '-5257572976',      // A2, A3, M1–M4 (ops / leadership group)
+
+    // Back-compat aliases (older code paths)
+    chatId:     '-5257572976',
+    irChatId:   '-5257572976',
+    syn1ChatId: '-5257572976'
   },
 
   // ----------------------------------------------------------

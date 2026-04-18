@@ -47,6 +47,9 @@ function doGet(e) {
       case 'getPings':    data = getPings(e.parameter.userId || ''); break;
       case 'fixAllPins':  data = fixAllPins(); break;
       case 'resetCasparPin': data = resetCasparPin(); break;
+      case 'getBotChats': data = getBotChats(); break;
+      case 'testWeather': data = sendWeatherBriefing(); break;
+      case 'installTriggers': data = setupAllTriggers(); break;
       case 'getAdminRequests': data = readSheet(SHEETS.ADMINREQ); break;
       default: return json({ ok: false, error: 'Unknown action: ' + action });
     }
@@ -273,6 +276,38 @@ function seedMembers(members, actor) {
 // They POST here, server-side holds the token + sends.
 const TELEGRAM_BOT_TOKEN = '8623156706:AAHv8vGrjxr1Kj4s8_k3EoruBlx1l_EhziQ';
 
+// Returns every chat the bot has seen recently — essential for finding
+// the actual negative group-chat IDs once you've added the bot + sent
+// a message in each group.
+function getBotChats() {
+  try {
+    const res = UrlFetchApp.fetch('https://api.telegram.org/bot' + TELEGRAM_BOT_TOKEN + '/getUpdates', {
+      method: 'get', muteHttpExceptions: true
+    });
+    const body = JSON.parse(res.getContentText());
+    if (!body.ok) return { error: body };
+    const seen = {};
+    (body.result || []).forEach(u => {
+      const msg = u.message || u.edited_message || u.channel_post || u.my_chat_member || {};
+      const chat = msg.chat || u.my_chat_member?.chat;
+      if (!chat) return;
+      const key = chat.id + '';
+      if (!seen[key]) {
+        seen[key] = {
+          chatId: chat.id,
+          type: chat.type,
+          title: chat.title || (chat.first_name ? chat.first_name + (chat.last_name ? ' ' + chat.last_name : '') : ''),
+          username: chat.username || '',
+          lastMessagePreview: (msg.text || '').slice(0, 60)
+        };
+      }
+    });
+    return { chats: Object.values(seen), totalUpdates: (body.result || []).length };
+  } catch (e) {
+    return { error: e.message };
+  }
+}
+
 function sendTelegramFromServer(data) {
   const text = data.text || '';
   const chatId = data.chatId || '';
@@ -468,8 +503,10 @@ function logAction(action, actor, detail) {
 // ════════════════════════════════════════════════════════════
 
 const BOT_TOKEN   = '8623156706:AAHv8vGrjxr1Kj4s8_k3EoruBlx1l_EhziQ';
-const MAIN_CHAT   = '922547929';   // update to group chat id (-100...) when ready
-const SYN1_CHAT   = '922547929';   // update when ready
+// MAIN_CHAT → A1 (1900H pre-trip reminders, broad supergroup)
+// SYN1_CHAT → A2 (2300H SITREP) + A3 (0200H Curfew Report) — ops group
+const MAIN_CHAT   = '-1003468474144';
+const SYN1_CHAT   = '-5257572976';
 
 function tgSend(text, chatId) {
   try {
@@ -850,21 +887,112 @@ function sendMidnightSitrep() {
   return 'Sent 0200H Curfew';
 }
 
+// ── 0600H: Bangkok weather briefing (to announce chat) ──
+// Pulls the day's forecast from Open-Meteo (free, no key) and builds a
+// briefing with tailored advice based on max temp + humidity + rain.
+function sendWeatherBriefing() {
+  const bkk = bkkNow();
+  const dateLabel = Utilities.formatDate(bkk, 'Asia/Bangkok', 'EEEE, d MMM');
+  const today = Utilities.formatDate(bkk, 'Asia/Bangkok', 'yyyy-MM-dd');
+
+  // Pullman Bangkok (Silom). lat/lng matches CONFIG.hotel on client.
+  const url = 'https://api.open-meteo.com/v1/forecast'
+    + '?latitude=13.7256&longitude=100.5279'
+    + '&timezone=Asia%2FBangkok'
+    + '&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m'
+    + '&daily=temperature_2m_max,temperature_2m_min,apparent_temperature_max,'
+    +   'uv_index_max,precipitation_sum,precipitation_probability_max,weather_code'
+    + '&forecast_days=1';
+
+  let tMax = null, tMin = null, feelsMax = null, uvMax = null, rainSum = 0, rainProb = 0;
+  let curT = null, curRH = null, curWind = null, curCode = null, dailyCode = null;
+  try {
+    const res = UrlFetchApp.fetch(url, { method: 'get', muteHttpExceptions: true });
+    const body = JSON.parse(res.getContentText());
+    if (body.current) {
+      curT    = body.current.temperature_2m;
+      curRH   = body.current.relative_humidity_2m;
+      curWind = body.current.wind_speed_10m;
+      curCode = body.current.weather_code;
+    }
+    if (body.daily) {
+      tMax     = body.daily.temperature_2m_max?.[0];
+      tMin     = body.daily.temperature_2m_min?.[0];
+      feelsMax = body.daily.apparent_temperature_max?.[0];
+      uvMax    = body.daily.uv_index_max?.[0];
+      rainSum  = body.daily.precipitation_sum?.[0] || 0;
+      rainProb = body.daily.precipitation_probability_max?.[0] || 0;
+      dailyCode= body.daily.weather_code?.[0];
+    }
+  } catch (e) {
+    logAction('weather_fail', 'server', e.message);
+    tgSend('<b>☀️ Weather briefing</b>\nCouldn\'t reach the weather service — defaulting: stay hydrated, wear light layers, bring rain cover.', MAIN_CHAT);
+    return 'Weather fetch failed';
+  }
+
+  // Emoji + description for weather code
+  const codeMap = {
+    0:['☀️','Clear sky'], 1:['🌤️','Mainly clear'], 2:['⛅','Partly cloudy'], 3:['☁️','Overcast'],
+    45:['🌫️','Fog'], 48:['🌫️','Rime fog'],
+    51:['🌦️','Light drizzle'], 53:['🌦️','Drizzle'], 55:['🌦️','Dense drizzle'],
+    61:['🌧️','Light rain'], 63:['🌧️','Rain'], 65:['🌧️','Heavy rain'],
+    80:['🌦️','Rain showers'], 81:['🌧️','Heavy showers'], 82:['⛈️','Violent showers'],
+    95:['⛈️','Thunderstorm'], 96:['⛈️','Thunder + hail'], 99:['⛈️','Severe thunderstorm']
+  };
+  const wc = codeMap[dailyCode] || codeMap[curCode] || ['🌡️','Mixed'];
+
+  // Advice engine — layered based on actual conditions
+  const tips = [];
+  const fMax = feelsMax != null ? feelsMax : tMax;
+  if (fMax != null && fMax >= 36)      tips.push('🥵 <b>Feels like ' + Math.round(fMax) + '°C</b> — avoid direct sun 1100–1500H. Hat + sunglasses essential.');
+  else if (fMax != null && fMax >= 33) tips.push('☀️ Feels like ' + Math.round(fMax) + '°C — stay in shade when possible.');
+  if (tMax != null && tMax >= 34)      tips.push('💧 Carry 1.5–2L water per person. Refill before every move.');
+  else                                 tips.push('💧 Carry a 1L bottle — top up at each venue.');
+  if (rainProb >= 60 || rainSum >= 5)  tips.push('☂️ <b>' + rainProb + '% rain</b> (up to ' + Math.round(rainSum) + 'mm) — bring a compact umbrella or poncho.');
+  else if (rainProb >= 30)             tips.push('🌦️ ' + rainProb + '% chance of rain — pack a small umbrella.');
+  if (uvMax != null && uvMax >= 8)     tips.push('🧴 <b>UV ' + Math.round(uvMax) + ' (very high)</b> — SPF 30+ sunscreen, reapply every 2h.');
+  else if (uvMax != null && uvMax >= 6)tips.push('🧴 UV ' + Math.round(uvMax) + ' — sunscreen recommended.');
+  if (curRH != null && curRH >= 75)    tips.push('💨 Humidity ' + Math.round(curRH) + '% — expect sweat; bring a spare shirt for evening events.');
+  if (/uniform|no.?3|no.?4/i.test('') || false) { /* future hook if event attire comes in */ }
+  tips.push('🏃 Pace yourselves — Bangkok heat is cumulative across the day.');
+
+  let msg = '<b>🌤️ BKK Weather — ' + dateLabel + '</b>\n';
+  msg += '\n' + wc[0] + ' <b>' + wc[1] + '</b>\n';
+  if (tMax != null && tMin != null) msg += '🌡️ ' + Math.round(tMin) + '°C → ' + Math.round(tMax) + '°C';
+  if (feelsMax != null)              msg += ' · feels ' + Math.round(feelsMax) + '°C';
+  msg += '\n';
+  if (curT != null)   msg += '⏱️ Now: ' + Math.round(curT) + '°C';
+  if (curRH != null)  msg += ' · ' + Math.round(curRH) + '% humidity';
+  if (curWind != null)msg += ' · ' + Math.round(curWind) + ' km/h';
+  msg += '\n';
+  if (rainProb)       msg += '🌧️ Rain: ' + rainProb + '% · ' + (Math.round(rainSum*10)/10) + 'mm\n';
+  if (uvMax != null)  msg += '☀️ UV: ' + Math.round(uvMax) + '/11\n';
+
+  msg += '\n<b>Today\'s tips</b>\n' + tips.map(t => '• ' + t).join('\n');
+  msg += '\n\nStay sharp 🇹🇭';
+
+  tgSend(msg, MAIN_CHAT);
+  logAction('weather_0600', 'server', (tMax||'?') + '°C ' + wc[1]);
+  return 'Sent weather ' + today;
+}
+
 // ── Setup: run this ONCE from Apps Script editor ──
 function setupAllTriggers() {
   ScriptApp.getProjectTriggers().forEach(t => {
     const fn = t.getHandlerFunction();
-    if (fn === 'sendDailyReminder' || fn === 'sendEveningSitrep' || fn === 'sendMidnightSitrep') {
+    if (['sendDailyReminder','sendEveningSitrep','sendMidnightSitrep','sendWeatherBriefing'].indexOf(fn) >= 0) {
       ScriptApp.deleteTrigger(t);
     }
   });
+  ScriptApp.newTrigger('sendWeatherBriefing')
+    .timeBased().atHour(6).nearMinute(0).everyDays(1).inTimezone('Asia/Bangkok').create();
   ScriptApp.newTrigger('sendDailyReminder')
     .timeBased().atHour(19).nearMinute(0).everyDays(1).inTimezone('Asia/Bangkok').create();
   ScriptApp.newTrigger('sendEveningSitrep')
     .timeBased().atHour(23).nearMinute(0).everyDays(1).inTimezone('Asia/Bangkok').create();
   ScriptApp.newTrigger('sendMidnightSitrep')
     .timeBased().atHour(2).nearMinute(0).everyDays(1).inTimezone('Asia/Bangkok').create();
-  return '✓ 3 triggers installed: 1900H reminder · 2300H SITREP · 0200H EOD (all BKK daily)';
+  return '✓ 4 triggers installed: 0600H weather · 1900H reminder · 2300H SITREP · 0200H Curfew (BKK daily)';
 }
 
 

@@ -4,13 +4,13 @@
 
 // App version + changelog. Bumped alongside SW cache. On first open
 // after an update, the user sees a toast explaining what's new.
-const APP_VERSION = 'v54';
+const APP_VERSION = 'v55';
 const APP_CHANGELOG = [
-  '✨ Auto-GPS when leaving hotel (no extra tap)',
-  '👥 Syn ICs: one-tap "All back in" for your syndicate',
-  '🔐 Bot token moved off-client for security',
-  '💾 Offline queue — saves changes if connection drops',
-  '🎬 Smoother tab switching'
+  '📱 New: Install Guide (Settings → Install as App)',
+  '🌤️ New: 0600H Bangkok weather briefing (announce chat)',
+  '📡 Telegram routing: ops chat vs announce chat',
+  '✨ Auto-GPS when leaving hotel',
+  '👥 Syn ICs: one-tap "All back in"'
 ];
 
 const STATE = {
@@ -2780,6 +2780,7 @@ function startApp() {
   updateQueueIndicator();
   flushQueue();  // drain anything queued from a previous offline session
   maybeShowChangelog();
+  maybeShowInstallHint();
   // ⚙️ header button removed — Settings is now a dedicated tab in the bottom nav
   const admin = el('btn-admin');
   admin.onclick = showMembersModal;
@@ -3076,6 +3077,12 @@ function renderSettings() {
         </div>
         <button class="btn btn-outline btn-sm" onclick="changeMyPin()">Change</button>
       </div>
+      <div class="settings-row">
+        <div class="sr-label">Install as App
+          <div class="sr-value">Add to home screen — iOS + Android</div>
+        </div>
+        <button class="btn btn-outline btn-sm" onclick="showInstallGuide()">📱 Guide</button>
+      </div>
     </div>
 
     <!-- App Display (consolidated) -->
@@ -3346,6 +3353,49 @@ window.changeMyPin = function() {
 window.hidePinChange = function() {
   el('pin-change-modal')?.classList.add('hidden');
 };
+
+// ═══════════ INSTALL GUIDE ════════════════════════════════════
+window.showInstallGuide = function() {
+  // Auto-detect platform so the correct tab opens first
+  const ua = navigator.userAgent || '';
+  const isAndroid = /Android/i.test(ua);
+  setInstallTab(isAndroid ? 'android' : 'ios');
+  el('install-guide-modal')?.classList.remove('hidden');
+  // Also update the displayed URL to the live origin so the user can share it
+  const urlEl = el('install-url-text');
+  if (urlEl) urlEl.textContent = location.origin + location.pathname.replace(/\/[^\/]*$/, '/');
+};
+window.hideInstallGuide = function() {
+  el('install-guide-modal')?.classList.add('hidden');
+};
+window.setInstallTab = function(which) {
+  ['ios','android'].forEach(t => {
+    const tab = el('ig-tab-' + t);
+    const panel = el('ig-panel-' + t);
+    if (tab) tab.classList.toggle('active', t === which);
+    if (panel) panel.classList.toggle('hidden', t !== which);
+  });
+};
+window.copyInstallUrl = function() {
+  const url = el('install-url-text')?.textContent || location.href;
+  navigator.clipboard.writeText(url).then(() => toast('📋 Link copied'));
+};
+window.dismissInstallHint = function() {
+  localStorage.setItem('tsv_install_hint_dismissed', '1');
+  el('install-hint')?.classList.add('hidden');
+};
+
+// Auto-show the install hint if:
+//   - app is NOT running standalone (i.e. still in a browser tab)
+//   - user hasn't dismissed it before
+function maybeShowInstallHint() {
+  const isStandalone = window.matchMedia('(display-mode: standalone)').matches
+    || window.navigator.standalone === true;
+  if (isStandalone) return;
+  if (localStorage.getItem('tsv_install_hint_dismissed') === '1') return;
+  // Show after a short delay so it doesn't clash with boot animations
+  setTimeout(() => el('install-hint')?.classList.remove('hidden'), 1500);
+}
 
 window.submitPinChange = async function() {
   const input = el('pin-change-input');

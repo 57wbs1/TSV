@@ -334,6 +334,127 @@
 <div id="saving-chip" class="hidden">💾 Saving…</div>
 <div id="queue-indicator" class="hidden" onclick="flushQueue()"></div>
 
+<!-- ── Install Guide Modal ──────────────────────────────── -->
+<div id="install-guide-modal" class="hidden">
+  <div class="install-sheet">
+    <div class="members-header">
+      <h2>📱 Install TSV Bangkok 2026</h2>
+      <button class="close-btn" onclick="hideInstallGuide()">✕</button>
+    </div>
+    <div class="install-body">
+      <p class="install-intro">Add the app to your home screen for a full-screen experience, faster launch, and offline access during the trip.</p>
+
+      <div class="install-tabs">
+        <button id="ig-tab-ios" class="install-tab active" onclick="setInstallTab('ios')">🍎 iPhone</button>
+        <button id="ig-tab-android" class="install-tab" onclick="setInstallTab('android')">🤖 Android</button>
+      </div>
+
+      <!-- iOS -->
+      <div id="ig-panel-ios" class="install-panel">
+        <div class="install-callout">⚠️ Open this page in <b>Safari</b> first — not Chrome, not from inside Telegram. Only Safari can install PWAs on iOS.</div>
+        <ol class="install-steps">
+          <li>
+            <div class="step-num">1</div>
+            <div class="step-body">
+              <div class="step-title">Tap the <b>Share</b> button</div>
+              <div class="step-desc">Bottom centre of Safari — the square with an up-arrow.</div>
+              <svg class="step-art" viewBox="0 0 200 90" role="img">
+                <rect x="2" y="2" width="196" height="86" rx="14" fill="#1f2937" stroke="#334155" stroke-width="1.5"/>
+                <rect x="78" y="22" width="44" height="46" rx="6" fill="#0b1120" stroke="#3b82f6" stroke-width="2"/>
+                <path d="M100 52 V33 M90 42 L100 33 L110 42" stroke="#3b82f6" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                <text x="100" y="82" text-anchor="middle" fill="#94a3b8" font-size="8" font-family="system-ui">Share</text>
+              </svg>
+            </div>
+          </li>
+          <li>
+            <div class="step-num">2</div>
+            <div class="step-body">
+              <div class="step-title">Scroll down → <b>Add to Home Screen</b></div>
+              <div class="step-desc">In the share sheet, swipe up on the grid of actions. Look for the icon with a ➕.</div>
+              <svg class="step-art" viewBox="0 0 200 120" role="img">
+                <rect x="2" y="2" width="196" height="116" rx="14" fill="#1f2937" stroke="#334155" stroke-width="1.5"/>
+                <rect x="14" y="16" width="172" height="26" rx="8" fill="#0b1120"/>
+                <text x="22" y="33" fill="#e2e8f0" font-size="9" font-family="system-ui">Copy Link</text>
+                <rect x="14" y="48" width="172" height="26" rx="8" fill="#0b1120"/>
+                <text x="22" y="65" fill="#e2e8f0" font-size="9" font-family="system-ui">Add to Reading List</text>
+                <rect x="14" y="80" width="172" height="30" rx="8" fill="#0b3f2c" stroke="#10b981" stroke-width="2"/>
+                <text x="22" y="99" fill="#6ee7b7" font-size="9" font-weight="700" font-family="system-ui">Add to Home Screen</text>
+                <text x="168" y="99" fill="#6ee7b7" font-size="14" font-family="system-ui">＋</text>
+              </svg>
+            </div>
+          </li>
+          <li>
+            <div class="step-num">3</div>
+            <div class="step-body">
+              <div class="step-title">Tap <b>Add</b> in the top right</div>
+              <div class="step-desc">The app icon lands on your home screen. Tap it to launch in full-screen mode. Sign in once with your 4-digit PIN — you're in.</div>
+            </div>
+          </li>
+        </ol>
+      </div>
+
+      <!-- Android -->
+      <div id="ig-panel-android" class="install-panel hidden">
+        <div class="install-callout">👉 Open this page in <b>Chrome</b> on your Android phone.</div>
+        <ol class="install-steps">
+          <li>
+            <div class="step-num">1</div>
+            <div class="step-body">
+              <div class="step-title">Tap the <b>⋮ menu</b> in the top right</div>
+              <div class="step-desc">Three vertical dots next to the address bar.</div>
+              <svg class="step-art" viewBox="0 0 200 90" role="img">
+                <rect x="2" y="2" width="196" height="86" rx="14" fill="#1f2937" stroke="#334155" stroke-width="1.5"/>
+                <rect x="14" y="14" width="154" height="20" rx="10" fill="#0b1120"/>
+                <text x="22" y="27" fill="#94a3b8" font-size="9" font-family="system-ui">57wbs1.github.io/TSV</text>
+                <circle cx="180" cy="24" r="2" fill="#e2e8f0"/>
+                <circle cx="180" cy="32" r="2" fill="#e2e8f0"/>
+                <circle cx="180" cy="40" r="2" fill="#e2e8f0"/>
+                <rect x="172" y="14" width="18" height="32" rx="4" fill="none" stroke="#3b82f6" stroke-width="2"/>
+              </svg>
+            </div>
+          </li>
+          <li>
+            <div class="step-num">2</div>
+            <div class="step-body">
+              <div class="step-title">Tap <b>Install app</b> or <b>Add to Home screen</b></div>
+              <div class="step-desc">One of these will appear — Chrome may auto-suggest it.</div>
+              <svg class="step-art" viewBox="0 0 200 90" role="img">
+                <rect x="2" y="2" width="196" height="86" rx="14" fill="#1f2937" stroke="#334155" stroke-width="1.5"/>
+                <rect x="14" y="14" width="172" height="24" rx="6" fill="#0b1120"/>
+                <text x="22" y="29" fill="#e2e8f0" font-size="9" font-family="system-ui">Share</text>
+                <rect x="14" y="44" width="172" height="30" rx="6" fill="#0b3f2c" stroke="#10b981" stroke-width="2"/>
+                <text x="22" y="63" fill="#6ee7b7" font-size="9" font-weight="700" font-family="system-ui">Install app</text>
+                <text x="170" y="63" fill="#6ee7b7" font-size="12" font-family="system-ui">⬇</text>
+              </svg>
+            </div>
+          </li>
+          <li>
+            <div class="step-num">3</div>
+            <div class="step-body">
+              <div class="step-title">Confirm <b>Install</b></div>
+              <div class="step-desc">App icon appears on your home screen. Launching from the icon runs it full-screen, with offline support.</div>
+            </div>
+          </li>
+        </ol>
+      </div>
+
+      <div class="install-footer">
+        <div class="install-url">
+          <b>Need the link again?</b><br>
+          <span id="install-url-text">https://57wbs1.github.io/TSV/</span>
+          <button class="btn btn-sm btn-outline" onclick="copyInstallUrl()">📋 Copy</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Auto-install hint banner (shown once to non-standalone visitors) -->
+<div id="install-hint" class="hidden" onclick="showInstallGuide()">
+  📱 Tap to install this app on your phone
+  <button class="install-hint-close" onclick="event.stopPropagation(); dismissInstallHint()">✕</button>
+</div>
+
 <!-- ── Main App ───────────────────────────────────────────── -->
 <div id="app">
 
