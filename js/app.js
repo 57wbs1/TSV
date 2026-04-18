@@ -2526,6 +2526,19 @@ function renderSettings() {
         <input type="range" min="50" max="78" step="1" value="${localStorage.getItem('tsv_lay_navh')||'62'}"
           oninput="setLayoutOffset('navh', this.value)" style="width:100%;accent-color:var(--blue-600)">
       </div>
+      <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:8px">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div class="sr-label">iOS Safe-Area
+            <div class="sr-value">0% = nav goes flush to phone bottom, 100% = respects home indicator</div>
+          </div>
+          <div id="lay-safe-val" style="font-size:12px;font-weight:700;color:var(--blue-600);font-variant-numeric:tabular-nums">${Math.round((parseFloat(localStorage.getItem('tsv_lay_safe')||'1'))*100)}%</div>
+        </div>
+        <input type="range" min="0" max="1" step="0.05" value="${localStorage.getItem('tsv_lay_safe')||'1'}"
+          oninput="setLayoutOffset('safe', this.value)" style="width:100%;accent-color:var(--blue-600)">
+      </div>
+      <div style="padding:8px 16px 14px;font-size:11px;color:var(--text-3);text-align:center">
+        These layout preferences save to <b>your device only</b> — they don't affect anyone else.
+      </div>
       <div style="padding:0 16px 14px">
         <button class="btn btn-outline btn-block btn-sm" onclick="resetLayout()">↺ Reset Layout</button>
       </div>
@@ -2616,6 +2629,13 @@ window.setSize = function(s) {
 };
 
 window.setLayoutOffset = function(axis, val) {
+  if (axis === 'safe') {
+    const vf = parseFloat(val);
+    localStorage.setItem('tsv_lay_safe', vf);
+    document.documentElement.style.setProperty('--safe-factor', vf);
+    const l = el('lay-safe-val'); if (l) l.textContent = Math.round(vf*100) + '%';
+    return;
+  }
   const v = parseInt(val);
   if (axis === 'hdr')  { localStorage.setItem('tsv_lay_hdr', v);  document.documentElement.style.setProperty('--header-h', v + 'px'); const l=el('lay-hdr-val'); if(l) l.textContent = v + 'px'; }
   if (axis === 'nav')  { localStorage.setItem('tsv_lay_nav', v);  document.documentElement.style.setProperty('--nav-pad-b', v + 'px'); const l=el('lay-nav-val'); if(l) l.textContent = v + 'px'; }
@@ -2623,10 +2643,11 @@ window.setLayoutOffset = function(axis, val) {
 };
 
 window.resetLayout = function() {
-  ['tsv_lay_hdr','tsv_lay_nav','tsv_lay_navh'].forEach(k => localStorage.removeItem(k));
+  ['tsv_lay_hdr','tsv_lay_nav','tsv_lay_navh','tsv_lay_safe'].forEach(k => localStorage.removeItem(k));
   document.documentElement.style.removeProperty('--header-h');
   document.documentElement.style.removeProperty('--nav-pad-b');
   document.documentElement.style.removeProperty('--nav-h');
+  document.documentElement.style.removeProperty('--safe-factor');
   renderSettings();
   toast('↺ Layout reset to default');
 };
@@ -2635,9 +2656,11 @@ function applySavedLayout() {
   const h  = localStorage.getItem('tsv_lay_hdr');
   const n  = localStorage.getItem('tsv_lay_nav');
   const nh = localStorage.getItem('tsv_lay_navh');
+  const sf = localStorage.getItem('tsv_lay_safe');
   if (h !== null)  document.documentElement.style.setProperty('--header-h', h + 'px');
   if (n !== null)  document.documentElement.style.setProperty('--nav-pad-b', n + 'px');
   if (nh !== null) document.documentElement.style.setProperty('--nav-h', nh + 'px');
+  if (sf !== null) document.documentElement.style.setProperty('--safe-factor', sf);
 }
 window.setTheme = function(t) {
   localStorage.setItem('tsv_theme', t);
