@@ -445,10 +445,11 @@ function attachSwipeDownClose(modalEl, sheetSelector, onClose) {
 }
 
 function setupModalSwipes() {
-  attachSwipeDownClose(el('members-modal'), '.members-sheet');
-  attachSwipeDownClose(el('member-editor'), '.editor-sheet', () => { _editingMemberId = null; });
-  attachSwipeDownClose(el('event-editor'), '.editor-sheet');
-  // visit-detail-modal: swipe-down was glitchy; use swipe-RIGHT instead (+ X button)
+  // Use swipe-RIGHT (from left edge) for full-content modals — lets users
+  // scroll the body freely without the swipe-down handler hijacking touches.
+  attachSwipeRightClose(el('members-modal'), '.members-sheet');
+  attachSwipeRightClose(el('member-editor'), '.editor-sheet', () => { _editingMemberId = null; });
+  attachSwipeRightClose(el('event-editor'), '.editor-sheet');
   attachSwipeRightClose(el('visit-detail-modal'), '.visit-detail-sheet');
   attachSwipeDownClose(el('buddy-modal'), '.buddy-sheet');
 }

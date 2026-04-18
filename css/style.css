@@ -420,14 +420,19 @@ body::after {
   border-radius: var(--r-2xl) var(--r-2xl) 0 0;
   padding: 0;
   display: flex; flex-direction: column;
-  box-shadow: 0 -20px 60px rgba(0,0,0,.25);
+  box-shadow: -20px 0 50px rgba(0,0,0,.35), 0 -20px 60px rgba(0,0,0,.25);
   animation: slideUp .35s var(--ease-out);
   padding-bottom: var(--safe-b);
+  will-change: transform;
 }
+/* Members + editor sheets need a fixed tall height so the inner
+   #members-list-container (flex:1 + overflow-y:auto) actually gets
+   scroll space — before, flex:1 of 0 collapsed and the list clipped. */
+.members-sheet, .editor-sheet { height: 92vh; }
 
-/* Drag handle */
-.identity-sheet::before, .buddy-sheet::before,
-.members-sheet::before, .editor-sheet::before {
+/* Drag handle — only on buddy-sheet (still uses swipe-down).
+   Other sheets now close via swipe-right-from-left-edge + X button. */
+.buddy-sheet::before {
   content: '';
   display: block;
   width: 40px; height: 4px;
