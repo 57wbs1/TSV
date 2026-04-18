@@ -913,3 +913,21 @@ function resolveAdminRequest(data) {
   }
   return { error: 'not found' };
 }
+
+// One-shot util: reset caspar's PIN to 0000. Run from the Apps Script editor.
+function resetCasparPin() {
+  const s = SPREADSHEET.getSheetByName(SHEETS.MEMBERS.name);
+  const rows = s.getDataRange().getValues();
+  const headers = rows[0];
+  const idCol = headers.indexOf('id');
+  const pinCol = headers.indexOf('pin');
+  for (let i = 1; i < rows.length; i++) {
+    if (rows[i][idCol] === 'caspar') {
+      s.getRange(i + 1, pinCol + 1).setValue('0000');
+      Logger.log('Reset caspar PIN at row ' + (i + 1));
+      return 'Reset caspar PIN at row ' + (i + 1);
+    }
+  }
+  Logger.log('caspar not found');
+  return 'caspar not found';
+}

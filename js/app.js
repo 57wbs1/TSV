@@ -2707,7 +2707,15 @@ window.addEventListener('load', () => {
   if (loadIdentity()) {
     startApp();
   } else {
+    // Fire-and-forget member sync so the roster (and each member's latest PIN)
+    // is current before anyone picks their name and enters their PIN. Without
+    // this, a fresh device / post-logout uses the stale DEFAULT_MEMBERS seed
+    // where everyone's PIN is '0000' — causing 'new PIN doesn't work' bugs.
     showLoginFlow();
+    syncMembers().then(() => {
+      // Re-render the syndicate list in case roster counts changed.
+      if (!el('login-step-syn').classList.contains('hidden')) renderLoginSyndicateList();
+    }).catch(() => {});
   }
 });
 
@@ -3149,8 +3157,14 @@ window.changeMyPin = async function() {
   const user = STATE.currentUser;
   user.pin = newPin;
   saveIdentity(user);
-  await API.post('updateMember', { id: user.id, pin: newPin, actor: user.id });
-  toast('✅ PIN changed to ' + newPin);
+  // Also update the in-memory MEMBERS array so a subsequent logout+login
+  // on THIS device works immediately without waiting for a re-sync.
+  const idx = MEMBERS.findIndex(m => m.id === user.id);
+  if (idx >= 0) MEMBERS[idx] = { ...MEMBERS[idx], pin: newPin };
+  // Invalidate hash so next syncMembers can't early-return
+  _lastMembersHash = '';
+  const ok = await API.post('updateMember', { id: user.id, pin: newPin, actor: user.id });
+  if (!ok) toast('⚠️ Saved locally — sync when back online'); else toast('✅ PIN changed to ' + newPin);
 };
 
 window.requestAdminRights = async function() {
