@@ -144,6 +144,79 @@ function toast(msg, ms = 3000) {
 }
 
 function bkkNow() { return new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Bangkok' })); }
+
+// ─── WEATHER ─────────────────────────────────────────────────
+function weatherIcon(code) {
+  if (code === 0) return '☀️';
+  if (code >= 1 && code <= 2) return '⛅';
+  if (code === 3) return '☁️';
+  if (code === 45 || code === 48) return '🌫️';
+  if (code >= 51 && code <= 57) return '🌦️';
+  if (code >= 61 && code <= 67) return '🌧️';
+  if (code >= 71 && code <= 77) return '❄️';
+  if (code >= 80 && code <= 82) return '🌧️';
+  if (code >= 95 && code <= 99) return '⛈️';
+  return '🌤️';
+}
+function weatherLabel(code) {
+  if (code === 0) return 'Clear';
+  if (code === 1) return 'Mostly Clear';
+  if (code === 2) return 'Partly Cloudy';
+  if (code === 3) return 'Overcast';
+  if (code === 45 || code === 48) return 'Fog';
+  if (code >= 51 && code <= 57) return 'Drizzle';
+  if (code >= 61 && code <= 65) return 'Rain';
+  if (code >= 66 && code <= 67) return 'Freezing Rain';
+  if (code >= 71 && code <= 77) return 'Snow';
+  if (code >= 80 && code <= 82) return 'Showers';
+  if (code >= 95 && code <= 99) return 'Thunderstorm';
+  return '—';
+}
+
+async function fetchWeather() {
+  const cached = (() => { try { return JSON.parse(localStorage.getItem('tsv_weather') || 'null'); } catch { return null; } })();
+  if (cached && (Date.now() - cached.ts) < 30*60*1000) return cached.data;
+
+  const lat = CONFIG.hotel.lat || 13.7256;
+  const lng = CONFIG.hotel.lng || 100.5279;
+  try {
+    const [w, aq] = await Promise.all([
+      fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m,weather_code&daily=temperature_2m_max,temperature_2m_min&timezone=Asia/Bangkok&forecast_days=1`).then(r => r.json()).catch(()=>null),
+      fetch(`https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat}&longitude=${lng}&current=us_aqi,pm2_5&timezone=Asia/Bangkok`).then(r => r.json()).catch(()=>null)
+    ]);
+    if (!w || !w.current) return null;
+    const data = {
+      temp: Math.round(w.current.temperature_2m),
+      high: Math.round(w.daily?.temperature_2m_max?.[0] ?? w.current.temperature_2m),
+      low:  Math.round(w.daily?.temperature_2m_min?.[0] ?? w.current.temperature_2m),
+      code: w.current.weather_code,
+      psi:  aq?.current?.us_aqi != null ? Math.round(aq.current.us_aqi) : null
+    };
+    localStorage.setItem('tsv_weather', JSON.stringify({ ts: Date.now(), data }));
+    return data;
+  } catch (e) { return null; }
+}
+
+async function refreshWeather() {
+  const data = await fetchWeather();
+  if (!data) return;
+  STATE.weather = data;
+  const el2 = el('home-weather');
+  if (el2) el2.outerHTML = renderWeatherStrip();
+}
+
+function renderWeatherStrip() {
+  const d = STATE.weather;
+  if (!d) return `<div id="home-weather" class="weather-strip loading"><span class="w-icon">🌤️</span><span class="w-temp">—°</span><span class="w-range">Loading weather…</span></div>`;
+  const psi = d.psi != null ? `<span class="w-psi"><b>PSI</b> ${d.psi}</span>` : '';
+  return `<div id="home-weather" class="weather-strip">
+    <span class="w-icon">${weatherIcon(d.code)}</span>
+    <span class="w-temp">${d.temp}°</span>
+    <span class="w-range"><span class="w-hl">H</span> ${d.high}° · <span class="w-hl">L</span> ${d.low}°</span>
+    ${psi}
+    <span class="w-cond">${weatherLabel(d.code)}</span>
+  </div>`;
+}
 function formatBKKTime(d = bkkNow()) { return d.toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit', hour12:false }); }
 
 function getCurrentDay() {
@@ -870,6 +943,7 @@ function renderHome() {
     ${STATE.apiState === 'error'   ? `<div class="alert alert-orange">⚠️ Couldn't reach the server — showing last synced data.</div>` : ''}
     ${STATE.apiState === 'unconfigured' ? `<div class="alert alert-red">⚙️ API not configured — see config.js</div>` : ''}
 
+    ${renderWeatherStrip()}
     ${heroHtml}
 
     <div class="parade-grid">
@@ -1464,7 +1538,11 @@ window.toggleRoomsGroup = function(gk) {
   else STATE.expandedRoomsGroups.add(gk);
   renderRooms();
 };
-window.setLocationFilter = function(f) { STATE.locationFilter = f; renderLocation(); };
+window.setLocationFilter = function(f) {
+  STATE.locationFilter = f;
+  if (STATE.currentTab === 'rooms') renderRooms();
+  else if (STATE.currentTab === 'location') renderLocation();
+};
 
 // ═══════════ BUDDY / STATUS ACTIONS ══════════════════════════
 window.showBuddyModal = function() {
@@ -2213,6 +2291,8 @@ function startApp() {
   STATE.scheduleDay = (getCurrentDay() || DAYS[0]).day;
   switchTab('home');
   renderPinnedActionBar();
+  refreshWeather();
+  setInterval(refreshWeather, 30 * 60 * 1000);  // every 30 min
   startPolling();
   seedIfEmpty();
   setupReportReminders();
@@ -2453,12 +2533,11 @@ function renderSettings() {
       </div>
     </div>
 
-    <!-- Display -->
+    <!-- App Display (consolidated) -->
     <div class="settings-section">
-      <div class="settings-section-header">🎨 Display</div>
-      <div class="settings-row">
-        <div class="sr-label">Text Size</div>
-      </div>
+      <div class="settings-section-header">📱 App Display</div>
+
+      <div class="settings-row"><div class="sr-label">Text Size</div></div>
       <div style="padding:0 16px 14px">
         <div class="size-chooser">
           <button class="${sizePref==='sm'?'active':''}" onclick="setSize('sm')">A-</button>
@@ -2466,9 +2545,8 @@ function renderSettings() {
           <button class="${sizePref==='lg'?'active':''}" onclick="setSize('lg')">A+</button>
         </div>
       </div>
-      <div class="settings-row">
-        <div class="sr-label">Theme</div>
-      </div>
+
+      <div class="settings-row"><div class="sr-label">Theme</div></div>
       <div style="padding:0 16px 14px">
         <div class="theme-chooser">
           <button class="${themePref==='auto'?'active':''}" onclick="setTheme('auto')">🌓<br>Auto</button>
@@ -2476,6 +2554,7 @@ function renderSettings() {
           <button class="${themePref==='dark'?'active':''}" onclick="setTheme('dark')">🌙<br>Dark</button>
         </div>
       </div>
+
       <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:8px">
         <div style="display:flex;justify-content:space-between;align-items:center">
           <div class="sr-label">GKS Watermark Opacity</div>
@@ -2491,13 +2570,8 @@ function renderSettings() {
         </div>
         <input type="range" min="0.3" max="1.8" step="0.05" value="${localStorage.getItem('tsv_bg_brightness')||'1'}"
           oninput="setBgBrightness(this.value)" style="width:100%;accent-color:var(--blue-600)">
-        <div style="font-size:11px;color:var(--text-3);text-align:center">These settings only affect your device.</div>
       </div>
-    </div>
 
-    <!-- Layout -->
-    <div class="settings-section">
-      <div class="settings-section-header">🎛️ Layout</div>
       <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:8px">
         <div style="display:flex;justify-content:space-between;align-items:center">
           <div class="sr-label">Header Height
@@ -2510,16 +2584,6 @@ function renderSettings() {
       </div>
       <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:8px">
         <div style="display:flex;justify-content:space-between;align-items:center">
-          <div class="sr-label">Extra Nav Gap
-            <div class="sr-value">Extra space above home indicator (in addition to safe area)</div>
-          </div>
-          <div id="lay-nav-val" style="font-size:12px;font-weight:700;color:var(--blue-600);font-variant-numeric:tabular-nums">${(localStorage.getItem('tsv_lay_nav') || '0')}px</div>
-        </div>
-        <input type="range" min="0" max="40" step="1" value="${localStorage.getItem('tsv_lay_nav')||'0'}"
-          oninput="setLayoutOffset('nav', this.value)" style="width:100%;accent-color:var(--blue-600)">
-      </div>
-      <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:8px">
-        <div style="display:flex;justify-content:space-between;align-items:center">
           <div class="sr-label">Nav Tab Height</div>
           <div id="lay-navh-val" style="font-size:12px;font-weight:700;color:var(--blue-600);font-variant-numeric:tabular-nums">${parseInt(localStorage.getItem('tsv_lay_navh')||'62')}px</div>
         </div>
@@ -2528,19 +2592,30 @@ function renderSettings() {
       </div>
       <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:8px">
         <div style="display:flex;justify-content:space-between;align-items:center">
+          <div class="sr-label">Extra Nav Gap
+            <div class="sr-value">Extra space above home indicator</div>
+          </div>
+          <div id="lay-nav-val" style="font-size:12px;font-weight:700;color:var(--blue-600);font-variant-numeric:tabular-nums">${(localStorage.getItem('tsv_lay_nav') || '0')}px</div>
+        </div>
+        <input type="range" min="0" max="40" step="1" value="${localStorage.getItem('tsv_lay_nav')||'0'}"
+          oninput="setLayoutOffset('nav', this.value)" style="width:100%;accent-color:var(--blue-600)">
+      </div>
+      <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:8px">
+        <div style="display:flex;justify-content:space-between;align-items:center">
           <div class="sr-label">iOS Safe-Area
-            <div class="sr-value">0% = nav goes flush to phone bottom, 100% = respects home indicator</div>
+            <div class="sr-value">0% = nav flush to phone bottom · 100% = respects home indicator</div>
           </div>
           <div id="lay-safe-val" style="font-size:12px;font-weight:700;color:var(--blue-600);font-variant-numeric:tabular-nums">${Math.round((parseFloat(localStorage.getItem('tsv_lay_safe')||'1'))*100)}%</div>
         </div>
         <input type="range" min="0" max="1" step="0.05" value="${localStorage.getItem('tsv_lay_safe')||'1'}"
           oninput="setLayoutOffset('safe', this.value)" style="width:100%;accent-color:var(--blue-600)">
       </div>
-      <div style="padding:8px 16px 14px;font-size:11px;color:var(--text-3);text-align:center">
-        These layout preferences save to <b>your device only</b> — they don't affect anyone else.
+
+      <div style="padding:8px 16px 8px;font-size:11px;color:var(--text-3);text-align:center">
+        These preferences save to <b>your device only</b> — they don't affect anyone else.
       </div>
       <div style="padding:0 16px 14px">
-        <button class="btn btn-outline btn-block btn-sm" onclick="resetLayout()">↺ Reset Layout</button>
+        <button class="btn btn-outline btn-block btn-sm" onclick="resetLayout()">↺ Reset to defaults</button>
       </div>
     </div>
 
