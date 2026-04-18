@@ -217,7 +217,20 @@ const TELEGRAM = {
       parseMode: parseMode || 'HTML',
       actor: user?.id || 'system'
     });
-    return !!(resp && resp.ok !== false);
+    // Surface the actual failure reason so users know why a send didn't land.
+    // resp is null on network failure, an object otherwise.
+    if (!resp) {
+      toast('❌ No response from server (offline?)');
+      console.error('[telegram] no response for chat', cid);
+      return false;
+    }
+    if (resp.ok === false) {
+      const desc = resp.description || resp.error || 'unknown error';
+      toast('❌ Telegram: ' + desc);
+      console.error('[telegram] rejected', cid, resp);
+      return false;
+    }
+    return true;
   },
 
   buildEveningReport() {
