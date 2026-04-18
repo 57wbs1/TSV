@@ -2,6 +2,17 @@
 // TSV BKK PWA — Main Application
 // ════════════════════════════════════════════════════════════
 
+// App version + changelog. Bumped alongside SW cache. On first open
+// after an update, the user sees a toast explaining what's new.
+const APP_VERSION = 'v54';
+const APP_CHANGELOG = [
+  '✨ Auto-GPS when leaving hotel (no extra tap)',
+  '👥 Syn ICs: one-tap "All back in" for your syndicate',
+  '🔐 Bot token moved off-client for security',
+  '💾 Offline queue — saves changes if connection drops',
+  '🎬 Smoother tab switching'
+];
+
 const STATE = {
   currentUser: null,
   currentTab: 'home',
@@ -149,6 +160,28 @@ function endSaving() {
   }
 }
 window.addEventListener('online', () => { flushQueue(); });
+
+// Show a one-time changelog toast after an app update. Compares against
+// the version last acknowledged in localStorage.
+function maybeShowChangelog() {
+  const seen = localStorage.getItem('tsv_version_seen');
+  if (seen === APP_VERSION) return;
+  localStorage.setItem('tsv_version_seen', APP_VERSION);
+  if (!seen) return;  // first-ever open — don't spam welcome
+  setTimeout(() => {
+    const card = document.createElement('div');
+    card.className = 'changelog-card';
+    card.innerHTML = `
+      <div class="changelog-header">
+        <span>⬆️ Updated to ${APP_VERSION}</span>
+        <button class="changelog-close" onclick="this.closest('.changelog-card').remove()">✕</button>
+      </div>
+      <ul class="changelog-list">${APP_CHANGELOG.map(l => `<li>${l}</li>`).join('')}</ul>
+    `;
+    document.body.appendChild(card);
+    setTimeout(() => card.remove(), 9000);
+  }, 1200);
+}
 setInterval(() => { if (navigator.onLine) flushQueue(); }, 45 * 1000);
 
 // Which sync domain each mutating action touches. Used by API.post to auto-
@@ -1650,12 +1683,18 @@ function renderLocation() {
           <span class="status-pill ${isOut ? 'pill-out' : 'pill-in'}">${isOut ? 'OUT' : 'IN'}</span>
         </div>`;
     }).join('');
+    // Syn IC action: one tap to mark everyone in this syndicate IN.
+    // Available to: syn IC of this syndicate, or any admin.
+    const myGroup = user && memberGroupKey(user);
+    const canBulkIn = isAdmin() || (mySyn && (user?.role === 'Syn IC' || user?.role === 'SL' || user?.role === 'Dy SL'));
+    const hasAnyOut = synOut > 0;
     return `
       <div class="syn-group" id="sg-${safeId}">
         <div class="syn-header" style="background:${synColor(gk)}">
           <span class="syn-name" onclick="toggleTrackerGroup('${gk.replace(/'/g,"\\'")}')" style="cursor:pointer;display:flex;align-items:center;gap:8px;flex:1">
             ${formatGroupDisplay(gk)} <span class="syn-arrow" style="font-size:10px;opacity:.8">${isOpen?'▲':'▼'}</span>
           </span>
+          ${canBulkIn && hasAnyOut ? `<button class="syn-allin-btn" onclick="event.stopPropagation(); bulkMarkAllIn('${gk.replace(/'/g,"\\'")}')" title="Mark all ${synOut} OUT members as back in hotel">🏨 All In</button>` : ''}
           <button class="syn-sitrep-btn" onclick="event.stopPropagation(); sendSyndicateSITREP('${gk.replace(/'/g,"\\'")}')">📤 SITREP</button>
           <span class="syn-count">${synIn}/${members.length} ${allIn ? '✅' : '⚠️'}</span>
         </div>
@@ -1884,8 +1923,27 @@ window.confirmLeaveHotel = async function() {
   const buddyLabels = buddyObjs.map(b => b.shortName || b.name);
   hideBuddyModal();
 
-  // Use pending GPS (from the in-modal 📡 button) if shared, else keep existing coords
-  const pending = STATE._pendingGPS;
+  // Auto-GPS: if the user hasn't already shared in this modal session and
+  // hasn't explicitly declined, silently ask the browser for a position.
+  // Max 4s wait so we don't block the confirm flow; falls through to the
+  // manual/stored coords if anything goes wrong.
+  let pending = STATE._pendingGPS;
+  if (!pending && !localStorage.getItem('tsv_gps_declined_session') && navigator.geolocation) {
+    try {
+      const pos = await new Promise((res, rej) => {
+        const t = setTimeout(() => rej(new Error('timeout')), 4000);
+        navigator.geolocation.getCurrentPosition(
+          p => { clearTimeout(t); res(p); },
+          e => { clearTimeout(t); rej(e); },
+          { timeout: 4000, maximumAge: 30000, enableHighAccuracy: false }
+        );
+      });
+      pending = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+    } catch (e) {
+      // Remember a permission denial for this session so we don't re-prompt
+      if (e && e.code === 1) sessionStorage.setItem('tsv_gps_declined_session', '1');
+    }
+  }
   const existingStatus = getStatusOf(user.id);
   const useLat = pending ? pending.lat : (existingStatus.lat || '');
   const useLng = pending ? pending.lng : (existingStatus.lng || '');
@@ -2721,6 +2779,7 @@ function startApp() {
   el('app').classList.add('visible');
   updateQueueIndicator();
   flushQueue();  // drain anything queued from a previous offline session
+  maybeShowChangelog();
   // ⚙️ header button removed — Settings is now a dedicated tab in the bottom nav
   const admin = el('btn-admin');
   admin.onclick = showMembersModal;
@@ -3432,6 +3491,35 @@ function renderPinnedActionBar() {
 
 // ═══════════ STOP TRACKING ═══════════════════════════════════
 // Admin: force a member's status back to In Hotel (for those without wifi/forgot to update)
+// Syn IC bulk action: mark every OUT member in a syndicate as IN.
+window.bulkMarkAllIn = async function(groupKey) {
+  const members = membersInGroup(groupKey).filter(m => getStatusOf(m.id).status === 'out');
+  if (!members.length) return toast('Everyone in ' + formatGroupDisplay(groupKey) + ' is already in');
+  if (!confirm(`Mark all ${members.length} OUT member${members.length>1?'s':''} of ${formatGroupDisplay(groupKey)} as IN HOTEL?`)) return;
+  const now = new Date().toISOString();
+  // Optimistic local update
+  for (const m of members) {
+    const cur = getStatusOf(m.id);
+    STATE.memberStatuses[m.id] = {
+      ...cur, status: 'in_hotel', locationText: 'Hotel',
+      buddyWith: '', lastUpdated: now
+    };
+  }
+  renderLocation();
+  // Fire all POSTs in parallel — API.post locks the statuses domain
+  await Promise.all(members.map(m => {
+    const cur = getStatusOf(m.id);
+    return API.post('updateStatus', {
+      memberId: m.id, name: m.name, shortName: m.shortName,
+      role: m.role, syndicate: m.syndicate,
+      status: 'in_hotel', locationText: 'Hotel',
+      lat: cur.lat || '', lng: cur.lng || '',
+      buddyWith: '', roomNumber: cur.roomNumber || ''
+    });
+  }));
+  toast(`🏨 ${members.length} marked IN`);
+};
+
 window.forceReturnMember = async function(memberId, shortName) {
   if (!isAdmin()) return toast('Admin only');
   if (!confirm(`Mark ${shortName} as Returned to Hotel?\n\nUse this when they don't have app access (no wifi, phone off, etc.)`)) return;
