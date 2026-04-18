@@ -2307,15 +2307,33 @@ body::after {
 }
 
 /* ── Visit Detail ─── */
+/* Visit detail modal: full-screen overlay with fade-able backdrop so
+   swipe-right-to-close feels like turning a page (main app visible behind). */
+#visit-detail-modal {
+  position: fixed; inset: 0;
+  z-index: 6500;
+  display: flex; align-items: flex-end; justify-content: center;
+  background: rgba(15,23,42,.55);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  animation: fadeIn .2s var(--ease-out);
+  /* backdrop opacity driven by JS during drag */
+  transition: background-color .22s var(--ease-out), backdrop-filter .22s var(--ease-out);
+}
+#visit-detail-modal.hidden { display: none; }
+
 .visit-detail-sheet {
   background: var(--n-0);
   width: 100%;
+  max-width: 640px;
   max-height: 92vh;
   overflow: hidden;
   border-radius: var(--r-2xl) var(--r-2xl) 0 0;
   display: flex; flex-direction: column;
   animation: slideUp .35s var(--ease-out);
   padding-bottom: var(--safe-b);
+  box-shadow: -20px 0 50px rgba(0,0,0,.35), 0 -20px 60px rgba(0,0,0,.25);
+  will-change: transform;
 }
 /* drag-handle removed — modal closes via X button or swipe-right */
 #visit-detail-body, #event-detail-body {

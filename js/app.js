@@ -453,7 +453,9 @@ function setupModalSwipes() {
   attachSwipeDownClose(el('buddy-modal'), '.buddy-sheet');
 }
 
-// Swipe-right-to-close (used for visit detail — less prone to conflict with body scroll)
+// Swipe-right-to-close — page-turn feel: as the sheet slides right, the
+// backdrop fades out proportionally, revealing the app behind. Only arms
+// from the left 30% so normal taps/scrolls in the body aren't hijacked.
 function attachSwipeRightClose(modalEl, sheetSelector, onClose) {
   const sheet = modalEl.querySelector(sheetSelector);
   if (!sheet) return;
@@ -462,12 +464,12 @@ function attachSwipeRightClose(modalEl, sheetSelector, onClose) {
   sheet.addEventListener('touchstart', e => {
     startX = e.touches[0].clientX;
     startY = e.touches[0].clientY;
-    // Only initiate from leftmost 30% of screen to avoid hijacking normal taps/text selection
     if (startX > window.innerWidth * 0.30) return;
     dragging = true;
     locked = false;
     currentX = 0;
     sheet.style.transition = 'none';
+    modalEl.style.transition = 'none';
   }, { passive: true });
 
   sheet.addEventListener('touchmove', e => {
@@ -475,26 +477,44 @@ function attachSwipeRightClose(modalEl, sheetSelector, onClose) {
     const dx = e.touches[0].clientX - startX;
     const dy = e.touches[0].clientY - startY;
     if (!locked) {
-      if (Math.abs(dy) > Math.abs(dx)) { dragging = false; return; }  // vertical → let scroll win
+      if (Math.abs(dy) > Math.abs(dx)) { dragging = false; return; }
       locked = true;
     }
-    if (dx < 0) { currentX = 0; sheet.style.transform = ''; return; }
+    if (dx < 0) { currentX = 0; sheet.style.transform = ''; modalEl.style.backgroundColor = ''; modalEl.style.backdropFilter = ''; return; }
     currentX = dx;
     sheet.style.transform = `translateX(${currentX}px)`;
+    // Fade backdrop proportionally: full → transparent as sheet travels to edge
+    const progress = Math.min(currentX / window.innerWidth, 1);
+    const alpha = 0.55 * (1 - progress);
+    const blur = 8 * (1 - progress);
+    modalEl.style.backgroundColor = `rgba(15,23,42,${alpha})`;
+    modalEl.style.backdropFilter = `blur(${blur}px)`;
+    modalEl.style.webkitBackdropFilter = `blur(${blur}px)`;
   }, { passive: true });
 
   sheet.addEventListener('touchend', () => {
     if (!dragging) return;
     sheet.style.transition = 'transform .22s var(--ease-out)';
+    modalEl.style.transition = 'background-color .22s var(--ease-out), backdrop-filter .22s var(--ease-out)';
     if (currentX > 100) {
       sheet.style.transform = 'translateX(100%)';
+      modalEl.style.backgroundColor = 'rgba(15,23,42,0)';
+      modalEl.style.backdropFilter = 'blur(0px)';
       setTimeout(() => {
         sheet.style.transform = '';
+        sheet.style.transition = '';
+        modalEl.style.backgroundColor = '';
+        modalEl.style.backdropFilter = '';
+        modalEl.style.webkitBackdropFilter = '';
+        modalEl.style.transition = '';
         modalEl.classList.add('hidden');
         if (onClose) onClose();
       }, 220);
     } else {
       sheet.style.transform = '';
+      modalEl.style.backgroundColor = '';
+      modalEl.style.backdropFilter = '';
+      modalEl.style.webkitBackdropFilter = '';
     }
     dragging = false;
     locked = false;
