@@ -280,7 +280,7 @@
              autocomplete="one-time-code"
              placeholder="••••"
              style="width:100%;font-size:28px;letter-spacing:16px;text-align:center;padding:16px;border-radius:12px;border:2px solid var(--border-2);background:var(--n-50);font-variant-numeric:tabular-nums;font-weight:800"
-             oninput="this.value = this.value.replace(/[^0-9]/g,'').slice(0,4)">
+             oninput="this.value = this.value.replace(/[^0-9]/g,'').slice(0,4); if (this.value.length === 4) setTimeout(submitPinChange, 120);">
       <div id="pin-change-hint" style="font-size:11px;color:var(--text-3);margin-top:10px;text-align:center">Enter exactly 4 digits</div>
       <div style="display:flex;gap:10px;margin-top:18px">
         <button class="btn btn-outline" style="flex:1" onclick="hidePinChange()">Cancel</button>

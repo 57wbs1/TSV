@@ -43,6 +43,11 @@ const API = {
   },
   async post(action, data) {
     if (!this.configured) { STATE.apiState = 'unconfigured'; return null; }
+    // Auto-lock the matching sync domain for the duration of this mutation
+    // so the corresponding sync can't race and overwrite fresh local state
+    // with a stale server response.
+    const domain = MUTATION_DOMAIN[action];
+    if (domain) lockSync(domain);
     try {
       const res = await fetch(CONFIG.apiUrl, {
         method: 'POST',
@@ -57,8 +62,22 @@ const API = {
       STATE.apiState = navigator.onLine ? 'error' : 'offline';
       STATE.offlineMode = true;
       return null;
+    } finally {
+      if (domain) unlockSync(domain);
     }
   }
+};
+
+// Which sync domain each mutating action touches. Used by API.post to auto-
+// lock the matching sync() so it can't run during the mutation.
+const MUTATION_DOMAIN = {
+  updateStatus:     'statuses',
+  addLearning:      'learnings',
+  addReflection:    'reflections',
+  addMember:        'members',
+  updateMember:     'members',
+  deleteMember:     'members',
+  seedMembers:      'members'
 };
 
 // Auto-refresh the home banner when connectivity changes
@@ -698,11 +717,27 @@ let _lastLearningsHash = '';
 let _lastCalendarHash = '';
 let _lastPingsHash = '';
 
+// Mutation-in-flight counters per data domain. A sync refuses to run while
+// a matching mutation is in flight to stop the server's pre-update response
+// from overwriting local state. Count-based so overlapping mutations (e.g.
+// two GPS pings in a row) don't release the lock early.
+const _syncLocks = { members: 0, statuses: 0, learnings: 0, reflections: 0 };
+function lockSync(domain)    { _syncLocks[domain] = (_syncLocks[domain] || 0) + 1; }
+function unlockSync(domain)  { _syncLocks[domain] = Math.max(0, (_syncLocks[domain] || 0) - 1); }
+function isSyncLocked(domain){ return (_syncLocks[domain] || 0) > 0; }
+// Wrap a mutating promise so sync can't race it. Callers reset their own
+// hash var afterwards if they need a forced re-seed.
+async function mutateWithLock(domain, fn) {
+  lockSync(domain);
+  try { return await fn(); }
+  finally { unlockSync(domain); }
+}
+
 async function syncMembers() {
-  // Skip sync while a PIN change is mid-flight — otherwise the server's
-  // stale pre-update response would overwrite STATE.currentUser.pin and
-  // lock the user out with the pin they just changed from.
-  if (STATE._pinChangeInFlight) return;
+  // Skip sync while any member mutation is in flight — the server's
+  // pre-update response would overwrite fresh local state (PIN change,
+  // edit, add, delete, seed).
+  if (isSyncLocked('members')) return;
   const data = await API.get('getMembers');
   if (!data || !Array.isArray(data) || data.length === 0) return;
   const hash = JSON.stringify(data);
@@ -739,6 +774,7 @@ function anyModalOpen() {
 }
 
 async function syncStatuses() {
+  if (isSyncLocked('statuses')) return;
   const data = await API.get('getStatuses');
   if (!data) return;
   const map = {};
@@ -770,6 +806,7 @@ async function syncStatuses() {
 }
 
 async function syncLearnings() {
+  if (isSyncLocked('learnings')) return;
   const data = await API.get('getLearnings');
   if (!data) return;
   const hash = JSON.stringify(data);
@@ -781,6 +818,7 @@ async function syncLearnings() {
 
 let _lastReflectionsHash = '';
 async function syncReflections() {
+  if (isSyncLocked('reflections')) return;
   const data = await API.get('getReflections');
   if (!Array.isArray(data)) return;
   const hash = JSON.stringify(data);
@@ -3185,27 +3223,22 @@ window.submitPinChange = async function() {
   }
   const user = STATE.currentUser;
   if (!user) { hidePinChange(); return; }
-  // Block sync-races that could overwrite the new PIN with stale server data
-  // while the POST is in flight.
-  STATE._pinChangeInFlight = true;
+  // Local update first (saved to localStorage + MEMBERS[]) so UI reflects
+  // immediately even if the POST is slow. API.post auto-locks the 'members'
+  // sync domain for the duration of the call so syncMembers can't race us.
   user.pin = newPin;
   saveIdentity(user);
   const idx = MEMBERS.findIndex(m => m.id === user.id);
   if (idx >= 0) MEMBERS[idx] = { ...MEMBERS[idx], pin: newPin };
   _lastMembersHash = '';
-  try {
-    const ok = await API.post('updateMember', { id: user.id, pin: newPin, actor: user.id });
-    if (!ok) {
-      hint.textContent = '⚠️ Save failed — check connection';
-      hint.style.color = 'var(--red-600, #dc2626)';
-      STATE._pinChangeInFlight = false;
-      return;
-    }
-    // Re-sync to confirm server state, then release the lock.
-    await syncMembers();
-  } finally {
-    STATE._pinChangeInFlight = false;
+  const ok = await API.post('updateMember', { id: user.id, pin: newPin, actor: user.id });
+  if (!ok) {
+    hint.textContent = '⚠️ Save failed — check connection';
+    hint.style.color = 'var(--red-600, #dc2626)';
+    return;
   }
+  // Post-mutation: fresh sync to pick up the canonical server value.
+  await syncMembers();
   hidePinChange();
   toast('✅ PIN changed to ' + newPin);
 };
