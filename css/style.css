@@ -93,12 +93,14 @@ html, body {
   letter-spacing: -0.01em;
   -webkit-text-size-adjust: 100%;
 }
-/* html bg = nav bg. The header has its own gradient that paints over the top
-   safe-area, so html only shows when safe-area-bottom isn't fully covered
-   by the nav — making it match the nav color hides any gap cleanly. */
+/* Base colors exactly match the nav color everywhere so even if the
+   rendering engine leaks anything at the edges, there's no visible seam. */
 html { background: #ffffff; }
+body { background: #ffffff !important; }
 @media (prefers-color-scheme: dark) {
   html { background: #0b1120; }
+  body { background: #0b1120 !important; }
+  #main-content { background: #0b1120; }
 }
 
 /* Allow pinch-to-zoom on media only, but block double-tap-to-zoom everywhere */
@@ -664,6 +666,17 @@ body::after {
   flex-direction: column;
   position: fixed; bottom: 0; left: 0; right: 0;
   z-index: 100;
+}
+/* Safety rail: guarantees the nav bg reaches the absolute bottom even if
+   the rendering engine places the nav's bottom edge slightly short. */
+#bottom-nav::after {
+  content: '';
+  position: absolute;
+  left: 0; right: 0;
+  top: 100%;
+  height: 100px;
+  background: inherit;
+  pointer-events: none;
 }
 #nav-action-row {
   display: flex;
