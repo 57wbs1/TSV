@@ -399,7 +399,8 @@ body::after {
 /* ══════════════════════════════════════════════════════════
    MODAL BASE (Identity, Buddy, Members)
    ══════════════════════════════════════════════════════════ */
-#identity-modal, #buddy-modal, #members-modal, #member-editor, #event-editor {
+#identity-modal, #buddy-modal, #members-modal, #member-editor, #event-editor,
+#pin-change-modal {
   position: fixed; inset: 0;
   background: rgba(15,23,42,.55);
   display: flex; align-items: flex-end; justify-content: center;
@@ -409,11 +410,28 @@ body::after {
   animation: fadeIn .25s var(--ease-out);
 }
 #identity-modal.hidden, #buddy-modal.hidden, #members-modal.hidden,
-#member-editor.hidden, #event-editor.hidden { display: none; }
+#member-editor.hidden, #event-editor.hidden, #pin-change-modal.hidden { display: none; }
 #buddy-modal    { z-index: 6400; }
 #members-modal  { z-index: 6400; }
 #member-editor  { z-index: 6600; }
 #event-editor   { z-index: 6600; }
+#pin-change-modal { z-index: 6800; }
+
+.pin-change-sheet {
+  background: var(--n-0);
+  width: 100%; max-width: 420px;
+  border-radius: var(--r-2xl) var(--r-2xl) 0 0;
+  display: flex; flex-direction: column;
+  box-shadow: 0 -20px 60px rgba(0,0,0,.25);
+  animation: slideUp .3s var(--ease-out);
+  padding-bottom: calc(var(--safe-b) + 8px);
+}
+#pin-change-input:focus {
+  outline: none;
+  border-color: var(--blue-500);
+  background: var(--n-0);
+  box-shadow: 0 0 0 4px rgba(0,86,179,.15);
+}
 
 .identity-sheet, .buddy-sheet, .members-sheet, .editor-sheet {
   background: var(--n-0);

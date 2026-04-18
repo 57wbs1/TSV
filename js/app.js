@@ -699,6 +699,10 @@ let _lastCalendarHash = '';
 let _lastPingsHash = '';
 
 async function syncMembers() {
+  // Skip sync while a PIN change is mid-flight — otherwise the server's
+  // stale pre-update response would overwrite STATE.currentUser.pin and
+  // lock the user out with the pin they just changed from.
+  if (STATE._pinChangeInFlight) return;
   const data = await API.get('getMembers');
   if (!data || !Array.isArray(data) || data.length === 0) return;
   const hash = JSON.stringify(data);
@@ -709,7 +713,9 @@ async function syncMembers() {
     id: String(row.id), name: row.name || '', shortName: row.shortName || row.name || '',
     rank: row.rank || '', role: row.role || 'Member',
     csc: row.csc || '', syndicate: String(row.syndicate || ''),
-    pin: row.pin || '0000',
+    // Google Sheets auto-converts '0000' to number 0 and '1234' to number 1234 —
+    // force back to a 4-digit string so PIN comparison (always string) works.
+    pin: String(row.pin ?? '0000').padStart(4, '0'),
     isAdmin: row.isAdmin === 'true' || row.isAdmin === true
   }));
   if (STATE.currentUser) {
@@ -3151,20 +3157,57 @@ window.editMyProfile = function() {
   openMemberEditor(STATE.currentUser.id);
 };
 
-window.changeMyPin = async function() {
-  const newPin = prompt('Enter new 4-digit PIN:');
-  if (!newPin || !/^\d{4}$/.test(newPin)) { toast('PIN must be exactly 4 digits'); return; }
+window.changeMyPin = function() {
+  // iOS PWAs have an unreliable prompt() — it shows a text keyboard and can
+  // cause app suspension. Use a proper modal with a numeric-only input.
+  const modal = el('pin-change-modal');
+  if (!modal) return;
+  const input = el('pin-change-input');
+  if (input) { input.value = ''; setTimeout(() => input.focus(), 100); }
+  el('pin-change-hint').textContent = 'Enter exactly 4 digits';
+  el('pin-change-hint').style.color = 'var(--text-3)';
+  modal.classList.remove('hidden');
+};
+
+window.hidePinChange = function() {
+  el('pin-change-modal')?.classList.add('hidden');
+};
+
+window.submitPinChange = async function() {
+  const input = el('pin-change-input');
+  const newPin = (input?.value || '').trim();
+  const hint = el('pin-change-hint');
+  if (!/^\d{4}$/.test(newPin)) {
+    hint.textContent = 'PIN must be exactly 4 digits';
+    hint.style.color = 'var(--red-600, #dc2626)';
+    input?.focus();
+    return;
+  }
   const user = STATE.currentUser;
+  if (!user) { hidePinChange(); return; }
+  // Block sync-races that could overwrite the new PIN with stale server data
+  // while the POST is in flight.
+  STATE._pinChangeInFlight = true;
   user.pin = newPin;
   saveIdentity(user);
-  // Also update the in-memory MEMBERS array so a subsequent logout+login
-  // on THIS device works immediately without waiting for a re-sync.
   const idx = MEMBERS.findIndex(m => m.id === user.id);
   if (idx >= 0) MEMBERS[idx] = { ...MEMBERS[idx], pin: newPin };
-  // Invalidate hash so next syncMembers can't early-return
   _lastMembersHash = '';
-  const ok = await API.post('updateMember', { id: user.id, pin: newPin, actor: user.id });
-  if (!ok) toast('⚠️ Saved locally — sync when back online'); else toast('✅ PIN changed to ' + newPin);
+  try {
+    const ok = await API.post('updateMember', { id: user.id, pin: newPin, actor: user.id });
+    if (!ok) {
+      hint.textContent = '⚠️ Save failed — check connection';
+      hint.style.color = 'var(--red-600, #dc2626)';
+      STATE._pinChangeInFlight = false;
+      return;
+    }
+    // Re-sync to confirm server state, then release the lock.
+    await syncMembers();
+  } finally {
+    STATE._pinChangeInFlight = false;
+  }
+  hidePinChange();
+  toast('✅ PIN changed to ' + newPin);
 };
 
 window.requestAdminRights = async function() {

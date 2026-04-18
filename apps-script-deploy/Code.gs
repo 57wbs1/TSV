@@ -43,6 +43,8 @@ function doGet(e) {
       case 'getLearnings':data = readLearnings(); break;
       case 'getReflections': data = readReflections(); break;
       case 'getPings':    data = getPings(e.parameter.userId || ''); break;
+      case 'fixAllPins':  data = fixAllPins(); break;
+      case 'resetCasparPin': data = resetCasparPin(); break;
       case 'getAdminRequests': data = readSheet(SHEETS.ADMINREQ); break;
       default: return json({ ok: false, error: 'Unknown action: ' + action });
     }
@@ -100,11 +102,29 @@ function readMembers() {
 // Matches CONFIG.superAdminId on the client.
 const SUPER_ADMIN_ID = 'caspar';
 
+// Force the PIN column to text format so Sheets doesn't coerce
+// '0000' → 0 or '1234' → 1234. Cheap; called on every member mutation.
+function _ensurePinColumnText(sheet) {
+  const lastCol = sheet.getLastColumn();
+  if (lastCol < 1) return;
+  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  const pinCol = headers.indexOf('pin');
+  if (pinCol < 0) return;
+  const lastRow = Math.max(sheet.getLastRow(), 2);
+  sheet.getRange(2, pinCol + 1, lastRow - 1, 1).setNumberFormat('@');
+}
+
+function _padPin(v) {
+  return String(v == null ? '0000' : v).padStart(4, '0');
+}
+
 function addMember(data) {
   const sheet = getOrCreateSheet(SHEETS.MEMBERS);
+  _ensurePinColumnText(sheet);
   const id = data.id || ('m_' + Date.now() + '_' + Math.floor(Math.random() * 1000));
   const now = new Date().toISOString();
   const isAdminValue = (data.actor === SUPER_ADMIN_ID) ? (data.isAdmin || 'false') : 'false';
+  const pinPadded = _padPin(data.pin);
   sheet.appendRow([
     id,
     data.name || '',
@@ -113,18 +133,27 @@ function addMember(data) {
     data.role || 'Member',
     data.csc || '',
     data.syndicate || '',
-    data.pin || '0000',
+    pinPadded,
     isAdminValue,
     'false',
     now,
     now
   ]);
+  // Re-apply text format on the new row's pin cell, then re-set the value
+  // to guarantee it lands as a string (appendRow can still coerce otherwise).
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  const pinCol = headers.indexOf('pin');
+  if (pinCol >= 0) {
+    const newRow = sheet.getLastRow();
+    sheet.getRange(newRow, pinCol + 1).setNumberFormat('@').setValue(pinPadded);
+  }
   logAction('addMember', data.actor || '', `${data.name} (${data.csc} S${data.syndicate})`);
   return { id };
 }
 
 function updateMember(data) {
   const sheet = getOrCreateSheet(SHEETS.MEMBERS);
+  _ensurePinColumnText(sheet);
   const rows = sheet.getDataRange().getValues();
   const headers = rows[0];
   const idCol = headers.indexOf('id');
@@ -140,7 +169,7 @@ function updateMember(data) {
       row[headers.indexOf('csc')]       = data.csc ?? row[headers.indexOf('csc')];
       row[headers.indexOf('syndicate')] = data.syndicate ?? row[headers.indexOf('syndicate')];
       if (data.pin !== undefined && headers.indexOf('pin') >= 0)
-        row[headers.indexOf('pin')] = data.pin;
+        row[headers.indexOf('pin')] = _padPin(data.pin);
       // Only super-admin may change isAdmin. Silently drop for anyone else.
       if (data.isAdmin !== undefined && headers.indexOf('isAdmin') >= 0
           && data.actor === SUPER_ADMIN_ID)
@@ -914,20 +943,43 @@ function resolveAdminRequest(data) {
   return { error: 'not found' };
 }
 
-// One-shot util: reset caspar's PIN to 0000. Run from the Apps Script editor.
+// One-shot util: reset caspar's PIN to 0000 as TEXT.
 function resetCasparPin() {
   const s = SPREADSHEET.getSheetByName(SHEETS.MEMBERS.name);
+  _ensurePinColumnText(s);
   const rows = s.getDataRange().getValues();
   const headers = rows[0];
   const idCol = headers.indexOf('id');
   const pinCol = headers.indexOf('pin');
   for (let i = 1; i < rows.length; i++) {
     if (rows[i][idCol] === 'caspar') {
-      s.getRange(i + 1, pinCol + 1).setValue('0000');
+      s.getRange(i + 1, pinCol + 1).setNumberFormat('@').setValue('0000');
       Logger.log('Reset caspar PIN at row ' + (i + 1));
       return 'Reset caspar PIN at row ' + (i + 1);
     }
   }
   Logger.log('caspar not found');
   return 'caspar not found';
+}
+
+// One-shot util: repair every PIN in the Members sheet back to a
+// 4-digit zero-padded string. Handles the historical Sheets number
+// coercion that broke logins. Run once from Apps Script editor.
+function fixAllPins() {
+  const s = SPREADSHEET.getSheetByName(SHEETS.MEMBERS.name);
+  _ensurePinColumnText(s);
+  const rows = s.getDataRange().getValues();
+  const headers = rows[0];
+  const pinCol = headers.indexOf('pin');
+  if (pinCol < 0) return 'no pin column';
+  let fixed = 0;
+  for (let i = 1; i < rows.length; i++) {
+    const raw = rows[i][pinCol];
+    if (raw === '' || raw == null) continue;
+    const padded = _padPin(raw);
+    s.getRange(i + 1, pinCol + 1).setNumberFormat('@').setValue(padded);
+    fixed++;
+  }
+  Logger.log('Fixed ' + fixed + ' pin rows');
+  return 'Fixed ' + fixed + ' pin rows';
 }
