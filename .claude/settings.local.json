@@ -1,0 +1,27 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(git pull:*)",
+      "Bash(git status)",
+      "Bash(git log:*)",
+      "Bash(git diff:*)",
+      "Bash(git checkout:*)",
+      "Bash(git branch:*)",
+      "Bash(git remote:*)",
+      "Bash(gh:*)",
+      "Bash(clasp push:*)",
+      "Bash(clasp pull:*)",
+      "Bash(clasp redeploy:*)",
+      "Bash(clasp deploy:*)",
+      "Bash(clasp list-deployments:*)",
+      "Bash(clasp logs:*)",
+      "Bash(cp:*)",
+      "Bash(mkdir:*)",
+      "Bash(curl:*)",
+      "Bash(node:*)"
+    ]
+  }
+}

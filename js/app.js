@@ -22,22 +22,25 @@ const STATE = {
 
 // ═══════════ API LAYER ═══════════════════════════════════════
 const API = {
+  get configured() {
+    return CONFIG.apiUrl && !CONFIG.apiUrl.startsWith('YOUR_');
+  },
   async get(action) {
-    if (!CONFIG.apiUrl || CONFIG.apiUrl.startsWith('YOUR_')) {
-      STATE.offlineMode = true;
-      return null;
-    }
+    if (!this.configured) { STATE.apiState = 'unconfigured'; return null; }
     try {
       const res = await fetch(`${CONFIG.apiUrl}?action=${action}`, { method: 'GET' });
       const json = await res.json();
+      STATE.apiState = 'online';      // successful call → clear any past failure
+      STATE.offlineMode = false;
       return json.ok ? json.data : null;
-    } catch (e) { STATE.offlineMode = true; return null; }
-  },
-  async post(action, data) {
-    if (!CONFIG.apiUrl || CONFIG.apiUrl.startsWith('YOUR_')) {
+    } catch (e) {
+      STATE.apiState = navigator.onLine ? 'error' : 'offline';
       STATE.offlineMode = true;
       return null;
     }
+  },
+  async post(action, data) {
+    if (!this.configured) { STATE.apiState = 'unconfigured'; return null; }
     try {
       const res = await fetch(CONFIG.apiUrl, {
         method: 'POST',
@@ -45,10 +48,20 @@ const API = {
         headers: { 'Content-Type': 'text/plain' }
       });
       const json = await res.json();
+      STATE.apiState = 'online';
+      STATE.offlineMode = false;
       return json.ok ? json.data : null;
-    } catch (e) { STATE.offlineMode = true; return null; }
+    } catch (e) {
+      STATE.apiState = navigator.onLine ? 'error' : 'offline';
+      STATE.offlineMode = true;
+      return null;
+    }
   }
 };
+
+// Auto-refresh the home banner when connectivity changes
+window.addEventListener('online',  () => { if (STATE.currentTab === 'home') renderHome(); syncStatuses(); });
+window.addEventListener('offline', () => { STATE.apiState = 'offline'; if (STATE.currentTab === 'home') renderHome(); });
 
 // ═══════════ TELEGRAM ════════════════════════════════════════
 const TELEGRAM = {
@@ -853,7 +866,9 @@ function renderHome() {
   }
 
   el('tab-home').innerHTML = `
-    ${STATE.offlineMode ? `<div class="alert alert-orange">⚠️ API not configured — local data only.</div>` : ''}
+    ${STATE.apiState === 'offline' ? `<div class="alert alert-orange">📡 Offline — showing last synced data. Pull down to refresh when back online.</div>` : ''}
+    ${STATE.apiState === 'error'   ? `<div class="alert alert-orange">⚠️ Couldn't reach the server — showing last synced data.</div>` : ''}
+    ${STATE.apiState === 'unconfigured' ? `<div class="alert alert-red">⚙️ API not configured — see config.js</div>` : ''}
 
     ${heroHtml}
 
