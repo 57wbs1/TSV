@@ -1688,8 +1688,12 @@ body::after {
 
 .sticky-header {
   position: sticky;
-  top: calc(var(--header-h) + var(--safe-t));
-  z-index: 20;
+  /* Offset by ~44px so it sits BELOW the Calendar sub-tab row (Calendar /
+     Visits / Reflections), which is also sticky at header-h+safe-t. Without
+     this, the day-tabs bar stacks over the sub-tab row and the sub-tabs
+     disappear as the user scrolls. */
+  top: calc(var(--header-h) + var(--safe-t) + 44px);
+  z-index: 19;
   margin: 0 -14px 8px;        /* extend full width, no negative margin */
   background: var(--bg);
 }
@@ -1936,11 +1940,14 @@ body::after {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .member-row .m-buddy {
-  font-size: 10px; color: var(--blue-600);
-  margin-top: 2px; font-weight: 600;
+  font-size: 10px;
+  color: var(--blue-600);
+  margin-top: 2px;
+  font-weight: 600;
 }
 @media (prefers-color-scheme: dark) {
-  .member-row .m-buddy { color: #93c5fd; }
+  .member-row .m-buddy,
+  .member-row .m-info .m-buddy { color: #93c5fd !important; }
 }
 
 .filter-bar {
