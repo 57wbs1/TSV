@@ -2088,25 +2088,32 @@ window.toggleScopePins = function() {
   });
 };
 
-// Centre the map on the user's current GPS (if shared) or request a fresh
-// position from the browser. Drops a temporary blue dot for orientation.
+// Centre the map on the user's current location. Order of preference:
+//   1. cached GPS from Status sheet (shared earlier)
+//   2. fresh browser geolocation
+// Drops a one-shot "📍 You are here" marker so it's visible even without
+// the user sharing GPS to the roster.
 window.locateMe = function() {
   if (!STATE.map) return toast('Map not ready');
   const user = STATE.currentUser;
   const cached = user ? getStatusOf(user.id) : {};
-  if (cached.lat && cached.lng) {
-    STATE.map.flyTo([cached.lat, cached.lng], Math.max(STATE.map.getZoom(), 14), { duration: 0.6 });
-    return;
-  }
+  const landUser = (lat, lng) => {
+    // Remove any previous "you" marker
+    if (STATE._meMarker) { try { STATE.map.removeLayer(STATE._meMarker); } catch {} }
+    const meIcon = L.divIcon({
+      html: `<div style="background:#3b82f6;color:#fff;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-size:14px;border:3px solid #fff;box-shadow:0 0 0 4px rgba(59,130,246,.35),0 4px 10px rgba(0,0,0,.3);font-weight:900">📍</div>`,
+      className:'', iconSize:[28,28], iconAnchor:[14,14]
+    });
+    STATE._meMarker = L.marker([lat, lng], { icon: meIcon, title: 'You' }).addTo(STATE.map).bindPopup('📍 You are here').openPopup();
+    STATE.map.flyTo([lat, lng], Math.max(STATE.map.getZoom(), 14), { duration: 0.6 });
+  };
+  if (cached.lat && cached.lng) return landUser(cached.lat, cached.lng);
   if (!navigator.geolocation) return toast('GPS not available on this device');
   toast('📡 Locating…');
   navigator.geolocation.getCurrentPosition(
-    pos => {
-      const lat = pos.coords.latitude, lng = pos.coords.longitude;
-      STATE.map.flyTo([lat, lng], 15, { duration: 0.7 });
-    },
-    () => toast('❌ Couldn\'t get location — check permissions'),
-    { timeout: 6000, maximumAge: 30000 }
+    pos => landUser(pos.coords.latitude, pos.coords.longitude),
+    (e) => toast('❌ ' + (e?.code === 1 ? 'Location permission denied' : 'Couldn\'t get location')),
+    { timeout: 8000, maximumAge: 30000, enableHighAccuracy: false }
   );
 };
 
@@ -2475,21 +2482,21 @@ function initMap() {
   STATE.map = L.map('leaflet-map', {
     zoomAnimation: true,
     fadeAnimation: true,
-    // Zoom-out cap 8 lets users see the whole study-visit region on one
-    // screen (Ayutthaya in the north, Rayong in the south-east, Kanchanaburi
-    // in the west). Cap max at 18 so tiles don't run out.
-    minZoom: 8,
+    // Region-wide minZoom so users can zoom out and see both Singapore and
+    // Bangkok in the same view during the pre-trip trial.
+    minZoom: 5,
     maxZoom: 18,
-    // Generous maxBounds covering every SCOPE day venue + Bangkok metro.
-    // NW corner ≈ Kanchanaburi · SE corner ≈ Rayong.
-    maxBounds: L.latLngBounds([12.20, 99.00], [14.80, 102.00]),
-    maxBoundsViscosity: 0.6,
+    // Bounds now cover Singapore → Malaysia → whole of Thailand's study
+    // region (incl. Kanchanaburi in the west + Rayong in the east), so
+    // members in SG during pre-trial can still see their own location.
+    maxBounds: L.latLngBounds([1.00, 99.00], [14.80, 104.50]),
+    maxBoundsViscosity: 0.5,
     worldCopyJump: false
   }).setView([CONFIG.hotel.lat, CONFIG.hotel.lng], 12);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution:'© OpenStreetMap',
     maxZoom:18,
-    minZoom:8,
+    minZoom:5,
     keepBuffer: 6,           // generous ring of off-screen tiles
     updateWhenIdle: false,
     updateWhenZooming: true, // load tiles mid-zoom so we don't see blanks at the end
