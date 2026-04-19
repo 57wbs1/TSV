@@ -400,7 +400,7 @@ body::after {
    MODAL BASE (Identity, Buddy, Members)
    ══════════════════════════════════════════════════════════ */
 #identity-modal, #buddy-modal, #members-modal, #member-editor, #event-editor,
-#pin-change-modal {
+#pin-change-modal, #error-report-modal {
   position: fixed; inset: 0;
   background: rgba(15,23,42,.55);
   display: flex; align-items: flex-end; justify-content: center;
@@ -410,12 +410,79 @@ body::after {
   animation: fadeIn .25s var(--ease-out);
 }
 #identity-modal.hidden, #buddy-modal.hidden, #members-modal.hidden,
-#member-editor.hidden, #event-editor.hidden, #pin-change-modal.hidden { display: none; }
-#buddy-modal    { z-index: 6400; }
-#members-modal  { z-index: 6400; }
-#member-editor  { z-index: 6600; }
-#event-editor   { z-index: 6600; }
+#member-editor.hidden, #event-editor.hidden, #pin-change-modal.hidden,
+#error-report-modal.hidden { display: none; }
+#buddy-modal      { z-index: 6400; }
+#members-modal    { z-index: 6400; }
+#member-editor    { z-index: 6600; }
+#event-editor     { z-index: 6600; }
 #pin-change-modal { z-index: 6800; }
+#error-report-modal { z-index: 6800; }
+
+.error-report-sheet {
+  background: var(--n-0);
+  width: 100%;
+  max-width: 560px;
+  max-height: 92vh;
+  border-radius: var(--r-2xl) var(--r-2xl) 0 0;
+  display: flex; flex-direction: column;
+  box-shadow: 0 -20px 60px rgba(0,0,0,.25);
+  animation: slideUp .3s var(--ease-out);
+  padding-bottom: calc(var(--safe-b) + 8px);
+}
+.error-report-body {
+  padding: 18px 20px 20px;
+  overflow-y: auto;
+}
+.er-intro {
+  font-size: 12.5px;
+  color: var(--text-2);
+  line-height: 1.5;
+  margin-bottom: 14px;
+}
+.er-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--text-2);
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+#er-description {
+  width: 100%;
+  min-height: 140px;
+  padding: 12px;
+  border-radius: var(--r-md);
+  border: 1.5px solid var(--border-2);
+  background: var(--n-50);
+  font-size: 14px;
+  line-height: 1.5;
+  font-family: inherit;
+  color: var(--text);
+  resize: vertical;
+  box-sizing: border-box;
+}
+#er-description:focus {
+  outline: none;
+  border-color: var(--blue-500);
+  background: var(--n-0);
+  box-shadow: 0 0 0 4px rgba(0,86,179,.15);
+}
+.er-hint {
+  font-size: 11px;
+  color: var(--text-3);
+  margin-top: 8px;
+  text-align: center;
+}
+.er-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 16px;
+}
+@media (prefers-color-scheme: dark) {
+  #er-description { background: #0b1120; border-color: #475569; }
+}
 
 /* Install guide modal — tutorial for Add-to-Home-Screen on iOS + Android */
 #install-guide-modal {
@@ -1462,28 +1529,42 @@ body::after {
   font-weight: 700;
   text-transform: uppercase;
 }
-/* Two-line time block: BANGKOK + SINGAPORE with K/H suffixes */
+/* Time block: BKK dominant (bold, big), SG secondary (smaller, offset) */
 .hero-time {
   margin-top: 14px;
   font-variant-numeric: tabular-nums;
-  display: flex; flex-direction: column; gap: 2px;
+  display: flex; flex-direction: column; gap: 1px;
 }
-.hero-time .ht-row {
-  display: flex; align-items: baseline;
-  justify-content: space-between;
-  gap: 10px;
-  line-height: 1.1;
+.hero-time .ht-primary {
+  display: flex; align-items: baseline; gap: 10px;
+  line-height: 1.05;
 }
-.hero-time .ht-city {
-  font-size: 11px;
+.hero-time .ht-primary .ht-city {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: .1em;
+  opacity: .9;
+}
+.hero-time .ht-val-main {
+  font-size: 34px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+.hero-time .ht-secondary {
+  display: flex; align-items: baseline; gap: 8px;
+  padding-left: 22px;       /* offset under BKK */
+  line-height: 1;
+  opacity: .72;
+}
+.hero-time .ht-city-sg {
+  font-size: 10px;
   font-weight: 700;
   letter-spacing: .08em;
-  opacity: .8;
 }
-.hero-time .ht-val {
-  font-size: 28px;
-  font-weight: 300;
-  letter-spacing: -0.015em;
+.hero-time .ht-val-sg {
+  font-size: 16px;
+  font-weight: 400;
+  letter-spacing: -0.01em;
 }
 /* Old .hero-time-label kept harmless for back-compat */
 .hero-time-label {

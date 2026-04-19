@@ -412,29 +412,37 @@ function renderFxCard() {
 }
 function formatBKKTime(d = bkkNow()) { return d.toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit', hour12:false }); }
 
-// Hero time block: two lines — Bangkok (K suffix) + Singapore (H suffix).
-// SG is +1h ahead of BKK, so we compute it by adding an hour to the BKK
-// Date instance the caller passes in. Used to render #live-time and on
-// the 1-second clock tick.
-function formatHeroTimes(d) {
-  const bkk = d || bkkNow();
-  const sg = new Date(bkk.getTime() + 60 * 60 * 1000);
-  const fmt = v => v.toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit', hour12:false, timeZone:'UTC' });
-  // We already built bkk/sg as absolute UTC instants offset by the right
-  // amount — use UTC so toLocaleTimeString doesn't re-apply browser TZ.
-  return { bkk: fmt(bkk), sg: fmt(sg) };
+// Hero time block — BKK (K suffix, dominant) + SG (H suffix, secondary).
+// Uses a fresh Date each call and lets the runtime handle the timezone —
+// the old bkkNow() trick was producing a UTC-anchored Date that then
+// re-shifted under the browser's own locale, causing the 14:31 bug.
+function formatHeroTimes() {
+  const now = new Date();
+  const fmt = tz => now.toLocaleTimeString('en-GB', {
+    hour:'2-digit', minute:'2-digit', second:'2-digit',
+    hour12:false, timeZone: tz
+  });
+  return { bkk: fmt('Asia/Bangkok'), sg: fmt('Asia/Singapore') };
 }
-function renderHeroTimeBlock(d = bkkNow()) {
-  const t = formatHeroTimes(d);
+function renderHeroTimeBlock() {
+  const t = formatHeroTimes();
   return `
     <div class="hero-time" id="live-time">
-      <div class="ht-row"><span class="ht-city">BANGKOK:</span><span class="ht-val">${t.bkk} K</span></div>
-      <div class="ht-row"><span class="ht-city">SINGAPORE:</span><span class="ht-val">${t.sg} H</span></div>
+      <div class="ht-primary">
+        <span class="ht-city">BKK</span>
+        <span class="ht-val ht-val-main">${t.bkk} K</span>
+      </div>
+      <div class="ht-secondary">
+        <span class="ht-city-sg">SG</span>
+        <span class="ht-val-sg">${t.sg} H</span>
+      </div>
     </div>`;
 }
-// Today in DDD DD MM format: e.g. "SUN 26 APR"
-function formatTodayShort(d = bkkNow()) {
-  return d.toLocaleDateString('en-GB', { weekday:'short', day:'2-digit', month:'short', timeZone:'Asia/Bangkok' }).toUpperCase().replace(/,/g, '');
+// Today in DDD DD MM format: e.g. "SUN 26 APR" (always rendered in BKK tz)
+function formatTodayShort() {
+  return new Date().toLocaleDateString('en-GB', {
+    weekday:'short', day:'2-digit', month:'short', timeZone:'Asia/Bangkok'
+  }).toUpperCase().replace(/,/g, '');
 }
 
 function getCurrentDay() {
@@ -1352,13 +1360,11 @@ function renderHome() {
     if (document.hidden || STATE.currentTab !== 'home') return;
     const e = el('live-time');
     if (!e) return;
-    const t = formatHeroTimes(bkkNow());
-    // Update the values in-place so we don't rebuild the inner DOM every tick
-    const vals = e.querySelectorAll('.ht-val');
-    if (vals.length >= 2) {
-      vals[0].textContent = t.bkk + ' K';
-      vals[1].textContent = t.sg  + ' H';
-    }
+    const t = formatHeroTimes();
+    const bkkVal = e.querySelector('.ht-val-main');
+    const sgVal  = e.querySelector('.ht-val-sg');
+    if (bkkVal) bkkVal.textContent = t.bkk + ' K';
+    if (sgVal)  sgVal.textContent  = t.sg  + ' H';
   }, 1000);
 }
 
@@ -3656,6 +3662,12 @@ function renderSettings() {
         </div>
         <button class="btn btn-outline btn-sm" onclick="showInstallGuide()">📱 Guide</button>
       </div>
+      <div class="settings-row">
+        <div class="sr-label">Report a Problem
+          <div class="sr-value">Something not working? Send Caspar a direct message</div>
+        </div>
+        <button class="btn btn-outline btn-sm" onclick="showErrorReport()">🐛 Submit Error</button>
+      </div>
     </div>
 
     <!-- App Display (consolidated) -->
@@ -3925,6 +3937,69 @@ window.changeMyPin = function() {
 
 window.hidePinChange = function() {
   el('pin-change-modal')?.classList.add('hidden');
+};
+
+// ═══════════ SUBMIT ERROR ═════════════════════════════════════
+// Sends a DM to Caspar via the LifeLongLearner bot describing what went
+// wrong, with auto-attached user + device + version context so issues
+// can be triaged without 5 back-and-forth questions.
+window.showErrorReport = function() {
+  const modal = el('error-report-modal');
+  if (!modal) return;
+  const ta = el('er-description');
+  if (ta) { ta.value = ''; setTimeout(() => ta.focus(), 100); }
+  const hint = el('er-hint');
+  if (hint) {
+    hint.textContent = 'At least 8 characters so Caspar knows what to look for.';
+    hint.style.color = 'var(--text-3)';
+  }
+  modal.classList.remove('hidden');
+};
+window.hideErrorReport = function() {
+  el('error-report-modal')?.classList.add('hidden');
+};
+window.submitErrorReport = async function() {
+  const ta = el('er-description');
+  const hint = el('er-hint');
+  const desc = (ta?.value || '').trim();
+  if (desc.length < 8) {
+    hint.textContent = '⚠️ Give me at least a sentence so I can help.';
+    hint.style.color = 'var(--red-500, #dc2626)';
+    ta?.focus();
+    return;
+  }
+  const u = STATE.currentUser;
+  const when = bkkNow().toLocaleString('en-GB', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit', timeZone:'Asia/Bangkok' });
+  const groupLabel = u ? formatGroupDisplay(memberGroupKey(u)) : '—';
+  const userLabel  = u ? `${u.name}${u.role ? ' · ' + u.role : ''} · ${groupLabel}` : 'Not signed in';
+  const device = navigator.userAgent.replace(/ Mozilla\/.+?\) /, ' ').slice(0, 140);
+  const standalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+  const tab = STATE.currentTab || '—';
+  const queue = (()=>{ try { return JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]').length; } catch { return 0; } })();
+  const apiState = STATE.apiState || '—';
+
+  const msg =
+    `🐛 <b>TSV App Error</b>\n` +
+    `<b>From:</b> ${escapeHtml(userLabel)}\n` +
+    `<b>When:</b> ${escapeHtml(when)} BKK\n` +
+    `<b>App:</b> ${APP_VERSION}${standalone ? ' (installed)' : ' (browser)'}\n` +
+    `<b>Tab:</b> ${escapeHtml(tab)} · API: ${escapeHtml(apiState)} · Queue: ${queue}\n` +
+    `<b>Device:</b> <code>${escapeHtml(device)}</code>\n` +
+    `\n<b>Description</b>\n${escapeHtml(desc)}`;
+
+  // Send as a DM to Caspar (super-admin's Telegram user ID). Bot can DM
+  // him because Caspar has already interacted with it (it's HIS bot).
+  const CASPAR_TG_ID = '922547929';
+  hint.textContent = '📤 Sending…';
+  hint.style.color = 'var(--text-3)';
+  const ok = await TELEGRAM.send(msg, CASPAR_TG_ID, 'HTML');
+  if (ok) {
+    toast('✅ Error report sent — Caspar will take a look');
+    hideErrorReport();
+  } else {
+    hint.textContent = '❌ Couldn\'t send. Check connection and try again.';
+    hint.style.color = 'var(--red-500, #dc2626)';
+  }
 };
 
 // ═══════════ INSTALL GUIDE ════════════════════════════════════

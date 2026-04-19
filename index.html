@@ -445,6 +445,28 @@
   </div>
 </div>
 
+<!-- ── Submit Error Modal ────────────────────────────── -->
+<div id="error-report-modal" class="hidden">
+  <div class="error-report-sheet">
+    <div class="members-header">
+      <h2>🐛 Submit Error Report</h2>
+      <button class="close-btn" onclick="hideErrorReport()">✕</button>
+    </div>
+    <div class="error-report-body">
+      <p class="er-intro">Describe what went wrong. The more detail the better — which tab, what you tapped, what you expected vs what happened. Your name + device info are added automatically.</p>
+      <label class="er-label">What happened?</label>
+      <textarea id="er-description"
+                placeholder="e.g. Tapped 'Send Attendance' on Day 2 and nothing sent. No toast."
+                maxlength="1000"></textarea>
+      <div id="er-hint" class="er-hint">At least 8 characters so Caspar knows what to look for.</div>
+      <div class="er-actions">
+        <button class="btn btn-outline" style="flex:1" onclick="hideErrorReport()">Cancel</button>
+        <button class="btn btn-primary" style="flex:1" onclick="submitErrorReport()">📤 Send to Caspar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Auto-install hint banner (shown once to non-standalone visitors) -->
 <div id="install-hint" class="hidden" onclick="showInstallGuide()">
   📱 Tap to install this app on your phone
