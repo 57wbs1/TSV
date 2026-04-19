@@ -1919,6 +1919,9 @@ body::after {
   font-size: 10px; color: var(--blue-600);
   margin-top: 2px; font-weight: 600;
 }
+@media (prefers-color-scheme: dark) {
+  .member-row .m-buddy { color: #93c5fd; }
+}
 
 .filter-bar {
   display: flex; gap: 6px;
@@ -3832,4 +3835,31 @@ html.size-lg { --text-scale: 1.12; }
   .toggle-ahha { background: linear-gradient(135deg, #422006, #3a1e04); border-color: #78350f; }
   .toggle-ahha span { color: #fcd34d; }
   .event-item .event-attire { background: #422006; color: #fcd34d; border-color: #78350f; }
+}
+
+/* ══════════════════════════════════════════════════════════
+   DARK-MODE VISIBILITY RESCUE
+   Every spot that uses brand-dark-blue as TEXT directly on a card
+   background. The cards auto-flip to dark in dark mode but these
+   text colours didn't — appearing dark-blue on dark-grey (invisible).
+   Lighten to #93c5fd (blue-300) so they actually read.
+   ══════════════════════════════════════════════════════════ */
+@media (prefers-color-scheme: dark) {
+  .btn-outline                             { color: #93c5fd; border-color: #475569; }
+  .btn-outline:hover                       { color: #93c5fd; border-color: #93c5fd; background: rgba(59,130,246,.12); }
+  .app-footer b                            { color: #93c5fd; }
+  .event-item .time-col .time-text         { color: #7dd3fc; }
+  .buddy-item.selected                     { color: #93c5fd; border-color: #3b82f6; }
+  .info-block .inline-edit                 { color: #93c5fd; }
+  .my-room-display                         { color: #93c5fd; }
+  .room-number                             { color: #93c5fd; }
+  .parade-card .big-num.blue               { color: #93c5fd; }
+  .size-chooser button.active              { color: #93c5fd; border-color: #3b82f6; background: rgba(59,130,246,.15); }
+  .theme-chooser button.active             { color: #93c5fd; border-color: #3b82f6; background: rgba(59,130,246,.15); }
+  .filter-chip.active                      { color: #fff; background: var(--blue-600); border-color: var(--blue-600); }
+  .map-tool-btn.map-tool-gps               { background: rgba(59,130,246,.2); color: #93c5fd; border-color: rgba(59,130,246,.4); }
+  .alert-red                               { background: rgba(239,68,68,.15); color: #fca5a5; border-color: rgba(239,68,68,.35); }
+  .alert-orange                            { background: rgba(245,158,11,.15); color: #fcd34d; border-color: rgba(245,158,11,.35); }
+  .alert-blue                              { background: rgba(59,130,246,.15); color: #93c5fd; border-color: rgba(59,130,246,.35); }
+  .alert-green                             { background: rgba(16,185,129,.15); color: #86efac; border-color: rgba(16,185,129,.35); }
 }
