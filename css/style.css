@@ -858,14 +858,16 @@ body::after {
 }
 
 /* ── Nav Action Row (inside bottom nav, above tab row) ───
-   Leaving / Return button: compact, just room for icon + short word.
-   GPS button: expanded, icon + 'Share GPS' / 'Stop GPS' label. */
+   Two near-equal buttons. Primary (Leaving/Return) is the dominant
+   action so it gets slightly more weight (1.2 vs 1.0) and bigger text.
+   GPS gets the smaller share. Equal heights, stable row. */
 .pab-primary {
-  flex: 0 0 auto;
-  padding: 10px 14px;
+  flex: 1.2 1 0;
+  min-width: 0;
+  padding: 10px 10px;
   border: none;
   border-radius: var(--r-md);
-  font-size: 13.5px;
+  font-size: 14px;
   font-weight: 800;
   letter-spacing: -0.01em;
   cursor: pointer;
@@ -874,29 +876,30 @@ body::after {
   transition: transform .12s var(--ease-out);
   box-shadow: var(--shadow-sm);
   white-space: nowrap;
+  height: 40px;
 }
 .pab-primary:active { transform: scale(0.98); }
 .pab-primary.leaving   { background: linear-gradient(135deg, var(--red-600), var(--red-500)); }
 .pab-primary.returning { background: linear-gradient(135deg, var(--green-600), var(--green-500)); }
 
 .pab-gps {
-  flex: 1 1 auto;
+  flex: 1 1 0;
   min-width: 0;
   height: 40px;
-  padding: 0 14px;
+  padding: 0 10px;
   border: none;
   border-radius: var(--r-md);
-  font-size: 14px;
+  font-size: 12.5px;
   font-weight: 800;
   letter-spacing: -0.01em;
   cursor: pointer;
-  display: flex; align-items: center; justify-content: center; gap: 8px;
+  display: flex; align-items: center; justify-content: center; gap: 6px;
   transition: transform .12s var(--ease-out);
   box-shadow: var(--shadow-sm);
   color: white;
 }
 .pab-gps:active { transform: scale(0.97); }
-.pab-gps-icon { font-size: 17px; line-height: 1; }
+.pab-gps-icon { font-size: 15px; line-height: 1; }
 .pab-gps-label { white-space: nowrap; }
 .pab-gps.share { background: linear-gradient(135deg, var(--blue-600), var(--blue-500)); }
 .pab-gps.stop {
