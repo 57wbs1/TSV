@@ -19,7 +19,6 @@ const DEFAULT_MEMBERS = [
   { id: 'jayzee',  name: 'Jayzee',  shortName: 'Jayzee',  rank: '', role: 'Member', csc: '57 CSC', syndicate: '1', pin: '0000' },
 
   // ═══════ PSO (Principal Staff Officers) ═══════
-  { id: 'hod',        name: 'COL Kong Eu Yen',  shortName: 'COL Kong',  rank: 'COL', role: 'HOD',    csc: 'Staff', syndicate: 'Leadership', pin: '0000' },
   { id: 'pds',        name: 'LTC Roger Cheong', shortName: 'LTC Roger', rank: 'LTC', role: 'PDS',    csc: 'Staff', syndicate: 'Leadership', pin: '0000' },
   { id: 'tsv_ao',     name: 'Ms Nancy',          shortName: 'Ms Nancy',  rank: '',    role: 'TSV AO', csc: 'Staff', syndicate: 'Leadership', pin: '0000' },
   { id: 'jon_quek',   name: 'LTC Jon Quek',      shortName: 'LTC Jon',   rank: 'LTC', role: 'PSO',    csc: 'Staff', syndicate: 'Leadership', pin: '0000' },
@@ -34,7 +33,6 @@ const DEFAULT_MEMBERS = [
   { id: 'phua_km',    name: 'ME5 Phua Kia Min',     shortName: 'Phua KM',    rank: 'ME5', role: 'Member', csc: '57 CSC', syndicate: '3', pin: '0000' },
   { id: 'edwin_chua', name: 'MAJ Edwin Chua',       shortName: 'Edwin C',    rank: 'MAJ', role: 'Member', csc: '57 CSC', syndicate: '3', pin: '0000' },
   { id: 'sia_jx',     name: 'MAJ Sia Jun Xian',     shortName: 'Sia JX',     rank: 'MAJ', role: 'Member', csc: '57 CSC', syndicate: '3', pin: '0000' },
-  { id: 'woo_bz',     name: 'MAJ Woo Bing Zhang',   shortName: 'Woo BZ',     rank: 'MAJ', role: 'Member', csc: '57 CSC', syndicate: '3', pin: '0000' },
   { id: 'khor_lq',    name: 'MAJ Khor Liang Quan',  shortName: 'Khor LQ',    rank: 'MAJ', role: 'Member', csc: '57 CSC', syndicate: '3', pin: '0000' },
   { id: 'arvin',      name: 'MAJ Au Arvin',         shortName: 'Arvin',      rank: 'MAJ', role: 'Member', csc: '57 CSC', syndicate: '3', pin: '0000' },
   { id: 'david_as',   name: 'MAJ Alsafano David',   shortName: 'David (ID)', rank: 'MAJ', role: 'Member', csc: '57 CSC', syndicate: '3', pin: '0000' },
@@ -86,7 +84,6 @@ const DEFAULT_MEMBERS = [
   { id: '26e_andrew',    name: 'MAJ Andrew Tan',          shortName: 'Andrew',    rank: 'MAJ', role: 'Member', csc: '26th CSC (E)', syndicate: '14', pin: '0000' },
   { id: '26e_tim',       name: 'ME5 Tim Chan',            shortName: 'Tim Chan',  rank: 'ME5', role: 'Member', csc: '26th CSC (E)', syndicate: '14', pin: '0000' },
   { id: '26e_desmond',   name: 'MAJ Desmond Tan',         shortName: 'Desmond',   rank: 'MAJ', role: 'Member', csc: '26th CSC (E)', syndicate: '14', pin: '0000' },
-  { id: '26e_zhou_xh',   name: 'ME5 Zhou Xiu Hong',       shortName: 'Zhou XH',   rank: 'ME5', role: 'Member', csc: '26th CSC (E)', syndicate: '14', pin: '0000' },
 
   // ═══════ 27th CSC (E) — Syndicate 18 ═══════
   { id: '27e_paul',      name: 'MAJ Paul-Matthew Lim',    shortName: 'Paul-M',    rank: 'MAJ', role: 'Member', csc: '27th CSC (E)', syndicate: '18', pin: '0000' },

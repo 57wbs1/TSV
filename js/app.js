@@ -30,7 +30,11 @@ const STATE = {
   currentVisitId: null,
   composeAhha: false,
   learnSubTab: 'visits',
-  reflections: []
+  reflections: [],
+  // False until the first successful syncMembers() completes. Until then,
+  // counts (90 from the seed) would mislead — so we show '…' instead of a
+  // number on Home / Tracker to avoid the 90→88 flash.
+  membersSynced: false
 };
 
 // ═══════════ API LAYER ═══════════════════════════════════════
@@ -390,6 +394,11 @@ function getMemberById(id) { return MEMBERS.find(m => m.id === id); }
 function getStatusOf(id) { return STATE.memberStatuses[id] || { status:'in_hotel', locationText:'', buddyWith:'' }; }
 function inCount() { return MEMBERS.filter(m => getStatusOf(m.id).status !== 'out').length; }
 function outCount() { return MEMBERS.filter(m => getStatusOf(m.id).status === 'out').length; }
+// Display helpers that return '…' until the first server sync completes,
+// so we don't flash the 90-entry seed count before the real 88 arrives.
+function inCountDisplay()    { return STATE.membersSynced ? inCount() : '…'; }
+function outCountDisplay()   { return STATE.membersSynced ? outCount() : '…'; }
+function totalCountDisplay() { return STATE.membersSynced ? MEMBERS.length : '…'; }
 function synColor(g) { return groupColorFor(g); }
 function groupOrder() { return computeGroupOrder(); }
 function membersInGroup(g) { return MEMBERS.filter(m => memberGroupKey(m) === g); }
@@ -886,6 +895,7 @@ async function syncMembers() {
     pin: cStr(row.pin, '0000').padStart(4, '0'),
     isAdmin: cBool(row.isAdmin)
   }));
+  STATE.membersSynced = true;
   if (STATE.currentUser) {
     const me = MEMBERS.find(m => m.id === STATE.currentUser.id);
     if (me) {
@@ -1048,6 +1058,17 @@ function startPolling() {
   // Initial sync — parallel, fire-and-forget so startup isn't blocked
   Promise.all([syncMembers(), syncStatuses(), syncCalendar()]).catch(() => {});
 
+  // Live status polling — only when the user is looking at a tab whose
+  // UI depends on other members' statuses (Home parade state, Tracker
+  // counts, Rooms, Map). Skipped when tab is hidden (visibilitychange
+  // still fires a fresh sync on return). 60s keeps the load reasonable
+  // for 50 users × 1 read/min on the Sheet.
+  STATE._timers.statusPoll = setInterval(() => {
+    if (document.hidden) return;
+    if (!['home', 'location', 'rooms', 'map'].includes(STATE.currentTab)) return;
+    syncStatuses();
+  }, 60 * 1000);
+
   // Refresh when user comes back to the tab/app
   if (!STATE._visHandler) {
     STATE._visHandler = () => {
@@ -1142,7 +1163,7 @@ function setupPullToRefresh() {
 function renderHome() {
   const trip = getTripStatus();
   const bkk = bkkNow();
-  const inC = inCount(), outC = outCount(), total = MEMBERS.length;
+  const inC = inCountDisplay(), outC = outCountDisplay(), total = totalCountDisplay();
   const user = STATE.currentUser;
   const myStatus = getStatusOf(user?.id || '');
   const myGroup = user ? memberGroupKey(user) : null;
@@ -1658,9 +1679,14 @@ function renderLocation() {
   const visibleGs = visibleGroups();
   // Counts are computed over VISIBLE scope only for non-admins
   const visMembers = canSeeAllSyndicates() ? MEMBERS : MEMBERS.filter(m => visibleGs.includes(memberGroupKey(m)));
-  const total = visMembers.length;
-  const outC = visMembers.filter(m => getStatusOf(m.id).status === 'out').length;
-  const inC = total - outC;
+  const totalRaw = visMembers.length;
+  const outRaw = visMembers.filter(m => getStatusOf(m.id).status === 'out').length;
+  const inRaw = totalRaw - outRaw;
+  // Until we've confirmed the roster against the server, show '…' instead
+  // of the seed count (was flashing 90 before settling to 88).
+  const total = STATE.membersSynced ? totalRaw : '…';
+  const outC  = STATE.membersSynced ? outRaw : '…';
+  const inC   = STATE.membersSynced ? inRaw : '…';
 
   if (!STATE.expandedTrackerGroups) STATE.expandedTrackerGroups = new Set();
 
