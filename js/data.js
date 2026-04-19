@@ -562,6 +562,26 @@ const EMERGENCY_CONTACTS = [
   { label: 'DFO',                number: '+65 9667 1559',  dial: '+6596671559',  flag: '🇸🇬' },
 ];
 
+// SCOPE Day (Thursday, Day 3) visit venues — plotted as ⭐ pins on the map
+// so members can see where their syndicate is heading. Coordinates are
+// approximate — good enough for navigation orientation.
+const SCOPE_LOCATIONS = [
+  { name: 'Chao Phrom Floating Market',      lat: 14.3594, lng: 100.5689, syns: 'Syn 3B (M)' },
+  { name: 'Ayutthaya Historical Park',       lat: 14.3573, lng: 100.5601, syns: 'Syn 3A (M) · Syn 3B (M) · Syn 18 (25E) · Syn 18B (27E)' },
+  { name: 'Royal Bang Pa In Golf Club',      lat: 14.2307, lng: 100.5947, syns: 'Syn 3A (M)' },
+  { name: 'Ayutthaya River Tour',            lat: 14.3492, lng: 100.5676, syns: 'Syn 18B (27E)' },
+  { name: 'National Science & Infotech Museum', lat: 14.0702, lng: 100.6130, syns: 'Syn 14B (E)' },
+  { name: 'Rama IX Museum',                  lat: 14.0718, lng: 100.6143, syns: 'Syn 14A (E)' },
+  { name: 'The National Memorial',           lat: 13.9872, lng: 100.5854, syns: 'Syn 1B (M) · Syn 14A (E)' },
+  { name: 'Muang Boran Cultural Park',       lat: 13.5489, lng: 100.7256, syns: 'Syn 1A (M) · Syn 1B (M)' },
+  { name: 'Wat Bang Kung',                   lat: 13.4067, lng: 100.0033, syns: 'Syn 1A (M) · Syn 18A (27E)' },
+  { name: 'Maeklong Railway Market',         lat: 13.4131, lng:  99.9978, syns: 'Syn 18A (27E)' },
+  { name: 'Eastern Economic Corridor',       lat: 13.0783, lng: 100.9250, syns: 'Syn 18 (25E)' },
+  { name: 'Thaitani Cultural Village',       lat: 12.9236, lng: 100.9203, syns: 'Syn 4 (M)' },
+  { name: 'Naval Aviation Museum',           lat: 12.6789, lng: 100.9839, syns: 'Syn 4 (M)' },
+  { name: 'Wat Pa Pradu Phra Aram Luang',    lat: 12.6769, lng: 101.2750, syns: 'Syn 4 (M)' }
+];
+
 const REFLECTION_TEMPLATE = `What did we observe?
 • [Observation 1]
 • [Observation 2]

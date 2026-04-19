@@ -1945,26 +1945,40 @@ body::after {
 /* ══════════════════════════════════════════════════════════
    MAP
    ══════════════════════════════════════════════════════════ */
-/* Map toolbar: Reset button above the map */
+/* Map toolbar: tool-belt above the map */
 .map-toolbar {
   display: flex;
-  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 6px;
   margin-bottom: 6px;
 }
-.map-reset-btn {
-  background: rgba(239,68,68,.12);
-  border: 1px solid rgba(239,68,68,.3);
-  color: #b91c1c;
-  padding: 6px 12px;
+.map-tool-btn {
+  flex: 0 0 auto;
+  padding: 7px 12px;
   border-radius: var(--r-full);
-  font-size: 11px;
+  font-size: 11.5px;
   font-weight: 700;
   cursor: pointer;
-  transition: transform .12s ease;
+  transition: transform .12s ease, background .15s;
+  background: var(--n-100);
+  border: 1px solid var(--border-2);
+  color: var(--text);
+  white-space: nowrap;
 }
-.map-reset-btn:active { transform: scale(0.96); }
+.map-tool-btn.active {
+  background: linear-gradient(135deg, #fbbf24, #f59e0b);
+  border-color: #b45309;
+  color: #1f2937;
+}
+.map-tool-btn:active { transform: scale(0.96); }
+.map-tool-btn.map-tool-gps  { background: rgba(59,130,246,.12); color: #1e40af; border-color: rgba(59,130,246,.35); }
+.map-tool-btn.map-tool-stop { background: rgba(239,68,68,.12); color: #b91c1c; border-color: rgba(239,68,68,.35); }
+.map-tool-btn.map-tool-reset{ background: rgba(239,68,68,.06); color: #b91c1c; border-color: rgba(239,68,68,.25); margin-left: auto; }
 @media (prefers-color-scheme: dark) {
-  .map-reset-btn { background: rgba(239,68,68,.18); color: #fca5a5; border-color: rgba(239,68,68,.4); }
+  .map-tool-btn { background: #334155; border-color: #475569; color: #e2e8f0; }
+  .map-tool-btn.map-tool-gps  { background: rgba(59,130,246,.2);  color: #93c5fd; }
+  .map-tool-btn.map-tool-stop { background: rgba(239,68,68,.2);   color: #fca5a5; }
+  .map-tool-btn.map-tool-reset{ background: rgba(239,68,68,.12);  color: #fca5a5; }
 }
 
 /* Syndicate filter dropdown above the map — multi-select so users

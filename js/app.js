@@ -1943,7 +1943,19 @@ function _renderLocationImpl() {
     <div id="tracker-rooms-wrap" style="${trackerView === 'rooms' ? '' : 'display:none'}"></div>
     <div id="tracker-map-wrap" style="${trackerView === 'map' ? '' : 'display:none'}">
       <div class="map-toolbar">
-        <button class="map-reset-btn" onclick="resetMap()" title="If the map is blank, tap to rebuild">🔁 Reset map</button>
+        ${(() => {
+          const myStatus = user ? getStatusOf(user.id) : {};
+          const sharingGps = !!(myStatus.lat && myStatus.lng);
+          const scopeOn = STATE.showScope !== false;
+          return `
+            ${user ? (sharingGps
+              ? `<button class="map-tool-btn map-tool-stop"  onclick="stopTracking()" title="Stop sharing your GPS">🛑 Stop GPS</button>`
+              : `<button class="map-tool-btn map-tool-gps"   onclick="shareGPS()"    title="Share your current location">📡 Share GPS</button>`) : ''}
+            <button class="map-tool-btn" onclick="locateMe()" title="Pan to my location">📍 Me</button>
+            <button class="map-tool-btn ${scopeOn ? 'active' : ''}" onclick="toggleScopePins()" title="Show / hide SCOPE day venues">⭐ SCOPE pins</button>
+            <button class="map-tool-btn map-tool-reset" onclick="resetMap()" title="If the map is blank, tap to rebuild">🔁 Reset</button>
+          `;
+        })()}
       </div>
       ${(() => {
         if (!(STATE.mapSynFilter instanceof Set)) {
@@ -2063,6 +2075,41 @@ window.setTrackerView = function(view) {
 // Last-resort recovery for when Leaflet gets into a bad state (zombie
 // container, stuck zoom, tiles not loading). Nukes the map instance and
 // rebuilds it from scratch against the current DOM node.
+// Toggle the SCOPE Day ⭐ pins layer on the map
+window.toggleScopePins = function() {
+  STATE.showScope = STATE.showScope === false;
+  if (!STATE.map || !STATE.scopeLayer) return;
+  if (STATE.showScope) STATE.scopeLayer.addTo(STATE.map);
+  else STATE.map.removeLayer(STATE.scopeLayer);
+  // Update the toolbar button's active state without re-rendering the whole Tracker
+  const btns = document.querySelectorAll('.map-tool-btn');
+  btns.forEach(b => {
+    if (b.textContent.includes('SCOPE')) b.classList.toggle('active', STATE.showScope);
+  });
+};
+
+// Centre the map on the user's current GPS (if shared) or request a fresh
+// position from the browser. Drops a temporary blue dot for orientation.
+window.locateMe = function() {
+  if (!STATE.map) return toast('Map not ready');
+  const user = STATE.currentUser;
+  const cached = user ? getStatusOf(user.id) : {};
+  if (cached.lat && cached.lng) {
+    STATE.map.flyTo([cached.lat, cached.lng], Math.max(STATE.map.getZoom(), 14), { duration: 0.6 });
+    return;
+  }
+  if (!navigator.geolocation) return toast('GPS not available on this device');
+  toast('📡 Locating…');
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      const lat = pos.coords.latitude, lng = pos.coords.longitude;
+      STATE.map.flyTo([lat, lng], 15, { duration: 0.7 });
+    },
+    () => toast('❌ Couldn\'t get location — check permissions'),
+    { timeout: 6000, maximumAge: 30000 }
+  );
+};
+
 window.resetMap = function() {
   try { STATE.map?.remove(); } catch {}
   STATE.map = null;
@@ -2428,21 +2475,21 @@ function initMap() {
   STATE.map = L.map('leaflet-map', {
     zoomAnimation: true,
     fadeAnimation: true,
-    // Constrain the zoom range — zooming out past the tile layer's minZoom
-    // was showing a black void. minZoom=10 keeps Bangkok's whole metro
-    // visible but never further out than tiles can render.
-    minZoom: 10,
+    // Zoom-out cap 8 lets users see the whole study-visit region on one
+    // screen (Ayutthaya in the north, Rayong in the south-east, Kanchanaburi
+    // in the west). Cap max at 18 so tiles don't run out.
+    minZoom: 8,
     maxZoom: 18,
-    // Keep the camera inside a Bangkok-region box so users can't pan off
-    // the edge and see black. Covers hotel + all likely visit venues.
-    maxBounds: L.latLngBounds([13.40, 100.20], [14.05, 100.95]),
-    maxBoundsViscosity: 0.8,
+    // Generous maxBounds covering every SCOPE day venue + Bangkok metro.
+    // NW corner ≈ Kanchanaburi · SE corner ≈ Rayong.
+    maxBounds: L.latLngBounds([12.20, 99.00], [14.80, 102.00]),
+    maxBoundsViscosity: 0.6,
     worldCopyJump: false
-  }).setView([CONFIG.hotel.lat, CONFIG.hotel.lng], 13);
+  }).setView([CONFIG.hotel.lat, CONFIG.hotel.lng], 12);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution:'© OpenStreetMap',
     maxZoom:18,
-    minZoom:10,
+    minZoom:8,
     keepBuffer: 6,           // generous ring of off-screen tiles
     updateWhenIdle: false,
     updateWhenZooming: true, // load tiles mid-zoom so we don't see blanks at the end
@@ -2473,6 +2520,20 @@ function initMap() {
     className:'', iconSize:[40,40], iconAnchor:[20,20]
   });
   L.marker([CONFIG.hotel.lat, CONFIG.hotel.lng], { icon:hotelIcon }).addTo(STATE.map).bindPopup(`<b>${CONFIG.hotel.name}</b><br>${CONFIG.hotel.address}`);
+
+  // SCOPE Day visit pins (⭐). Cluster into a layer group so the show/hide
+  // toggle can add/remove them wholesale without touching member markers.
+  STATE.scopeLayer = L.layerGroup();
+  (typeof SCOPE_LOCATIONS !== 'undefined' ? SCOPE_LOCATIONS : []).forEach(loc => {
+    const starIcon = L.divIcon({
+      html: `<div style="background:#fbbf24;color:#78350f;border-radius:50%;width:30px;height:30px;display:flex;align-items:center;justify-content:center;font-size:15px;border:2.5px solid #b45309;box-shadow:0 3px 8px rgba(180,83,9,.45);font-weight:900">⭐</div>`,
+      className: '', iconSize: [30, 30], iconAnchor: [15, 15]
+    });
+    const popup = `<b>${escapeHtml(loc.name)}</b><br><span style="color:#b45309;font-weight:700;font-size:11px">SCOPE Day</span><br>${escapeHtml(loc.syns)}`;
+    L.marker([loc.lat, loc.lng], { icon: starIcon, title: loc.name }).bindPopup(popup).addTo(STATE.scopeLayer);
+  });
+  if (STATE.showScope !== false) STATE.scopeLayer.addTo(STATE.map);
+
   updateMapMarkers();
 }
 function updateMapMarkers() {
