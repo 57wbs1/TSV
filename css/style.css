@@ -2058,8 +2058,33 @@ body::after {
   background: var(--n-0);
   border-bottom: 1px solid var(--border-2);
   transition: background .12s;
+  position: relative;
 }
 .member-row:last-child { border-bottom: none; }
+/* Self row — subtle left-border accent instead of a white block.
+   Works in both themes without looking like a broken placeholder. */
+.member-row[data-me="1"] {
+  background: var(--n-0);
+  box-shadow: inset 3px 0 0 var(--blue-600);
+}
+@media (prefers-color-scheme: dark) {
+  .member-row[data-me="1"] { box-shadow: inset 3px 0 0 #60a5fa; }
+}
+.you-pill {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: var(--r-full);
+  background: var(--blue-600);
+  color: #fff;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+@media (prefers-color-scheme: dark) {
+  .you-pill { background: #3b82f6; }
+}
 .member-row .m-info { flex: 1; min-width: 0; }
 .member-row .m-name {
   font-size: 13px; font-weight: 600;
@@ -2842,6 +2867,21 @@ body::after {
   top: calc(var(--header-h) + var(--safe-t));
   z-index: 20;
   box-shadow: 0 2px 10px rgba(0,0,0,.1);
+}
+/* Opaque shield so the sticky .sticky-header (calendar day-tabs) that
+   passes BEHIND it during scroll doesn't bleed through. The subtab-row
+   is a pill inset from the edges — without this shield, the bg stripe
+   between pill and screen edge was transparent, letting day-tab content
+   show through. */
+.subtab-row::before {
+  content: '';
+  position: absolute;
+  inset: -4px -16px -10px;  /* extend to screen edges + above + below */
+  background: var(--bg);
+  z-index: -1;
+}
+@media (prefers-color-scheme: dark) {
+  .subtab-row { background: #1e293b; }
 }
 .subtab-btn {
   flex: 1;
@@ -3684,8 +3724,16 @@ body::after {
   display: flex; align-items: center; gap: 10px;
   padding: 10px 14px;
   border-bottom: 1px solid var(--border-2);
+  position: relative;
 }
 .room-row:last-child { border-bottom: none; }
+.room-row[data-me="1"] {
+  background: transparent;
+  box-shadow: inset 3px 0 0 var(--blue-600);
+}
+@media (prefers-color-scheme: dark) {
+  .room-row[data-me="1"] { box-shadow: inset 3px 0 0 #60a5fa; }
+}
 .room-number {
   font-size: 15px; font-weight: 800;
   color: var(--blue-600);

@@ -1951,10 +1951,10 @@ function _renderLocationImpl() {
       // — members self-manage via the 'Leaving Hotel' / 'Return to Hotel' flow).
       const canToggle = !isMe && (isAdmin() || isSynIC);
       return `
-        <div class="member-row" ${isMe ? 'style="background:#f0f4ff"' : ''}>
+        <div class="member-row" ${isMe ? 'data-me="1"' : ''}>
           <div class="status-dot ${isOut ? 'dot-out' : 'dot-in'}"></div>
           <div class="m-info">
-            <div class="m-name">${escapeHtml(m.name)}${isMe ? ' <span style="color:var(--blue-600);font-size:11px">(You)</span>' : ''}</div>
+            <div class="m-name">${escapeHtml(m.name)}${isMe ? ' <span class="you-pill">(You)</span>' : ''}</div>
             <div class="m-detail">
               ${escapeHtml(m.role || '')}${m.csc && m.csc !== 'Staff' ? ' · ' + escapeHtml(m.csc) : ''}
               ${isOut && st.locationText ? ` · 📍 ${escapeHtml(st.locationText)}` : ''}
@@ -3525,10 +3525,10 @@ function renderRooms() {
       const rm = st.roomNumber || '';
       const isMe = user && m.id === user.id;
       return `
-        <div class="room-row" ${isMe ? 'style="background:#f0f4ff"' : ''}>
+        <div class="room-row" ${isMe ? 'data-me="1"' : ''}>
           <div class="room-number ${rm ? '' : 'empty'}">${rm || '—'}</div>
           <div style="flex:1">
-            <div class="room-member-name">${escapeHtml(m.name)}${isMe ? ' <span style="color:var(--blue-600);font-size:11px">(You)</span>' : ''}</div>
+            <div class="room-member-name">${escapeHtml(m.name)}${isMe ? ' <span class="you-pill">(You)</span>' : ''}</div>
             <div class="room-member-role">${escapeHtml(m.role || '')}</div>
           </div>
         </div>`;
