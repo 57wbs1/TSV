@@ -857,44 +857,50 @@ body::after {
   letter-spacing: -0.005em;
 }
 
-/* ── Nav Action Row (inside bottom nav, above tab row) ─── */
+/* ── Nav Action Row (inside bottom nav, above tab row) ───
+   Leaving / Return button: compact, just room for icon + short word.
+   GPS button: expanded, icon + 'Share GPS' / 'Stop GPS' label. */
 .pab-primary {
-  flex: 1;
-  padding: 10px 12px;
+  flex: 0 0 auto;
+  padding: 10px 14px;
+  border: none;
+  border-radius: var(--r-md);
+  font-size: 13.5px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  cursor: pointer;
+  color: white;
+  display: flex; align-items: center; justify-content: center; gap: 5px;
+  transition: transform .12s var(--ease-out);
+  box-shadow: var(--shadow-sm);
+  white-space: nowrap;
+}
+.pab-primary:active { transform: scale(0.98); }
+.pab-primary.leaving   { background: linear-gradient(135deg, var(--red-600), var(--red-500)); }
+.pab-primary.returning { background: linear-gradient(135deg, var(--green-600), var(--green-500)); }
+
+.pab-gps {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 40px;
+  padding: 0 14px;
   border: none;
   border-radius: var(--r-md);
   font-size: 14px;
   font-weight: 800;
   letter-spacing: -0.01em;
   cursor: pointer;
-  color: white;
-  display: flex; align-items: center; justify-content: center; gap: 6px;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
   transition: transform .12s var(--ease-out);
   box-shadow: var(--shadow-sm);
-}
-.pab-primary:active { transform: scale(0.98); }
-.pab-primary.leaving { background: linear-gradient(135deg, var(--red-600), var(--red-500)); }
-.pab-primary.returning { background: linear-gradient(135deg, var(--green-600), var(--green-500)); }
-.pab-gps {
-  flex-shrink: 0;
-  width: 44px;
-  height: 40px;
-  border: none;
-  border-radius: var(--r-md);
-  font-size: 17px;
-  cursor: pointer;
-  display: flex; align-items: center; justify-content: center;
-  transition: transform .12s var(--ease-out);
-  box-shadow: var(--shadow-xs);
-}
-.pab-gps:active { transform: scale(0.93); }
-.pab-gps.share {
-  background: linear-gradient(135deg, var(--blue-600), var(--blue-500));
   color: white;
 }
+.pab-gps:active { transform: scale(0.97); }
+.pab-gps-icon { font-size: 17px; line-height: 1; }
+.pab-gps-label { white-space: nowrap; }
+.pab-gps.share { background: linear-gradient(135deg, var(--blue-600), var(--blue-500)); }
 .pab-gps.stop {
   background: linear-gradient(135deg, #b91c1c, #ef4444);
-  color: white;
   animation: gentle-pulse 2s ease-in-out infinite;
 }
 .tab-content {

@@ -2014,16 +2014,6 @@ function _renderLocationImpl() {
             ${myStatus.status==='out' && myStatus.buddyWith ? `<div class="status-detail">👥 Buddy: ${escapeHtml(myStatus.buddyWith)}</div>` : ''}
           </div>
         </div>
-        <div class="status-buttons">
-          ${myStatus.status==='out'
-            ? `<button class="btn btn-green" onclick="returnToHotel()">🏨 Return to Hotel</button>`
-            : `<button class="btn btn-red" onclick="showBuddyModal()">🚶 Leaving Hotel</button>`
-          }
-          ${myStatus.lat && myStatus.lng
-            ? `<button class="btn btn-stop-track" onclick="stopTracking()" style="padding:12px 8px;font-size:13px;animation:none;box-shadow:0 4px 10px rgba(220,20,60,.3)">🛑 Stop GPS</button>`
-            : `<button class="btn btn-primary" onclick="shareGPS()">📡 Share GPS</button>`
-          }
-        </div>
         ${myStatus.status==='out' ? `
           <button class="btn btn-outline btn-sm btn-block" onclick="updateLocationText()" style="margin-top:8px">📍 Update Location Text</button>` : ''}
         ${myStatus.lat && myStatus.lng ? `
@@ -4072,13 +4062,16 @@ function renderPinnedActionBar() {
   const isOut = st.status === 'out';
   const hasGPS = !!(st.lat && st.lng);
 
+  // Shrink the primary (Leaving/Return) so the GPS button has room for a
+  // proper label. Both buttons live in the same row; GPS now flex-grows
+  // and carries a 'Share GPS' / 'Stop GPS' label.
   const primary = isOut
-    ? `<button class="pab-primary returning" onclick="returnToHotel()">🏨 Return to Hotel</button>`
-    : `<button class="pab-primary leaving" onclick="showBuddyModal()">🚶 Leaving Hotel</button>`;
+    ? `<button class="pab-primary returning" onclick="returnToHotel()">🏨 Return</button>`
+    : `<button class="pab-primary leaving"   onclick="showBuddyModal()">🚶 Leaving</button>`;
 
   const gps = hasGPS
-    ? `<button class="pab-gps stop" onclick="stopTracking()" title="Stop Sharing GPS">🛑</button>`
-    : `<button class="pab-gps share" onclick="shareGPS()" title="Share GPS">📡</button>`;
+    ? `<button class="pab-gps stop"  onclick="stopTracking()"><span class="pab-gps-icon">🛑</span><span class="pab-gps-label">Stop GPS</span></button>`
+    : `<button class="pab-gps share" onclick="shareGPS()"><span class="pab-gps-icon">📡</span><span class="pab-gps-label">Share GPS</span></button>`;
 
   bar.innerHTML = primary + gps;
   bar.classList.remove('hidden');
