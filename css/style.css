@@ -1945,6 +1945,28 @@ body::after {
 /* ══════════════════════════════════════════════════════════
    MAP
    ══════════════════════════════════════════════════════════ */
+/* Map toolbar: Reset button above the map */
+.map-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 6px;
+}
+.map-reset-btn {
+  background: rgba(239,68,68,.12);
+  border: 1px solid rgba(239,68,68,.3);
+  color: #b91c1c;
+  padding: 6px 12px;
+  border-radius: var(--r-full);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform .12s ease;
+}
+.map-reset-btn:active { transform: scale(0.96); }
+@media (prefers-color-scheme: dark) {
+  .map-reset-btn { background: rgba(239,68,68,.18); color: #fca5a5; border-color: rgba(239,68,68,.4); }
+}
+
 /* Syndicate filter dropdown above the map — multi-select so users
    can narrow from 88 markers to just the groups they care about. */
 .map-filter-dd {
@@ -2681,6 +2703,25 @@ body::after {
   margin-right: 4px;
 }
 .btn-force-return:active { transform: scale(0.88); }
+
+/* Syn IC per-member mark buttons */
+.btn-ic-mark {
+  border: none;
+  color: #fff;
+  padding: 6px 10px;
+  border-radius: var(--r-full);
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: transform .12s ease;
+  margin-right: 4px;
+  white-space: nowrap;
+  display: inline-flex; align-items: center; gap: 3px;
+}
+.btn-ic-mark.ic-in  { background: linear-gradient(135deg, #10b981, #059669); box-shadow: 0 2px 5px rgba(16,185,129,.3); }
+.btn-ic-mark.ic-out { background: linear-gradient(135deg, #ef4444, #dc2626); box-shadow: 0 2px 5px rgba(239,68,68,.3); }
+.btn-ic-mark:active { transform: scale(0.9); }
 
 /* ══════════════════════════════════════════════════════════
    PULL-TO-REFRESH INDICATOR

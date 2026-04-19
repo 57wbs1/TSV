@@ -433,11 +433,20 @@ function getMemberById(id) { return MEMBERS.find(m => m.id === id); }
 function getStatusOf(id) { return STATE.memberStatuses[id] || { status:'in_hotel', locationText:'', buddyWith:'' }; }
 function inCount() { return MEMBERS.filter(m => getStatusOf(m.id).status !== 'out').length; }
 function outCount() { return MEMBERS.filter(m => getStatusOf(m.id).status === 'out').length; }
+// Scoped-to-user helpers: non-admins see their own syndicate counts only.
+// Admin / PSO / Staff see the whole cohort.
+function scopedMembers() {
+  if (canSeeAllSyndicates()) return MEMBERS;
+  const vis = visibleGroups();
+  return MEMBERS.filter(m => vis.includes(memberGroupKey(m)));
+}
+function inCountScoped()  { return scopedMembers().filter(m => getStatusOf(m.id).status !== 'out').length; }
+function outCountScoped() { return scopedMembers().filter(m => getStatusOf(m.id).status === 'out').length; }
 // Display helpers that return '…' until the first server sync completes,
-// so we don't flash the 90-entry seed count before the real 88 arrives.
-function inCountDisplay()    { return STATE.membersSynced ? inCount() : '…'; }
-function outCountDisplay()   { return STATE.membersSynced ? outCount() : '…'; }
-function totalCountDisplay() { return STATE.membersSynced ? MEMBERS.length : '…'; }
+// so we don't flash the seed count before the real one arrives.
+function inCountDisplay()    { return STATE.membersSynced ? inCountScoped() : '…'; }
+function outCountDisplay()   { return STATE.membersSynced ? outCountScoped() : '…'; }
+function totalCountDisplay() { return STATE.membersSynced ? scopedMembers().length : '…'; }
 function synColor(g) { return groupColorFor(g); }
 function groupOrder() { return computeGroupOrder(); }
 function membersInGroup(g) { return MEMBERS.filter(m => memberGroupKey(m) === g); }
@@ -459,6 +468,15 @@ function isAdmin() {
 
 // Tracker and Rooms: non-admins see only their own syndicate.
 // (Buddy picker overrides this to always show all — that's the cross-syndicate case.)
+// Syn IC / SL / Dy SL / Admin can send SITREPs. Regular members can't.
+function canSendSitrep() {
+  const u = STATE.currentUser;
+  if (!u) return false;
+  if (isAdmin()) return true;
+  const r = (u.role || '').toLowerCase();
+  return /\bsyn ic\b|\bsl\b|\bdy sl\b|\bdysl\b/.test(r);
+}
+
 function canSeeAllSyndicates() {
   const u = STATE.currentUser;
   if (!u) return false;
@@ -1280,7 +1298,7 @@ function renderHome() {
     ${renderFxCard()}
     ${heroHtml}
 
-    ${isAdmin() ? `
+    ${canSendSitrep() ? `
     <button class="btn-adhoc-inline" onclick="showAdhocPicker()">📤 Send Adhoc SITREP</button>` : ''}
 
     <div class="parade-grid two">
@@ -1348,9 +1366,20 @@ function renderMySyndicateMini(groupKey) {
 
 // ═══════════ ADHOC SITREP PICKER ═════════════════════════════
 window.showAdhocPicker = function() {
-  const opts = groupOrder()
-    .filter(g => g !== 'Leadership')
-    .map(g => ({ key: g, label: formatGroupDisplay(g), count: membersInGroup(g).length }));
+  // Non-admins can only send for their OWN syndicate. If that's the only
+  // option, skip the picker and fire directly.
+  const canAll = canSeeAllSyndicates();
+  const allowed = (canAll ? groupOrder() : visibleGroups())
+    .filter(g => g !== 'Leadership');
+  const opts = allowed.map(g => ({ key: g, label: formatGroupDisplay(g), count: membersInGroup(g).length }));
+
+  if (opts.length === 1) {
+    const only = opts[0];
+    if (confirm(`Send Adhoc SITREP for ${only.label}?`)) {
+      sendSyndicateSITREP(only.key);
+    }
+    return;
+  }
 
   const rows = opts.map(o => `
     <button class="adhoc-row" onclick="sendSyndicateSITREP('${o.key.replace(/'/g,"\\'")}'); closeAdhocPicker()">
@@ -1366,9 +1395,9 @@ window.showAdhocPicker = function() {
       <h3>📤 Send Adhoc SITREP</h3>
       <p class="ah-sub">Which syndicate?</p>
       ${rows}
-      <button class="adhoc-row mass" onclick="sendAllSITREPs(); closeAdhocPicker()">
+      ${canAll ? `<button class="adhoc-row mass" onclick="sendAllSITREPs(); closeAdhocPicker()">
         📣 Mass send — all syndicates
-      </button>
+      </button>` : ''}
       <button class="adhoc-cancel" onclick="closeAdhocPicker()">Cancel</button>
     </div>`;
   document.body.appendChild(wrap);
@@ -1850,12 +1879,15 @@ function _renderLocationImpl() {
     const safeId = gk.replace(/[^a-z0-9]/gi, '_');
     const mySyn = user && memberGroupKey(user) === gk;
     const isOpen = STATE.expandedTrackerGroups.has(gk);
+    const userRole = (user?.role || '').toLowerCase();
+    const isSynIC = mySyn && /\bsyn ic\b|\bsl\b|\bdy sl\b|\bdysl\b/.test(userRole);
     const rows = !isOpen ? '' : members.map(m => {
       const st = getStatusOf(m.id);
       const isOut = st.status === 'out';
       const isMe = user && m.id === user.id;
-      const canPing = mySyn && !isMe; // only ping within your own syndicate
-      const canForce = isAdmin() && !isMe && isOut;  // admin override
+      // Syn IC + admin can toggle anyone in their syndicate (except themselves
+      // — members self-manage via the 'Leaving Hotel' / 'Return to Hotel' flow).
+      const canToggle = !isMe && (isAdmin() || isSynIC);
       return `
         <div class="member-row" ${isMe ? 'style="background:#f0f4ff"' : ''}>
           <div class="status-dot ${isOut ? 'dot-out' : 'dot-in'}"></div>
@@ -1867,7 +1899,10 @@ function _renderLocationImpl() {
             </div>
             ${isOut && st.buddyWith ? `<div class="m-buddy">👥 w/ ${escapeHtml(st.buddyWith)}</div>` : ''}
           </div>
-          ${canForce ? `<button class="btn-force-return" onclick="event.stopPropagation(); forceReturnMember('${m.id}', '${escapeHtml(m.shortName || m.name).replace(/'/g,"\\'")}'`+`)" title="Admin override — mark as returned">🏨</button>` : ''}
+          ${canToggle ? (isOut
+            ? `<button class="btn-ic-mark ic-in"  onclick="event.stopPropagation(); icMarkMember('${m.id}', 'in')"  title="Mark ${escapeHtml(m.shortName)} as In Hotel">🏨 In</button>`
+            : `<button class="btn-ic-mark ic-out" onclick="event.stopPropagation(); icMarkMember('${m.id}', 'out')" title="Mark ${escapeHtml(m.shortName)} as Out">🚶 Out</button>`
+          ) : ''}
           <span class="status-pill ${isOut ? 'pill-out' : 'pill-in'}">${isOut ? 'OUT' : 'IN'}</span>
         </div>`;
     }).join('');
@@ -1907,6 +1942,9 @@ function _renderLocationImpl() {
     </div>
     <div id="tracker-rooms-wrap" style="${trackerView === 'rooms' ? '' : 'display:none'}"></div>
     <div id="tracker-map-wrap" style="${trackerView === 'map' ? '' : 'display:none'}">
+      <div class="map-toolbar">
+        <button class="map-reset-btn" onclick="resetMap()" title="If the map is blank, tap to rebuild">🔁 Reset map</button>
+      </div>
       ${(() => {
         if (!(STATE.mapSynFilter instanceof Set)) {
           STATE.mapSynFilter = new Set(visibleGs);
@@ -2008,9 +2046,29 @@ function _renderLocationImpl() {
 }
 
 window.setTrackerView = function(view) {
+  // When moving TO the map, proactively tear down any old Leaflet instance
+  // — renderLocation is about to replace the map container DOM node and
+  // leaving a stale map attached to a detached node is what was painting
+  // everything black.
+  if (view === 'map' && STATE.map) {
+    try { STATE.map.remove(); } catch {}
+    STATE.map = null;
+    STATE.mapMarkers = {};
+  }
   STATE.trackerView = view;
   renderLocation();
   if (view === 'map') setTimeout(() => initMap(), 100);
+};
+
+// Last-resort recovery for when Leaflet gets into a bad state (zombie
+// container, stuck zoom, tiles not loading). Nukes the map instance and
+// rebuilds it from scratch against the current DOM node.
+window.resetMap = function() {
+  try { STATE.map?.remove(); } catch {}
+  STATE.map = null;
+  STATE.mapMarkers = {};
+  setTimeout(() => initMap(), 50);
+  toast('🔁 Map rebuilt');
 };
 
 window.toggleMapFilterDD = function() {
@@ -3990,6 +4048,37 @@ window.bulkMarkAllIn = async function(groupKey) {
     });
   }));
   toast(`🏨 ${members.length} marked IN`);
+};
+
+// Syn IC / Admin: mark another member in or out. For 'out' we send them
+// with a generic 'Vicinity of Hotel' label since the IC wouldn't know the
+// member's exact location — they can update later via their own device.
+window.icMarkMember = async function(memberId, targetStatus) {
+  const m = getMemberById(memberId);
+  if (!m) return;
+  const verb = targetStatus === 'out' ? 'OUT' : 'IN HOTEL';
+  if (!confirm(`Mark ${m.shortName || m.name} as ${verb}?`)) return;
+  const cur = getStatusOf(memberId);
+  const now = new Date().toISOString();
+  STATE.memberStatuses[memberId] = {
+    ...cur,
+    status: targetStatus === 'out' ? 'out' : 'in_hotel',
+    locationText: targetStatus === 'out' ? 'Vicinity of Hotel' : 'Hotel',
+    buddyWith: targetStatus === 'in' ? '' : cur.buddyWith,
+    lastUpdated: now
+  };
+  renderLocation();
+  await API.post('updateStatus', {
+    memberId: m.id, name: m.name, shortName: m.shortName,
+    role: m.role, syndicate: m.syndicate,
+    status: targetStatus === 'out' ? 'out' : 'in_hotel',
+    locationText: targetStatus === 'out' ? 'Vicinity of Hotel' : 'Hotel',
+    lat: targetStatus === 'in' ? CONFIG.hotel.lat : (cur.lat || ''),
+    lng: targetStatus === 'in' ? CONFIG.hotel.lng : (cur.lng || ''),
+    buddyWith: targetStatus === 'in' ? '' : (cur.buddyWith || ''),
+    roomNumber: cur.roomNumber || ''
+  });
+  toast(`✓ ${m.shortName || m.name} marked ${verb}`);
 };
 
 window.forceReturnMember = async function(memberId, shortName) {
