@@ -3136,16 +3136,16 @@ function buildSyndicateSITREP(groupKey, options = {}) {
   const out = forceAllIn ? [] : members.filter(m => st[m.id]?.status === 'out');
   const inC = total - out.length;
 
+  // Format per spec: ADHOC SITREP (bold) · HHMM · blank · group · counts
+  //                  blank · Location · list · End of SITREP
   const bkk = bkkNow();
-  const dateLabel = bkk.toLocaleDateString('en-GB', { day:'numeric', month:'long', weekday:'long', timeZone:'Asia/Bangkok' });
-  const timeLabel = options.timeLabel || bkk.toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit', hour12:false, timeZone:'Asia/Bangkok' }).replace(':','');
-  const header = options.header || `${timeLabel}H SITREP`;
+  const hhmm = options.timeLabel || bkk.toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit', hour12:false, timeZone:'Asia/Bangkok' }).replace(':','');
 
-  let msg = `${header} - ${dateLabel}\n`;
+  let msg = `<b>ADHOC SITREP</b>\n${hhmm}H\n\n`;
   msg += `${formatGroupDisplay(groupKey)}\n`;
-  msg += `IN HOTEL: ${inC}\n`;
-  msg += `OUT: ${out.length}\n`;
-  msg += `TOTAL: ${total}\n`;
+  msg += `In Hotel: ${inC}\n`;
+  msg += `Out: ${out.length}\n`;
+  msg += `Total: ${total}\n`;
   if (out.length > 0) {
     msg += `\nLocation\n`;
     out.forEach(m => {

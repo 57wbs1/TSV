@@ -49,6 +49,8 @@ function doGet(e) {
       case 'resetCasparPin': data = resetCasparPin(); break;
       case 'getBotChats': data = getBotChats(); break;
       case 'testWeather': data = sendWeatherBriefing(); break;
+      case 'testEveningSitrep': data = sendEveningSitrep(); break;
+      case 'testMidnightSitrep': data = sendMidnightSitrep(); break;
       case 'installTriggers': data = setupAllTriggers(); break;
       case 'getAdminRequests': data = readSheet(SHEETS.ADMINREQ); break;
       default: return json({ ok: false, error: 'Unknown action: ' + action });
@@ -827,6 +829,17 @@ function sendDailyReminder(forceDate) {
 
 
 // ── 2300H: Syn 1 SITREP (actual status) ──
+// Format per spec:
+//   2300H SITREP (bold)
+//   DD MMM
+//   <blank>
+//   57 SYN 1
+//   <blank>
+//   In Hotel: XX
+//   Out: XX
+//   Total: XX
+//   <blank>
+//   End of SITREP
 function sendEveningSitrep() {
   const membersAll = readSheet(SHEETS.MEMBERS);
   const members = membersAll.filter(m =>
@@ -842,28 +855,20 @@ function sendEveningSitrep() {
   const inCount = total - out.length;
 
   const bkk = bkkNow();
-  const dateLabel = Utilities.formatDate(bkk, 'Asia/Bangkok', 'd MMMM EEEE');
+  const dateLabel = Utilities.formatDate(bkk, 'Asia/Bangkok', 'd MMM');
 
-  let msg = '<b>2300H SITREP - ' + dateLabel + '</b>\n';
-  msg += '<b>57 SYN 1</b>\n';
-  msg += 'IN HOTEL: ' + inCount + '\n';
-  msg += 'OUT: ' + out.length + '\n';
-  msg += 'TOTAL: ' + total + '\n';
-  if (out.length > 0) {
-    msg += '\nLocation\n';
-    out.forEach(m => {
-      const st = statusMap[m.id] || {};
-      const loc = (st.locationText || '').toString().trim() || 'Vicinity of Hotel';
-      msg += (m.shortName || m.name) + ' - ' + loc + '\n';
-    });
-  }
+  let msg = '<b>2300H SITREP</b>\n' + dateLabel + '\n\n';
+  msg += '57 SYN 1\n\n';
+  msg += 'In Hotel: ' + inCount + '\n';
+  msg += 'Out: ' + out.length + '\n';
+  msg += 'Total: ' + total + '\n';
   msg += '\nEnd of SITREP';
   tgSend(msg, SYN1_CHAT);
   logAction('sitrep_2300', 'server', inCount + '/' + total);
   return 'Sent 2300H';
 }
 
-// ── 0200H: Curfew Report (always-in per spec) ──
+// ── 0200H SITREP (always-in per curfew spec) ──
 function sendMidnightSitrep() {
   const membersAll = readSheet(SHEETS.MEMBERS);
   const members = membersAll.filter(m =>
@@ -873,18 +878,19 @@ function sendMidnightSitrep() {
   const total = members.length;
 
   const bkk = bkkNow();
-  // Curfew covers the previous day's night, so use yesterday's date
+  // 0200H covers the previous day's night, so use yesterday's date
   const yesterday = new Date(bkk.getTime() - 24*60*60*1000);
-  const yLabel = Utilities.formatDate(yesterday, 'Asia/Bangkok', 'd MMMM EEEE');
+  const yLabel = Utilities.formatDate(yesterday, 'Asia/Bangkok', 'd MMM');
 
-  let msg = '<b>Curfew Report - ' + yLabel + '</b>\n';
-  msg += '<b>57 SYN 1</b>\n';
-  msg += 'IN HOTEL: ' + total + '\n';
-  msg += 'OUT: 0\n';
-  msg += '\nEnd of Curfew Report';
+  let msg = '<b>0200H SITREP</b>\n' + yLabel + '\n\n';
+  msg += '57 SYN 1\n\n';
+  msg += 'In Hotel: ' + total + '\n';
+  msg += 'Out: 0\n';
+  msg += 'Total: ' + total + '\n';
+  msg += '\nEnd of SITREP';
   tgSend(msg, SYN1_CHAT);
   logAction('sitrep_0200', 'server', total + '/' + total);
-  return 'Sent 0200H Curfew';
+  return 'Sent 0200H';
 }
 
 // ── 0600H: Bangkok weather briefing (to announce chat) ──
