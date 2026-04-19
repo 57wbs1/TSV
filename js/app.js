@@ -1860,9 +1860,11 @@ function renderLocation() {
     <div id="tracker-map-wrap" style="${trackerView === 'map' ? '' : 'display:none'}">
       <div class="map-filter-bar" id="map-filter-bar">
         ${(() => {
-          const active = STATE.mapSynFilter || new Set(visibleGs);
-          // Normalise — if it's not a Set (e.g. after restore), convert
-          if (!(active instanceof Set)) STATE.mapSynFilter = new Set(active);
+          // Initialise the filter Set if it doesn't yet exist (first render)
+          // or isn't a real Set (e.g. after a page reload rehydrate).
+          if (!(STATE.mapSynFilter instanceof Set)) {
+            STATE.mapSynFilter = new Set(visibleGs);
+          }
           const set = STATE.mapSynFilter;
           const all = set.size === visibleGs.length;
           return `
