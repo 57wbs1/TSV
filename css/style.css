@@ -1849,6 +1849,13 @@ body::after {
 .team-stat .ts-num.green { color: var(--green-600); }
 .team-stat .ts-num.red   { color: var(--red-600); }
 .team-stat .ts-num.blue  { color: var(--blue-600); }
+@media (prefers-color-scheme: dark) {
+  .team-stat { background: #1e293b; border-color: #475569; }
+  .team-stat .ts-num.green { color: #4ade80; }
+  .team-stat .ts-num.red   { color: #f87171; }
+  .team-stat .ts-num.blue  { color: #93c5fd; }
+  .team-stat .ts-label { color: #cbd5e1; }
+}
 .team-stat .ts-label {
   font-size: 10px; color: var(--text-2);
   font-weight: 700; letter-spacing: .05em;
@@ -1938,41 +1945,107 @@ body::after {
 /* ══════════════════════════════════════════════════════════
    MAP
    ══════════════════════════════════════════════════════════ */
-/* Syndicate filter chips above the map — lets users narrow from 88
-   markers to just the groups they care about. */
-.map-filter-bar {
+/* Syndicate filter dropdown above the map — multi-select so users
+   can narrow from 88 markers to just the groups they care about. */
+.map-filter-dd {
+  position: relative;
+  margin: 4px 0 10px;
+}
+.map-filter-btn {
+  width: 100%;
   display: flex;
-  gap: 6px;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  padding: 4px 2px 10px;
-  margin-bottom: 6px;
-  scrollbar-width: none;
-}
-.map-filter-bar::-webkit-scrollbar { display: none; }
-.map-chip {
-  flex-shrink: 0;
-  padding: 6px 12px;
-  border-radius: var(--r-full);
-  font-size: 11.5px;
-  font-weight: 800;
-  letter-spacing: .02em;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: var(--n-0);
   border: 1.5px solid var(--border-2);
-  background: var(--n-50);
-  color: var(--text-2);
+  border-radius: var(--r-md);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
   cursor: pointer;
-  transition: transform .12s, background .15s, color .15s, border-color .15s;
-  white-space: nowrap;
+  box-shadow: var(--shadow-xs);
+  text-align: left;
 }
-.map-chip.active {
-  background: var(--blue-600);
+.map-filter-btn:active { transform: scale(0.99); }
+.mfd-icon { font-size: 16px; flex-shrink: 0; }
+.mfd-summary { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mfd-caret { color: var(--text-2); font-size: 12px; flex-shrink: 0; }
+.map-filter-menu {
+  position: absolute;
+  top: calc(100% + 6px); left: 0; right: 0;
+  z-index: 1100;
+  background: var(--n-0);
+  border: 1px solid var(--border-2);
+  border-radius: var(--r-md);
+  box-shadow: 0 12px 28px rgba(0,0,0,.18);
+  padding: 4px;
+  max-height: 60vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  animation: fadeIn .15s var(--ease-out);
+}
+.map-filter-menu.hidden { display: none; }
+.mfd-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  user-select: none;
+  transition: background .12s;
+}
+.mfd-row:active, .mfd-row:hover { background: var(--n-50); }
+.mfd-check {
+  width: 20px; height: 20px;
+  border-radius: 5px;
+  border: 2px solid var(--border-2);
+  background: var(--n-50);
+  display: flex; align-items: center; justify-content: center;
   color: #fff;
+  font-size: 13px;
+  font-weight: 900;
+  flex-shrink: 0;
+}
+.mfd-check.on {
+  background: var(--blue-600);
   border-color: var(--blue-600);
 }
-.map-chip:active { transform: scale(0.96); }
+.mfd-swatch {
+  width: 12px; height: 12px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.mfd-label { flex: 1; color: var(--text); }
+.mfd-count {
+  font-size: 11px;
+  color: var(--text-3);
+  font-weight: 700;
+  background: var(--n-100);
+  padding: 2px 8px;
+  border-radius: var(--r-full);
+}
+.mfd-divider { height: 1px; background: var(--border-2); margin: 4px 2px; }
+.mfd-close-btn {
+  display: block;
+  width: 100%;
+  padding: 10px;
+  margin-top: 4px;
+  background: var(--blue-600);
+  color: #fff;
+  border: none;
+  border-radius: var(--r-sm);
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
 @media (prefers-color-scheme: dark) {
-  .map-chip { background: #334155; color: #cbd5e1; border-color: #475569; }
-  .map-chip.active { color: #fff; }
+  .map-filter-btn { background: #1e293b; border-color: #475569; color: #e2e8f0; }
+  .map-filter-menu { background: #1e293b; border-color: #475569; }
+  .mfd-row:active, .mfd-row:hover { background: #334155; }
+  .mfd-check { background: #334155; border-color: #64748b; }
+  .mfd-count { background: #334155; color: #cbd5e1; }
 }
 
 #map-container {

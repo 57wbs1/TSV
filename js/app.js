@@ -1545,45 +1545,82 @@ window.setCalendarSubTab = function(sub) {
 };
 
 // Swipe between Tracker sub-views (List ↔ Map)
-function setupTrackerSwipe() {
-  const container = el('tab-location');
+// Generic horizontal-swipe helper. Attaches once to a container and calls
+// onSwipe(dir) with dir = +1 (left-swipe → next) or -1 (right-swipe → prev).
+// Ignores swipes that started on interactive elements (buttons, inputs,
+// dropdowns, map canvas) so they don't hijack normal taps.
+function attachHSwipe(container, onSwipe) {
   if (!container) return;
-  let sx = 0, sy = 0, tracking = false;
+  let sx = 0, sy = 0, tracking = false, blocked = false;
   container.addEventListener('touchstart', e => {
-    if (e.touches.length !== 1) return;
-    sx = e.touches[0].clientX; sy = e.touches[0].clientY; tracking = true;
+    if (e.touches.length !== 1) { tracking = false; return; }
+    const t = e.target;
+    // Skip if the touch started on something that needs its own horizontal
+    // gesture (map, select, dropdown, text input, slider)
+    if (t.closest('#leaflet-map, .leaflet-container, select, input, textarea, .map-filter-dd, .map-filter-menu')) {
+      blocked = true;
+      return;
+    }
+    blocked = false;
+    sx = e.touches[0].clientX;
+    sy = e.touches[0].clientY;
+    tracking = true;
   }, { passive: true });
   container.addEventListener('touchend', e => {
-    if (!tracking) return;
+    if (!tracking || blocked) { tracking = false; blocked = false; return; }
     tracking = false;
     const dx = e.changedTouches[0].clientX - sx;
     const dy = e.changedTouches[0].clientY - sy;
-    if (Math.abs(dx) < 70 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
-    const current = STATE.trackerView || 'list';
-    if (dx < 0 && current === 'list') setTrackerView('map');
-    else if (dx > 0 && current === 'map') setTrackerView('list');
+    // Min horizontal distance + dominantly horizontal
+    if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.4) return;
+    onSwipe(dx < 0 ? +1 : -1);
   }, { passive: true });
 }
 
-// Swipe between days on Calendar tab
+// Tracker sub-tabs: List ↔ Map ↔ Rooms (Calendar day-nav uses a separate
+// swipe handler on the day-tabs-wrap)
+function setupTrackerSwipe() {
+  const order = ['list', 'map', 'rooms'];
+  attachHSwipe(el('tab-location'), dir => {
+    const current = STATE.trackerView || 'list';
+    const i = order.indexOf(current);
+    if (i < 0) return;
+    const next = order[Math.min(order.length - 1, Math.max(0, i + dir))];
+    if (next !== current) setTrackerView(next);
+  });
+}
+
+// Calendar sub-tabs: schedule ↔ visits ↔ reflections.
+// Within the schedule sub-tab, horizontal swipe instead changes the day.
 function setupCalendarSwipe() {
-  const container = el('tab-calendar');
-  if (!container) return;
-  let sx = 0, sy = 0, tracking = false;
-  container.addEventListener('touchstart', e => {
-    if (e.touches.length !== 1) return;
-    sx = e.touches[0].clientX; sy = e.touches[0].clientY; tracking = true;
-  }, { passive: true });
-  container.addEventListener('touchend', e => {
-    if (!tracking) return;
-    tracking = false;
-    const dx = e.changedTouches[0].clientX - sx;
-    const dy = e.changedTouches[0].clientY - sy;
-    if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.5) return; // not horizontal swipe
-    const cur = STATE.scheduleDay;
-    if (dx < 0 && cur < DAYS.length) { STATE.scheduleDay = cur + 1; renderCalendar(); }
-    else if (dx > 0 && cur > 1)      { STATE.scheduleDay = cur - 1; renderCalendar(); }
-  }, { passive: true });
+  const order = ['schedule', 'visits', 'reflections'];
+  attachHSwipe(el('tab-calendar'), dir => {
+    const sub = STATE.calendarSubTab || 'schedule';
+    if (sub === 'schedule') {
+      // In schedule sub-tab, horizontal swipe navigates days 1-5
+      const cur = STATE.scheduleDay;
+      if (dir === +1 && cur < DAYS.length) { STATE.scheduleDay = cur + 1; renderCalendar(); }
+      else if (dir === -1 && cur > 1)       { STATE.scheduleDay = cur - 1; renderCalendar(); }
+      return;
+    }
+    // In visits or reflections, horizontal swipe hops sub-tabs
+    const i = order.indexOf(sub);
+    if (i < 0) return;
+    const next = order[Math.min(order.length - 1, Math.max(0, i + dir))];
+    if (next !== sub) setCalendarSubTab(next);
+  });
+}
+
+// SOP sub-tabs: SOPs ↔ IR
+function setupSopSwipe() {
+  const order = ['sops', 'ir'];
+  attachHSwipe(el('tab-sop'), dir => {
+    const sub = STATE.sopSubTab || 'sops';
+    const i = order.indexOf(sub);
+    if (i < 0) return;
+    const next = order[Math.min(order.length - 1, Math.max(0, i + dir))];
+    if (next !== sub) setSopSubTab(next);
+  });
 }
 
 window.toggleEventExpand = function(eventId) {
@@ -1870,25 +1907,43 @@ function _renderLocationImpl() {
     </div>
     <div id="tracker-rooms-wrap" style="${trackerView === 'rooms' ? '' : 'display:none'}"></div>
     <div id="tracker-map-wrap" style="${trackerView === 'map' ? '' : 'display:none'}">
-      <div class="map-filter-bar" id="map-filter-bar">
-        ${(() => {
-          // Initialise the filter Set if it doesn't yet exist (first render)
-          // or isn't a real Set (e.g. after a page reload rehydrate).
-          if (!(STATE.mapSynFilter instanceof Set)) {
-            STATE.mapSynFilter = new Set(visibleGs);
-          }
-          const set = STATE.mapSynFilter;
-          const all = set.size === visibleGs.length;
-          return `
-            <button class="map-chip ${all ? 'active' : ''}" onclick="setMapFilterAll()">All</button>
-            ${visibleGs.map(gk => `
-              <button class="map-chip ${set.has(gk) ? 'active' : ''}"
-                      style="${set.has(gk) ? `background:${synColor(gk)};border-color:${synColor(gk)}` : ''}"
-                      onclick="toggleMapSynFilter('${gk.replace(/'/g, "\\'")}')">${formatGroupDisplay(gk)}</button>
-            `).join('')}
-          `;
-        })()}
-      </div>
+      ${(() => {
+        if (!(STATE.mapSynFilter instanceof Set)) {
+          STATE.mapSynFilter = new Set(visibleGs);
+        }
+        const set = STATE.mapSynFilter;
+        const allOn = set.size === visibleGs.length;
+        const summary = allOn
+          ? `All ${visibleGs.length} syndicates`
+          : (set.size === 0 ? 'None selected'
+          : [...set].map(g => formatGroupDisplay(g)).slice(0, 3).join(', ') + (set.size > 3 ? ` +${set.size-3}` : ''));
+        return `
+          <div class="map-filter-dd" id="map-filter-dd">
+            <button class="map-filter-btn" onclick="toggleMapFilterDD()">
+              <span class="mfd-icon">🎯</span>
+              <span class="mfd-summary">${escapeHtml(summary)}</span>
+              <span class="mfd-caret">▾</span>
+            </button>
+            <div class="map-filter-menu hidden" id="map-filter-menu">
+              <div class="mfd-row mfd-row-all" onclick="setMapFilterAll()">
+                <span class="mfd-check ${allOn ? 'on' : ''}">${allOn ? '✓' : ''}</span>
+                <span class="mfd-label"><b>All syndicates</b></span>
+              </div>
+              <div class="mfd-divider"></div>
+              ${visibleGs.map(gk => `
+                <div class="mfd-row" onclick="toggleMapSynFilter('${gk.replace(/'/g, "\\'")}')">
+                  <span class="mfd-check ${set.has(gk) ? 'on' : ''}" style="${set.has(gk) ? `background:${synColor(gk)};border-color:${synColor(gk)}` : ''}">${set.has(gk) ? '✓' : ''}</span>
+                  <span class="mfd-swatch" style="background:${synColor(gk)}"></span>
+                  <span class="mfd-label">${formatGroupDisplay(gk)}</span>
+                  <span class="mfd-count">${membersInGroup(gk).length}</span>
+                </div>
+              `).join('')}
+              <div class="mfd-divider"></div>
+              <button class="mfd-close-btn" onclick="toggleMapFilterDD()">Done</button>
+            </div>
+          </div>
+        `;
+      })()}
       <div id="map-container"><div id="leaflet-map"></div></div>
       <div class="map-legend" style="margin-top:10px">
         <div class="legend-item"><div class="legend-dot" style="background:#003580"></div>Hotel</div>
@@ -1946,14 +2001,9 @@ function _renderLocationImpl() {
     setTimeout(() => initMap(), 100);
   }
   if (trackerView === 'rooms') {
-    // Inject the existing Rooms tab content into the Tracker wrap.
-    // renderRooms() writes to #tab-rooms; mirror it into #tracker-rooms-wrap.
-    setTimeout(() => {
-      renderRooms();
-      const host = el('tracker-rooms-wrap');
-      const src = el('tab-rooms');
-      if (host && src) host.innerHTML = src.innerHTML;
-    }, 30);
+    // renderRooms auto-detects tracker-rooms-wrap when it's visible and
+    // writes there directly — no mirroring needed anymore.
+    setTimeout(() => renderRooms(), 30);
   }
 }
 
@@ -1963,26 +2013,75 @@ window.setTrackerView = function(view) {
   if (view === 'map') setTimeout(() => initMap(), 100);
 };
 
-// Map syndicate filter — chips above the map. Toggle individual syndicates
-// in/out; 'All' resets to every visible group.
+window.toggleMapFilterDD = function() {
+  const menu = el('map-filter-menu');
+  if (menu) menu.classList.toggle('hidden');
+};
+// Map syndicate filter — dropdown above the map. Toggle individual
+// syndicates in/out; 'All' resets to every visible group.
 window.toggleMapSynFilter = function(gk) {
   const vis = visibleGroups();
   if (!(STATE.mapSynFilter instanceof Set)) STATE.mapSynFilter = new Set(vis);
   if (STATE.mapSynFilter.has(gk)) {
     STATE.mapSynFilter.delete(gk);
-    // Don't allow zero groups — fall back to just this one
     if (STATE.mapSynFilter.size === 0) STATE.mapSynFilter.add(gk);
   } else {
     STATE.mapSynFilter.add(gk);
   }
-  renderLocation();
+  // Refresh ONLY the markers + dropdown UI. Don't re-render the whole
+  // Tracker — that would destroy the Leaflet container and blank the map.
+  refreshMapFilterUI();
   if (STATE.map) updateMapMarkers();
 };
 window.setMapFilterAll = function() {
-  STATE.mapSynFilter = new Set(visibleGroups());
-  renderLocation();
+  const vis = visibleGroups();
+  if (!(STATE.mapSynFilter instanceof Set)) STATE.mapSynFilter = new Set(vis);
+  const allOn = STATE.mapSynFilter.size === vis.length;
+  STATE.mapSynFilter = allOn ? new Set([vis[0]]) : new Set(vis);  // toggle on/off
+  refreshMapFilterUI();
   if (STATE.map) updateMapMarkers();
 };
+// Re-render just the filter dropdown innerHTML (tick states + summary)
+function refreshMapFilterUI() {
+  const dd = el('map-filter-dd');
+  if (!dd) return;
+  const vis = visibleGroups();
+  const set = STATE.mapSynFilter;
+  const allOn = set.size === vis.length;
+  const summary = allOn
+    ? `All ${vis.length} syndicates`
+    : (set.size === 0 ? 'None selected'
+    : [...set].map(g => formatGroupDisplay(g)).slice(0, 3).join(', ') + (set.size > 3 ? ` +${set.size-3}` : ''));
+  const summaryEl = dd.querySelector('.mfd-summary');
+  if (summaryEl) summaryEl.textContent = summary;
+  // Update tick marks per row
+  dd.querySelectorAll('.mfd-row').forEach(row => {
+    const check = row.querySelector('.mfd-check');
+    if (!check) return;
+    // 'All' row
+    if (row.classList.contains('mfd-row-all')) {
+      check.classList.toggle('on', allOn);
+      check.textContent = allOn ? '✓' : '';
+      return;
+    }
+    // Syndicate rows — match by onclick handler
+    const onclick = row.getAttribute('onclick') || '';
+    const match = onclick.match(/toggleMapSynFilter\('([^']+)'\)/);
+    if (match) {
+      const gk = match[1].replace(/\\'/g, "'");
+      const on = set.has(gk);
+      check.classList.toggle('on', on);
+      check.textContent = on ? '✓' : '';
+      if (on) {
+        check.style.background = synColor(gk);
+        check.style.borderColor = synColor(gk);
+      } else {
+        check.style.background = '';
+        check.style.borderColor = '';
+      }
+    }
+  });
+}
 window.toggleSynGroup = function(s) {
   const m = el(`syn-members-${s}`), h = qs(`#sg-${s} .syn-header`);
   m?.classList.toggle('open'); h?.classList.toggle('collapsed');
@@ -1992,6 +2091,10 @@ window.toggleTrackerGroup = function(gk) {
   if (STATE.expandedTrackerGroups.has(gk)) STATE.expandedTrackerGroups.delete(gk);
   else STATE.expandedTrackerGroups.add(gk);
   renderLocation();
+};
+window.setRoomsFilter = function(gk) {
+  STATE.roomsFilter = gk;
+  renderRooms();
 };
 window.toggleRoomsGroup = function(gk) {
   if (!STATE.expandedRoomsGroups) STATE.expandedRoomsGroups = new Set();
@@ -2239,16 +2342,31 @@ window.updateLocationText = function() {
 
 // ═══════════ MAP TAB ═════════════════════════════════════════
 function initMap() {
+  const mapEl = document.getElementById('leaflet-map');
+  // If there's an existing map but it's attached to a stale (now-detached)
+  // DOM node — which happens every time renderLocation re-runs innerHTML —
+  // tear it down and rebuild. Otherwise the old map holds coords for a dead
+  // container and paints as a black rectangle.
   if (STATE.map) {
-    updateMapMarkers();
-    // Re-measure after tab switch / orientation / action-bar / keyboard.
-    // Chain a second invalidate after animation completes — iOS Safari
-    // sometimes gives a wrong size on the first call right after layout.
-    setTimeout(() => STATE.map.invalidateSize(true), 50);
-    setTimeout(() => STATE.map.invalidateSize(true), 350);
+    const attached = STATE.map.getContainer && STATE.map.getContainer();
+    if (attached && attached !== mapEl) {
+      try { STATE.map.remove(); } catch {}
+      STATE.map = null;
+      STATE.mapMarkers = {};
+    } else if (attached === mapEl) {
+      updateMapMarkers();
+      setTimeout(() => STATE.map.invalidateSize(true), 50);
+      setTimeout(() => STATE.map.invalidateSize(true), 350);
+      return;
+    }
+  }
+  if (!mapEl) { setTimeout(initMap, 200); return; }
+  if (typeof L === 'undefined') { setTimeout(initMap, 500); return; }
+  // Wait until the container has non-zero size (tab may still be animating in)
+  if (mapEl.clientWidth < 50 || mapEl.clientHeight < 50) {
+    setTimeout(initMap, 120);
     return;
   }
-  if (typeof L === 'undefined') { setTimeout(initMap, 500); return; }
   STATE.map = L.map('leaflet-map', {
     zoomAnimation: true,
     fadeAnimation: true,
@@ -3094,6 +3212,7 @@ function startApp() {
   setupModalSwipes();
   setupCalendarSwipe();
   setupTrackerSwipe();
+  setupSopSwipe();
   setupPullToRefresh();
   requestNotificationPermission();
 
@@ -3199,7 +3318,10 @@ function renderRooms() {
   const user = STATE.currentUser;
   const myStatus = getStatusOf(user?.id || '');
   const myRoom = myStatus.roomNumber || '';
-  const filter = STATE.locationFilter;
+  // Rooms has its own filter state so it doesn't clobber / get clobbered by
+  // the Tracker list's syndicate filter.
+  if (STATE.roomsFilter == null) STATE.roomsFilter = 'all';
+  const filter = STATE.roomsFilter;
   const groups = visibleGroups();
   if (!STATE.expandedRoomsGroups) STATE.expandedRoomsGroups = new Set();
   // Non-admins (who only see their own syndicate) default to expanded; admins default to collapsed
@@ -3235,11 +3357,18 @@ function renderRooms() {
 
   const filterChips = groups.length > 1
     ? ['all', ...groups].map(s =>
-        `<button class="filter-chip ${filter === s ? 'active' : ''}" onclick="setLocationFilter('${s.replace(/'/g, "\\'")}')">${s === 'all' ? 'All' : formatGroupDisplay(s)}</button>`
+        `<button class="filter-chip ${filter === s ? 'active' : ''}" onclick="setRoomsFilter('${s.replace(/'/g, "\\'")}')">${s === 'all' ? 'All' : formatGroupDisplay(s)}</button>`
       ).join('')
     : '';
 
-  el('tab-rooms').innerHTML = `
+  // Render directly into whichever container is actually visible. When
+  // Rooms is a Tracker sub-tab, the live DOM is #tracker-rooms-wrap;
+  // #tab-rooms is off-screen and rendering there doesn't reach the user.
+  const target = el('tracker-rooms-wrap')?.offsetParent
+    ? el('tracker-rooms-wrap')
+    : el('tab-rooms');
+  if (!target) return;
+  target.innerHTML = `
     <div class="rooms-hero">
       <h3>🛏️ Hotel Room Tracker</h3>
       <p>Pullman Bangkok Hotel G · Update your room so your syndicate knows where to find you.</p>
