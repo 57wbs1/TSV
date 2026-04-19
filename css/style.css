@@ -1457,20 +1457,40 @@ body::after {
   line-height: 1.1;
 }
 .hero-date {
-  font-size: 12px; opacity: .7;
-  letter-spacing: .02em;
+  font-size: 13px; opacity: .8;
+  letter-spacing: .1em;
+  font-weight: 700;
+  text-transform: uppercase;
 }
+/* Two-line time block: BANGKOK + SINGAPORE with K/H suffixes */
 .hero-time {
-  font-size: 44px; font-weight: 200;
-  letter-spacing: -0.03em;
   margin-top: 14px;
   font-variant-numeric: tabular-nums;
-  line-height: 1;
+  display: flex; flex-direction: column; gap: 2px;
 }
+.hero-time .ht-row {
+  display: flex; align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  line-height: 1.1;
+}
+.hero-time .ht-city {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  opacity: .8;
+}
+.hero-time .ht-val {
+  font-size: 28px;
+  font-weight: 300;
+  letter-spacing: -0.015em;
+}
+/* Old .hero-time-label kept harmless for back-compat */
 .hero-time-label {
   font-size: 10px; opacity: .6;
   letter-spacing: .15em; text-transform: uppercase;
   margin-top: 4px; font-weight: 600;
+  display: none;
 }
 
 /* Parade grid */

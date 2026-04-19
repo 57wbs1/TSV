@@ -412,6 +412,31 @@ function renderFxCard() {
 }
 function formatBKKTime(d = bkkNow()) { return d.toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit', hour12:false }); }
 
+// Hero time block: two lines — Bangkok (K suffix) + Singapore (H suffix).
+// SG is +1h ahead of BKK, so we compute it by adding an hour to the BKK
+// Date instance the caller passes in. Used to render #live-time and on
+// the 1-second clock tick.
+function formatHeroTimes(d) {
+  const bkk = d || bkkNow();
+  const sg = new Date(bkk.getTime() + 60 * 60 * 1000);
+  const fmt = v => v.toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit', hour12:false, timeZone:'UTC' });
+  // We already built bkk/sg as absolute UTC instants offset by the right
+  // amount — use UTC so toLocaleTimeString doesn't re-apply browser TZ.
+  return { bkk: fmt(bkk), sg: fmt(sg) };
+}
+function renderHeroTimeBlock(d = bkkNow()) {
+  const t = formatHeroTimes(d);
+  return `
+    <div class="hero-time" id="live-time">
+      <div class="ht-row"><span class="ht-city">BANGKOK:</span><span class="ht-val">${t.bkk} K</span></div>
+      <div class="ht-row"><span class="ht-city">SINGAPORE:</span><span class="ht-val">${t.sg} H</span></div>
+    </div>`;
+}
+// Today in DDD DD MM format: e.g. "SUN 26 APR"
+function formatTodayShort(d = bkkNow()) {
+  return d.toLocaleDateString('en-GB', { weekday:'short', day:'2-digit', month:'short', timeZone:'Asia/Bangkok' }).toUpperCase().replace(/,/g, '');
+}
+
 function getCurrentDay() {
   const dateStr = bkkNow().toISOString().split('T')[0];
   return DAYS.find(d => d.date === dateStr) || null;
@@ -1242,9 +1267,8 @@ function renderHome() {
         <div class="hero-content">
           <span class="hero-day-label">● Pre-Trip · Ready-State</span>
           <div class="hero-theme">🛫 Trip starts in ${trip.days} day${trip.days === 1 ? '' : 's'}</div>
-          <div class="hero-date">First day: ${new Date(DAYS[0].date).toLocaleDateString('en-GB', { weekday:'long', day:'numeric', month:'long' })}</div>
-          <div class="hero-time" id="live-time">${formatBKKTime(bkk)}</div>
-          <div class="hero-time-label">Bangkok / Singapore Time</div>
+          <div class="hero-date">${formatTodayShort(bkk)}</div>
+          ${renderHeroTimeBlock(bkk)}
         </div>
       </div>`;
   } else if (trip.phase === 'after') {
@@ -1253,9 +1277,8 @@ function renderHome() {
         <div class="hero-content">
           <span class="hero-day-label">● Trip Complete</span>
           <div class="hero-theme">✈️ Safe journey home</div>
-          <div class="hero-date">Reflect and consolidate learnings</div>
-          <div class="hero-time" id="live-time">${formatBKKTime(bkk)}</div>
-          <div class="hero-time-label">Bangkok / Singapore Time</div>
+          <div class="hero-date">${formatTodayShort(bkk)}</div>
+          ${renderHeroTimeBlock(bkk)}
         </div>
       </div>`;
   } else {
@@ -1267,9 +1290,8 @@ function renderHome() {
         <div class="hero-content">
           <span class="hero-day-label">● Day ${day.day} · ${day.label}</span>
           <div class="hero-theme">${day.icon} ${day.theme}</div>
-          <div class="hero-date">${new Date(day.date).toLocaleDateString('en-GB', { weekday:'long', day:'numeric', month:'long', year:'numeric' })}</div>
-          <div class="hero-time" id="live-time">${formatBKKTime(bkk)}</div>
-          <div class="hero-time-label">Bangkok / Singapore Time</div>
+          <div class="hero-date">${formatTodayShort(bkk)}</div>
+          ${renderHeroTimeBlock(bkk)}
         </div>
       </div>`;
     if (nextEvent) {
@@ -1329,7 +1351,14 @@ function renderHome() {
   window._clockTimer = setInterval(() => {
     if (document.hidden || STATE.currentTab !== 'home') return;
     const e = el('live-time');
-    if (e) e.textContent = formatBKKTime(bkkNow());
+    if (!e) return;
+    const t = formatHeroTimes(bkkNow());
+    // Update the values in-place so we don't rebuild the inner DOM every tick
+    const vals = e.querySelectorAll('.ht-val');
+    if (vals.length >= 2) {
+      vals[0].textContent = t.bkk + ' K';
+      vals[1].textContent = t.sg  + ' H';
+    }
   }, 1000);
 }
 
