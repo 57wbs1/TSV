@@ -908,16 +908,16 @@ function _buildSitrepData(forceAllInGroups) {
 }
 
 function _buildSitrepMessage(data, header, dateLabel) {
-  // Layout per updated spec — no per-member Location block. Just the
-  // summary line pointing people to the app for specifics.
-  let msg = '<b>' + header + '</b>\n' + dateLabel + '\n\n';
+  // Header + date on ONE bold line: "2300H SITREP - 19 APR SUN"
+  let msg = '<b>' + header + ' - ' + dateLabel + '</b>\n\n';
   data.groups.forEach(g => {
     const pct = g.total ? Math.round(g.inC / g.total * 100) : 0;
     const tick = pct === 100 ? '✅' : '⚠️';
     msg += g.label + ': ' + g.inC + '/' + g.total + ' (' + pct + '%) ' + tick + '\n';
   });
-  msg += '\nOut: ' + data.totals.outC + '/' + data.totals.total + '\n';
-  msg += 'Location: Refer to TSV App for Details\n\n';
+  const outTick = data.totals.outC === 0 ? ' ✅' : '';
+  msg += '\n<b>Out: ' + data.totals.outC + '/' + data.totals.total + outTick + '</b>\n';
+  msg += '<b>Location: Refer to TSV App for Details</b>\n\n';
   msg += 'End of SITREP';
   return msg;
 }
@@ -925,7 +925,7 @@ function _buildSitrepMessage(data, header, dateLabel) {
 // ── 2300H SITREP: all syndicates, actual status ──
 function sendEveningSitrep() {
   const bkk = bkkNow();
-  const dateLabel = Utilities.formatDate(bkk, 'Asia/Bangkok', 'd MMM');
+  const dateLabel = Utilities.formatDate(bkk, 'Asia/Bangkok', 'd MMM EEE').toUpperCase();
   const data = _buildSitrepData([]);   // no forced all-in
   const msg = _buildSitrepMessage(data, '2300H SITREP', dateLabel);
   tgSend(msg, SYN1_CHAT);
@@ -937,7 +937,7 @@ function sendEveningSitrep() {
 function sendMidnightSitrep() {
   const bkk = bkkNow();
   const yesterday = new Date(bkk.getTime() - 24*60*60*1000);
-  const yLabel = Utilities.formatDate(yesterday, 'Asia/Bangkok', 'd MMM');
+  const yLabel = Utilities.formatDate(yesterday, 'Asia/Bangkok', 'd MMM EEE').toUpperCase();
   const data = _buildSitrepData(['57 CSC Syn 1']);   // force Syn 1 all-in only
   const msg = _buildSitrepMessage(data, '0200H SITREP', yLabel);
   tgSend(msg, SYN1_CHAT);

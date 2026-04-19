@@ -1192,6 +1192,162 @@ body::after {
 }
 .weather-strip::-webkit-scrollbar { display: none; }
 .weather-strip.loading { opacity: .6; }
+.weather-strip { text-decoration: none; cursor: pointer; transition: transform .12s ease; }
+.weather-strip:active { transform: scale(0.99); }
+.weather-strip .w-label {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: #0369a1;
+  flex-shrink: 0;
+}
+.weather-strip .w-ext {
+  font-size: 13px;
+  color: #0369a1;
+  margin-left: 2px;
+  opacity: .8;
+}
+@media (prefers-color-scheme: dark) {
+  .weather-strip .w-label, .weather-strip .w-ext { color: #7dd3fc; }
+}
+
+/* Home: Adhoc SITREP inline button (admin only, above counts) */
+.btn-adhoc-inline {
+  display: block;
+  width: 100%;
+  padding: 13px 18px;
+  margin: 10px 0 12px;
+  background: linear-gradient(135deg, #1e40af, #2563eb);
+  color: #fff;
+  border: none;
+  border-radius: var(--r-md);
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: .01em;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(37,99,235,.35);
+  transition: transform .12s ease;
+}
+.btn-adhoc-inline:active { transform: scale(0.98); }
+
+/* Home: My Syndicate mini (read-only visual summary) */
+.syn-mini-card {
+  margin-top: 12px;
+  border-radius: var(--r-md);
+  overflow: hidden;
+  background: var(--n-0);
+  border: 1px solid var(--border-2);
+  box-shadow: var(--shadow-sm);
+}
+.syn-mini-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 9px 14px;
+  color: #fff;
+}
+.syn-mini-title {
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: .03em;
+  text-transform: uppercase;
+}
+.syn-mini-count {
+  font-size: 12px;
+  font-weight: 700;
+  background: rgba(255,255,255,.22);
+  padding: 3px 10px;
+  border-radius: var(--r-full);
+  font-variant-numeric: tabular-nums;
+}
+.syn-mini-body {
+  padding: 4px 0;
+}
+.mini-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 14px;
+  border-top: 1px solid var(--border-2);
+}
+.mini-row:first-child { border-top: none; }
+.mini-dot {
+  width: 10px; height: 10px; border-radius: 50%;
+  flex-shrink: 0;
+}
+.mini-dot.in  { background: #22c55e; box-shadow: 0 0 0 2px rgba(34,197,94,.22); }
+.mini-dot.out { background: #dc2626; box-shadow: 0 0 0 2px rgba(220,38,38,.22); }
+.mini-name {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+}
+.mini-loc {
+  font-size: 11.5px;
+  color: var(--text-3);
+  font-weight: 500;
+  max-width: 50%;
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mini-loc.out { color: #dc2626; font-weight: 700; }
+@media (prefers-color-scheme: dark) {
+  .mini-loc.out { color: #f87171; }
+}
+
+/* ──────── SGD → THB rate card ──────── */
+.fx-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: linear-gradient(135deg, #fef9c3, #fde68a);
+  border: 1px solid rgba(217,119,6,.3);
+  border-radius: var(--r-md);
+  margin-bottom: 10px;
+  color: #78350f;
+  text-decoration: none;
+  cursor: pointer;
+  transition: transform .12s ease;
+}
+.fx-card:active { transform: scale(0.99); }
+.fx-card.loading { opacity: .6; }
+.fx-card .fx-label {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: #92400e;
+  flex-shrink: 0;
+}
+.fx-card .fx-pair {
+  font-size: 15px;
+  font-weight: 800;
+  color: #78350f;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -.01em;
+}
+.fx-card .fx-pair b { font-weight: 900; color: #b45309; }
+.fx-card .fx-rate { font-size: 15px; font-weight: 800; color: #78350f; }
+.fx-card .fx-sub {
+  font-size: 10.5px;
+  color: #a16207;
+  margin-left: auto;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.fx-card .fx-ext { font-size: 13px; color: #a16207; opacity: .8; }
+@media (prefers-color-scheme: dark) {
+  .fx-card {
+    background: linear-gradient(135deg, rgba(217,119,6,.18), rgba(180,83,9,.15));
+    border-color: rgba(217,119,6,.35);
+    color: #fcd34d;
+  }
+  .fx-card .fx-label { color: #fbbf24; }
+  .fx-card .fx-pair { color: #fde68a; }
+  .fx-card .fx-pair b { color: #fcd34d; }
+  .fx-card .fx-sub, .fx-card .fx-ext { color: #fbbf24; }
+}
 .weather-strip .w-icon {
   font-size: 22px;
   line-height: 1;

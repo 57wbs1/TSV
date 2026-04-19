@@ -361,15 +361,54 @@ async function refreshWeather() {
 
 function renderWeatherStrip() {
   const d = STATE.weather;
-  if (!d) return `<div id="home-weather" class="weather-strip loading"><span class="w-icon">🌤️</span><span class="w-temp">—°</span><span class="w-range">Loading weather…</span></div>`;
+  // Open-Meteo source link — opens their Bangkok forecast page
+  const src = 'https://open-meteo.com/en/docs?latitude=13.7256&longitude=100.5279&hourly=temperature_2m';
+  const srcUrl = `https://www.google.com/search?q=bangkok+weather`;
+  if (!d) return `<a id="home-weather" class="weather-strip loading" href="${srcUrl}" target="_blank" rel="noopener"><span class="w-label">BKK Weather</span><span class="w-icon">🌤️</span><span class="w-temp">—°</span><span class="w-range">Loading…</span></a>`;
   const psi = d.psi != null ? `<span class="w-psi"><b>PSI</b> ${d.psi}</span>` : '';
-  return `<div id="home-weather" class="weather-strip">
+  return `<a id="home-weather" class="weather-strip" href="${srcUrl}" target="_blank" rel="noopener" title="Tap for full forecast">
+    <span class="w-label">BKK Weather</span>
     <span class="w-icon">${weatherIcon(d.code)}</span>
     <span class="w-temp">${d.temp}°</span>
     <span class="w-range"><span class="w-hl">H</span> ${d.high}° · <span class="w-hl">L</span> ${d.low}°</span>
     ${psi}
     <span class="w-cond">${weatherLabel(d.code)}</span>
-  </div>`;
+    <span class="w-ext">↗</span>
+  </a>`;
+}
+
+// ── SGD → THB rate card ─────────────────────────────────────
+async function fetchFxRate() {
+  const cached = (() => { try { return JSON.parse(localStorage.getItem('tsv_fx') || 'null'); } catch { return null; } })();
+  if (cached && (Date.now() - cached.ts) < 60*60*1000) return cached.data;   // 1h cache
+  try {
+    // Free FX source, no key required, CORS-enabled
+    const j = await fetch('https://open.er-api.com/v6/latest/SGD').then(r => r.json()).catch(() => null);
+    const rate = j?.rates?.THB;
+    if (!rate) return null;
+    const data = { rate, ts: Date.now() };
+    localStorage.setItem('tsv_fx', JSON.stringify({ ts: Date.now(), data }));
+    return data;
+  } catch { return null; }
+}
+async function refreshFx() {
+  const d = await fetchFxRate();
+  if (!d) return;
+  STATE.fx = d;
+  const el2 = el('home-fx');
+  if (el2) el2.outerHTML = renderFxCard();
+}
+function renderFxCard() {
+  const d = STATE.fx;
+  const srcUrl = 'https://www.google.com/search?q=SGD+to+THB';
+  if (!d) return `<a id="home-fx" class="fx-card loading" href="${srcUrl}" target="_blank" rel="noopener"><span class="fx-label">SGD → THB</span><span class="fx-rate">—</span><span class="fx-ext">↗</span></a>`;
+  const when = new Date(d.ts).toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit', timeZone:'Asia/Bangkok' });
+  return `<a id="home-fx" class="fx-card" href="${srcUrl}" target="_blank" rel="noopener" title="Tap for live rate">
+    <span class="fx-label">SGD → THB</span>
+    <span class="fx-pair"><b>S$1</b> = <b>฿${d.rate.toFixed(2)}</b></span>
+    <span class="fx-sub">Updated ${when} · tap for live</span>
+    <span class="fx-ext">↗</span>
+  </a>`;
 }
 function formatBKKTime(d = bkkNow()) { return d.toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit', hour12:false }); }
 
@@ -1238,7 +1277,11 @@ function renderHome() {
     ${STATE.apiState === 'unconfigured' ? `<div class="alert alert-red">⚙️ API not configured — see config.js</div>` : ''}
 
     ${renderWeatherStrip()}
+    ${renderFxCard()}
     ${heroHtml}
+
+    ${isAdmin() ? `
+    <button class="btn-adhoc-inline" onclick="showAdhocPicker()">📤 Send Adhoc SITREP</button>` : ''}
 
     <div class="parade-grid">
       <div class="parade-card in"><div class="big-num green">${inC}</div><div class="label">In Hotel</div></div>
@@ -1249,23 +1292,7 @@ function renderHome() {
 
     ${nextEventHtml}
 
-    <div class="my-status-bar">
-      <div class="user-icon">👤</div>
-      <div class="user-info">
-        <div class="user-name">${user ? escapeHtml(user.name) : '—'}</div>
-        <div class="user-role">${user ? `${escapeHtml(user.role || '')} · ${user && myGroup ? escapeHtml(formatGroupDisplay(myGroup)) : ''}` : 'Not signed in'}</div>
-      </div>
-      <span class="status-pill ${myStatus.status==='out'?'pill-out':'pill-in'}">${myStatus.status==='out'?'🔴 OUT':'🟢 IN'}</span>
-    </div>
-
-    ${isAdmin() ? `
-    <div class="card" style="margin-top:12px">
-      <div class="card-header"><span class="icon">📡</span><h3>Admin — Reports</h3></div>
-      <div class="card-body">
-        <button class="btn btn-primary btn-block" onclick="showAdhocPicker()">📤 Send Adhoc SITREP</button>
-        <p style="font-size:11px;color:var(--text-2);margin-top:8px;text-align:center">2300H and 0200H reports run automatically in the background.</p>
-      </div>
-    </div>` : ''}
+    ${myGroup ? renderMySyndicateMini(myGroup) : ''}
 
     ${myHypothesis ? `
     <div class="card" style="margin-top:12px">
@@ -1288,6 +1315,37 @@ function renderHome() {
     const e = el('live-time');
     if (e) e.textContent = formatBKKTime(bkkNow());
   }, 1000);
+}
+
+// Read-only mini view of MY syndicate on Home. Shows each member with a
+// coloured dot — green = In, red = Out — plus their short location if OUT.
+// Clicking doesn't do anything; this is intentionally not editable. For
+// editing → use Tracker tab.
+function renderMySyndicateMini(groupKey) {
+  const members = membersInGroup(groupKey);
+  if (!members.length) return '';
+  const st = STATE.memberStatuses;
+  const inCount = members.filter(m => (st[m.id]?.status || 'in_hotel') !== 'out').length;
+  const rows = members.map(m => {
+    const s = st[m.id] || {};
+    const isOut = s.status === 'out';
+    const loc = isOut ? (s.locationText || 'Out') : 'Hotel';
+    return `
+      <div class="mini-row">
+        <span class="mini-dot ${isOut ? 'out' : 'in'}"></span>
+        <span class="mini-name">${escapeHtml(m.shortName || m.name)}</span>
+        <span class="mini-loc ${isOut ? 'out' : ''}">${escapeHtml(loc)}</span>
+      </div>`;
+  }).join('');
+  const color = synColor(groupKey);
+  return `
+    <div class="syn-mini-card">
+      <div class="syn-mini-header" style="background:${color}">
+        <span class="syn-mini-title">${formatGroupDisplay(groupKey)}</span>
+        <span class="syn-mini-count">${inCount}/${members.length} In</span>
+      </div>
+      <div class="syn-mini-body">${rows}</div>
+    </div>`;
 }
 
 // ═══════════ ADHOC SITREP PICKER ═════════════════════════════
@@ -1761,7 +1819,6 @@ function renderLocation() {
             ${isOut && st.buddyWith ? `<div class="m-buddy">👥 w/ ${escapeHtml(st.buddyWith)}</div>` : ''}
           </div>
           ${canForce ? `<button class="btn-force-return" onclick="event.stopPropagation(); forceReturnMember('${m.id}', '${escapeHtml(m.shortName || m.name).replace(/'/g,"\\'")}'`+`)" title="Admin override — mark as returned">🏨</button>` : ''}
-          ${canPing ? `<button class="btn-ping" onclick="event.stopPropagation(); pingMember('${m.id}', '${escapeHtml(m.shortName || m.name).replace(/'/g,"\\'")}'`+`)">👋</button>` : ''}
           <span class="status-pill ${isOut ? 'pill-out' : 'pill-in'}">${isOut ? 'OUT' : 'IN'}</span>
         </div>`;
     }).join('');
@@ -3013,7 +3070,9 @@ function startApp() {
   switchTab('home');
   renderPinnedActionBar();
   refreshWeather();
+  refreshFx();
   setInterval(refreshWeather, 30 * 60 * 1000);  // every 30 min
+  setInterval(refreshFx, 60 * 60 * 1000);       // every hour (rate doesn't move fast)
   startPolling();
   seedIfEmpty();
   setupReportReminders();
