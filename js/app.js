@@ -1260,24 +1260,21 @@ function setupPullToRefresh() {
     pulling = false;
     if (pullDist > threshold) {
       refreshing = true;
-      indicator.classList.add('ptr-refreshing');
-      indicator.style.transform = 'translate(-50%, 20px)';
-      indicator.querySelector('.ptr-icon').textContent = '⟳';
+      // Hide the small PTR pill immediately — the big centre HUD takes
+      // over as the 'refresh in progress' indicator (bigger, clearer,
+      // impossible to miss).
+      resetIndicator();
       try {
-        await Promise.all([
+        await withLoader('Refreshing…', () => Promise.all([
           syncMembers(),
           syncStatuses(),
           syncCalendar(),
           syncLearnings(),
           syncReflections()
-        ]);
+        ]));
       } catch {}
       toast('✓ Refreshed');
-      setTimeout(() => {
-        indicator.classList.remove('ptr-refreshing', 'ptr-ready');
-        refreshing = false;
-        resetIndicator();
-      }, 500);
+      refreshing = false;
     } else {
       resetIndicator();
     }
@@ -3846,10 +3843,6 @@ function renderSettings() {
         </div>
         <button class="btn btn-red btn-sm" onclick="if(confirm('Sign out?'))logout()">Sign Out</button>
       </div>
-    </div>
-
-    <div class="app-footer" style="padding:16px 14px">
-      v1.0 · Designed by <b>Shaft · Syn 1</b>
     </div>
   `;
 }
