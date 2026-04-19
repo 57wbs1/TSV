@@ -3135,25 +3135,24 @@ function buildSyndicateSITREP(groupKey, options = {}) {
   const st = STATE.memberStatuses;
   const out = forceAllIn ? [] : members.filter(m => st[m.id]?.status === 'out');
   const inC = total - out.length;
+  const pct = total ? Math.round(inC / total * 100) : 0;
+  const tick = pct === 100 ? '✅' : '⚠️';
 
-  // Format per spec: ADHOC SITREP (bold) · HHMM · blank · group · counts
-  //                  blank · Location · list · End of SITREP
+  // Simplified format per spec:
+  //   ADHOC SITREP (bold)
+  //   HHMMH
+  //
+  //   In Hotel
+  //   57 SYN 1: 10/11 (91%) ⚠️
+  //
+  //   Refer to TSV App for Details
   const bkk = bkkNow();
   const hhmm = options.timeLabel || bkk.toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit', hour12:false, timeZone:'Asia/Bangkok' }).replace(':','');
 
   let msg = `<b>ADHOC SITREP</b>\n${hhmm}H\n\n`;
-  msg += `${formatGroupDisplay(groupKey)}\n`;
-  msg += `In Hotel: ${inC}\n`;
-  msg += `Out: ${out.length}\n`;
-  msg += `Total: ${total}\n`;
-  if (out.length > 0) {
-    msg += `\nLocation\n`;
-    out.forEach(m => {
-      const loc = (st[m.id]?.locationText || '').trim() || 'Vicinity of Hotel';
-      msg += `${m.shortName || m.name} - ${loc}\n`;
-    });
-  }
-  msg += `\nEnd of SITREP`;
+  msg += `In Hotel\n`;
+  msg += `${formatGroupDisplay(groupKey)}: ${inC}/${total} (${pct}%) ${tick}\n\n`;
+  msg += `Refer to TSV App for Details`;
   return msg;
 }
 

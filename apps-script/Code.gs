@@ -828,68 +828,127 @@ function sendDailyReminder(forceDate) {
 }
 
 
-// ── 2300H: Syn 1 SITREP (actual status) ──
-// Format per spec:
-//   2300H SITREP (bold)
-//   DD MMM
-//   <blank>
-//   57 SYN 1
-//   <blank>
-//   In Hotel: XX
-//   Out: XX
-//   Total: XX
-//   <blank>
-//   End of SITREP
-function sendEveningSitrep() {
-  const membersAll = readSheet(SHEETS.MEMBERS);
-  const members = membersAll.filter(m =>
-    m.csc === '57 CSC' && String(m.syndicate) === '1' &&
+// ── SITREP helpers (server-side group formatting) ─────────────
+// Mirrors client's memberGroupKey + formatGroupDisplay so the all-syndicate
+// SITREP lists groups in the same order and labels as the app.
+function _memberGroupKey(m) {
+  if (!m) return 'Leadership';
+  if (m.csc === 'Staff' || String(m.syndicate) === 'Leadership') return 'Leadership';
+  return m.csc + ' Syn ' + m.syndicate;
+}
+function _formatGroup(gk) {
+  if (gk === 'Leadership') return 'PSO';
+  var em = gk.match(/^(\d+)(?:th)?\s*CSC\s*\(E\)\s*Syn\s*(\S+)$/i);
+  if (em) return em[1] + 'E';
+  var mm = gk.match(/^(\d+)(?:th)?\s*CSC\s*Syn\s*(\S+)$/i);
+  if (mm) return mm[1] + ' SYN ' + mm[2];
+  return gk;
+}
+function _groupPriority(gk) {
+  if (gk === 'Leadership') return 1;  // PSO second after Syn 1
+  var main = gk.match(/^57 CSC Syn (\d+)$/i);
+  if (main) return parseInt(main[1]) === 1 ? 0 : 10 + parseInt(main[1]);
+  var exec = gk.match(/^(\d+)(?:th)?\s*CSC\s*\(E\)/i);
+  if (exec) return 100 + parseInt(exec[1]);
+  return 999;
+}
+
+// Returns: {
+//   groups:   [{ gk, label, inC, outCount, total, members, outMembers }, …]  (ordered)
+//   totals:   { inC, outC, total }
+// }
+// If forceAllInGroups is provided (array of group keys), those groups are
+// reported as fully IN regardless of their actual Status sheet rows.
+function _buildSitrepData(forceAllInGroups) {
+  forceAllInGroups = forceAllInGroups || [];
+  const members = readSheet(SHEETS.MEMBERS).filter(m =>
     m.isDeleted !== 'true' && m.isDeleted !== true
   );
   const statuses = readSheet(SHEETS.STATUS);
   const statusMap = {};
   statuses.forEach(s => { statusMap[s.id] = s; });
 
-  const total = members.length;
-  const out = members.filter(m => statusMap[m.id] && statusMap[m.id].status === 'out');
-  const inCount = total - out.length;
+  const byGroup = {};
+  members.forEach(m => {
+    const gk = _memberGroupKey(m);
+    if (!byGroup[gk]) byGroup[gk] = [];
+    byGroup[gk].push(m);
+  });
 
+  const groupKeys = Object.keys(byGroup).sort((a, b) => _groupPriority(a) - _groupPriority(b));
+
+  const groups = groupKeys.map(gk => {
+    const memberList = byGroup[gk];
+    const forceAllIn = forceAllInGroups.indexOf(gk) >= 0;
+    const outMembers = forceAllIn ? [] : memberList.filter(m => {
+      const st = statusMap[m.id];
+      return st && st.status === 'out';
+    });
+    return {
+      gk: gk,
+      label: _formatGroup(gk),
+      total: memberList.length,
+      inC: memberList.length - outMembers.length,
+      outCount: outMembers.length,
+      outMembers: outMembers.map(m => ({
+        name: m.shortName || m.name,
+        loc: (statusMap[m.id] && statusMap[m.id].locationText || '').toString().trim() || 'Vicinity of Hotel',
+        groupLabel: _formatGroup(gk)
+      }))
+    };
+  });
+
+  const totals = groups.reduce((acc, g) => ({
+    inC: acc.inC + g.inC,
+    outC: acc.outC + g.outCount,
+    total: acc.total + g.total
+  }), { inC: 0, outC: 0, total: 0 });
+
+  return { groups: groups, totals: totals };
+}
+
+function _buildSitrepMessage(data, header, dateLabel) {
+  let msg = '<b>' + header + '</b>\n' + dateLabel + '\n\n';
+  data.groups.forEach(g => {
+    const pct = g.total ? Math.round(g.inC / g.total * 100) : 0;
+    const tick = pct === 100 ? '✅' : '⚠️';
+    msg += g.label + ': ' + g.inC + '/' + g.total + ' (' + pct + '%) ' + tick + '\n';
+  });
+  // Location block — every OUT member across all groups when anyone is out
+  const allOut = [];
+  data.groups.forEach(g => g.outMembers.forEach(om => allOut.push(om)));
+  if (allOut.length > 0) {
+    msg += '\nLocation\n';
+    allOut.forEach(om => {
+      msg += om.name + ' (' + om.groupLabel + ') - ' + om.loc + '\n';
+    });
+  }
+  msg += '\n' + data.totals.outC + '/' + data.totals.total + ' Out\n';
+  msg += 'Refer to TSV App for Details\n';
+  msg += 'End of SITREP';
+  return msg;
+}
+
+// ── 2300H SITREP: all syndicates, actual status ──
+function sendEveningSitrep() {
   const bkk = bkkNow();
   const dateLabel = Utilities.formatDate(bkk, 'Asia/Bangkok', 'd MMM');
-
-  let msg = '<b>2300H SITREP</b>\n' + dateLabel + '\n\n';
-  msg += '57 SYN 1\n\n';
-  msg += 'In Hotel: ' + inCount + '\n';
-  msg += 'Out: ' + out.length + '\n';
-  msg += 'Total: ' + total + '\n';
-  msg += '\nEnd of SITREP';
+  const data = _buildSitrepData([]);   // no forced all-in
+  const msg = _buildSitrepMessage(data, '2300H SITREP', dateLabel);
   tgSend(msg, SYN1_CHAT);
-  logAction('sitrep_2300', 'server', inCount + '/' + total);
+  logAction('sitrep_2300', 'server', data.totals.inC + '/' + data.totals.total);
   return 'Sent 2300H';
 }
 
-// ── 0200H SITREP (always-in per curfew spec) ──
+// ── 0200H SITREP: all syndicates, but Syn 1 forced all-in per curfew spec ──
 function sendMidnightSitrep() {
-  const membersAll = readSheet(SHEETS.MEMBERS);
-  const members = membersAll.filter(m =>
-    m.csc === '57 CSC' && String(m.syndicate) === '1' &&
-    m.isDeleted !== 'true' && m.isDeleted !== true
-  );
-  const total = members.length;
-
   const bkk = bkkNow();
-  // 0200H covers the previous day's night, so use yesterday's date
   const yesterday = new Date(bkk.getTime() - 24*60*60*1000);
   const yLabel = Utilities.formatDate(yesterday, 'Asia/Bangkok', 'd MMM');
-
-  let msg = '<b>0200H SITREP</b>\n' + yLabel + '\n\n';
-  msg += '57 SYN 1\n\n';
-  msg += 'In Hotel: ' + total + '\n';
-  msg += 'Out: 0\n';
-  msg += 'Total: ' + total + '\n';
-  msg += '\nEnd of SITREP';
+  const data = _buildSitrepData(['57 CSC Syn 1']);   // force Syn 1 all-in only
+  const msg = _buildSitrepMessage(data, '0200H SITREP', yLabel);
   tgSend(msg, SYN1_CHAT);
-  logAction('sitrep_0200', 'server', total + '/' + total);
+  logAction('sitrep_0200', 'server', data.totals.inC + '/' + data.totals.total);
   return 'Sent 0200H';
 }
 
