@@ -545,7 +545,90 @@ const DAYS_MAP = {
 // Messages are hardcoded here (not read from Calendar sheet) so they're
 // always available and can be tweaked freely without touching the app.
 const DAILY_PREVIEWS = {
-  // ── T-3 · sent on 23 Apr (key is "tomorrow's date") ──
+  // ── T-5 · sent on 20 Apr (key = tomorrow's date) ──
+  '2026-04-21':
+`⏳ <b>5 days to TSV Bangkok</b>
+
+Still a week out — perfect time to get set up. 🧳
+
+A few things worth sorting this week:
+
+✅ Passport valid through Oct 2026
+✅ Travel insurance sorted
+✅ No. 3 Uniform pressed and packed
+✅ Smart casual kit ready (long pants, collared top, covered shoes)
+✅ Plug adapter (TH uses Type A / B / C)
+✅ Personal meds + any prescriptions
+
+—
+
+📱 Install the app on your phone now — takes 30 seconds:
+
+<b>iPhone:</b> Safari → Share → Add to Home Screen
+
+<b>Android:</b> Chrome → ⋮ → Install app
+
+https://57wbs1.github.io/TSV/
+
+Default PIN is <b>0000</b> — change it after first login.
+
+—
+
+Any questions, your Syn IC is on call.
+
+Countdown is on. ✈️`,
+
+  // ── T-4 · sent on 21 Apr ──
+  '2026-04-22':
+`⏳ <b>4 days to TSV Bangkok</b>
+
+Halfway through the week! 🎒
+
+Time to tick off the big-ticket items:
+
+✅ App installed + logged in
+✅ PIN changed from the default
+✅ Passport out of the drawer and into your bag
+✅ Check your booking email — booking ref handy
+✅ Any prescription meds picked up
+
+—
+
+🏨 <b>Hotel:</b> Pullman Bangkok Hotel G
+✈️ <b>Outbound:</b> SQ 708 · 0930H Sun 26 Apr
+📍 Check-in opens <b>0600H at Changi T2</b>
+
+—
+
+📱 Full schedule lives in the app — give it a browse:
+https://57wbs1.github.io/TSV/
+
+Light and steady from here. 💪`,
+
+  // ── T-3 · sent on 22 Apr ──
+  '2026-04-23':
+`⏳ <b>3 days to TSV Bangkok</b>
+
+Getting close! 🛫
+
+Final-stretch checks:
+
+✅ Online check-in opens ~48h out — do it early
+✅ Charge everything; pack chargers + power bank
+✅ Local currency / card set up
+✅ Smart casual + No. 3 pressed
+✅ App installed, logged in, PIN changed
+
+—
+
+📱 Open the app → pick your syndicate → pick your name → PIN
+https://57wbs1.github.io/TSV/
+
+Hit your Syn IC with any last-minute questions.
+
+Almost go-time. ✈️`,
+
+  // ── T-2 · sent on 23 Apr (key = 24 Apr) — original entry ──
   '2026-04-24':
 `⏳ <b>3 days to TSV Bangkok</b>
 
@@ -1014,7 +1097,52 @@ function sendWeatherBriefing() {
   if (/uniform|no.?3|no.?4/i.test('') || false) { /* future hook if event attire comes in */ }
   tips.push('🏃 Pace yourselves — Bangkok heat is cumulative across the day.');
 
-  let msg = '<b>🌤️ BKK Weather — ' + dateLabel + '</b>\n';
+  // Today's programme — pulls from Calendar sheet filtered to today's
+  // trip day. Finds the first event (by start time) and uses its attire.
+  const dayMeta = DAYS_MAP[today];
+  let programmeBlock = '';
+  let firstAttire = '';
+  if (dayMeta) {
+    try {
+      const cal = readSheet(SHEETS.CALENDAR).filter(e =>
+        parseInt(e.day) === dayMeta.day &&
+        e.isDeleted !== 'true' && e.isDeleted !== true
+      );
+      cal.sort((a, b) => (a.startTime || '').localeCompare(b.startTime || ''));
+      // Gist: pick up to 4 'big' events (skip admin / flight / transit where
+      // possible, unless they're the only ones). If fewer than 3 after
+      // filtering, fall back to first 4 chronologically.
+      const keyCats = ['visit','learning','scope','event','key'];
+      let gist = cal.filter(e => keyCats.indexOf((e.category || '').toLowerCase()) >= 0).slice(0, 4);
+      if (gist.length < 3) gist = cal.slice(0, 4);
+      if (cal.length) firstAttire = cal[0].attire || '';
+
+      if (gist.length) {
+        programmeBlock = '\n<b>Today · Day ' + dayMeta.day + ' · ' + dayMeta.icon + ' ' + dayMeta.theme + '</b>\n';
+        gist.forEach(ev => {
+          const t = (ev.startTime || '').replace(':','');
+          programmeBlock += '• ' + (t ? t + 'H · ' : '') + (ev.title || '') + '\n';
+        });
+        if (firstAttire) {
+          programmeBlock += '\n👔 <b>Attire for first event:</b> ' + firstAttire + '\n';
+        }
+      }
+    } catch (e) { logAction('weather_programme_fail','server', e.message); }
+  } else {
+    // Pre-trip morning — countdown line instead of programme
+    const tripStart = new Date('2026-04-26T00:00:00+07:00');
+    const tripEnd   = new Date('2026-04-30T23:59:59+07:00');
+    const nowTs = bkk.getTime();
+    if (nowTs < tripStart.getTime()) {
+      const days = Math.ceil((tripStart.getTime() - nowTs) / (24*60*60*1000));
+      programmeBlock = '\n🛫 <b>' + days + ' day' + (days===1?'':'s') + ' to TSV Bangkok</b>\n';
+    } else if (nowTs > tripEnd.getTime()) {
+      programmeBlock = '\n🏡 <b>Trip complete — welcome home.</b>\n';
+    }
+  }
+
+  let msg = '☀️ <b>Good morning, TSV!</b>\n';
+  msg += dateLabel + '\n';
   msg += '\n' + wc[0] + ' <b>' + wc[1] + '</b>\n';
   if (tMax != null && tMin != null) msg += '🌡️ ' + Math.round(tMin) + '°C → ' + Math.round(tMax) + '°C';
   if (feelsMax != null)              msg += ' · feels ' + Math.round(feelsMax) + '°C';
@@ -1025,6 +1153,8 @@ function sendWeatherBriefing() {
   msg += '\n';
   if (rainProb)       msg += '🌧️ Rain: ' + rainProb + '% · ' + (Math.round(rainSum*10)/10) + 'mm\n';
   if (uvMax != null)  msg += '☀️ UV: ' + Math.round(uvMax) + '/11\n';
+
+  msg += programmeBlock;
 
   msg += '\n<b>Today\'s tips</b>\n' + tips.map(t => '• ' + t).join('\n');
   msg += '\n\nStay sharp 🇹🇭';
