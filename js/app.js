@@ -690,7 +690,17 @@ function logout() {
 window.logout = logout;
 
 // ═══════════ NAVIGATION ══════════════════════════════════════
+// Legacy tab ids redirect to the new nested structure:
+//   'learnings' → calendar tab, Visits sub-tab
+//   'rooms'     → tracker (location) tab, Rooms sub-tab
+const TAB_REDIRECTS = {
+  learnings: () => { STATE.calendarSubTab = 'visits';       return 'calendar'; },
+  rooms:     () => { STATE.trackerView    = 'rooms';        return 'location'; }
+};
+
 function switchTab(tabId) {
+  if (TAB_REDIRECTS[tabId]) tabId = TAB_REDIRECTS[tabId]();
+
   document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
   el(`tab-${tabId}`)?.classList.add('active');
@@ -698,10 +708,8 @@ function switchTab(tabId) {
   STATE.currentTab = tabId;
 
   if (tabId === 'home')      renderHome();
-  if (tabId === 'calendar')  renderCalendar();
+  if (tabId === 'calendar')  { renderCalendar(); if (STATE.calendarSubTab === 'visits') syncLearnings(); }
   if (tabId === 'location')  renderLocation();
-  if (tabId === 'rooms')     renderRooms();
-  if (tabId === 'learnings') { renderLearnings(); syncLearnings(); if (STATE.learnSubTab === 'reflections') syncReflections(); }
   if (tabId === 'ir')        renderIR();
   if (tabId === 'sop')       renderSOP();
   if (tabId === 'settings')  renderSettings();
@@ -1335,6 +1343,26 @@ function getNextEvent(day, now) {
 
 // ═══════════ CALENDAR TAB ════════════════════════════════════
 function renderCalendar() {
+  // Calendar now hosts three sub-tabs: the schedule (default), Visits, Reflections.
+  const sub = STATE.calendarSubTab || 'schedule';
+  if (sub !== 'schedule') {
+    // Delegate to the Learn-style renderers and inject at the top of tab-calendar.
+    const container = el('tab-calendar');
+    if (!container) return;
+    container.innerHTML = `
+      <div class="subtab-row" id="calendar-subtabs">
+        <button class="subtab-btn" onclick="setCalendarSubTab('schedule')">📅 Calendar</button>
+        <button class="subtab-btn ${sub === 'visits'      ? 'active' : ''}" onclick="setCalendarSubTab('visits')">💡 Visits</button>
+        <button class="subtab-btn ${sub === 'reflections' ? 'active' : ''}" onclick="setCalendarSubTab('reflections')">📝 Reflections</button>
+      </div>
+      <div id="calendar-sub-content"></div>
+    `;
+    const body = el('calendar-sub-content');
+    if (body) body.innerHTML = sub === 'visits' ? renderVisitsSubTab() : renderReflectionsSubTab();
+    if (sub === 'reflections') syncReflections();
+    return;
+  }
+
   const dayTabs = DAYS.map(d => `
     <button class="day-tab ${STATE.scheduleDay === d.day ? 'active' : ''}"
       style="${STATE.scheduleDay === d.day ? `background:${d.color}` : ''}"
@@ -1378,11 +1406,11 @@ function renderCalendar() {
           ${ev.attire ? `<h5>👔 Attire</h5><p>${escapeHtml(ev.attire)}</p>` : ''}
           ${ev.remarks ? `<h5>📝 Remarks</h5><p>${escapeHtml(ev.remarks)}</p>` : ''}
           ${oicLines ? `<h5>👥 Functional OICs</h5>${oicLines}` : ''}
-          ${hasVisit ? `<h5>💡 Learning Visit</h5><p><a href="#" onclick="event.preventDefault(); switchTab('learnings'); openVisitDetail('${ev.visitId}')" style="color:var(--blue-600);font-weight:700">${escapeHtml(getVisitById(ev.visitId).title)} →</a></p>` : ''}
+          ${hasVisit ? `<h5>💡 Learning Visit</h5><p><a href="#" onclick="event.preventDefault(); setCalendarSubTab('visits'); openVisitDetail('${ev.visitId}')" style="color:var(--blue-600);font-weight:700">${escapeHtml(getVisitById(ev.visitId).title)} →</a></p>` : ''}
           <div class="cee-actions">
             ${attn ? `<button class="btn-attendance" onclick="event.stopPropagation(); showAttendancePicker('${ev.id}')">📋 Send Attendance</button>` : ''}
-            ${isAdmin() ? `<button class="btn btn-outline btn-xs" onclick="event.stopPropagation(); openEventEditor('${ev.id}')">✏️ Edit</button>` : ''}
-            <button class="btn btn-outline btn-xs" onclick="event.stopPropagation(); toggleEventExpand(null)">✕ Close</button>
+            ${isAdmin() ? `<button class="btn-cee-edit" onclick="event.stopPropagation(); openEventEditor('${ev.id}')">✏️ Edit</button>` : ''}
+            <button class="btn-cee-close" onclick="event.stopPropagation(); toggleEventExpand(null)">✕ Close</button>
           </div>
         </div>`;
     }
@@ -1415,6 +1443,11 @@ function renderCalendar() {
     </div>` : '';
 
   el('tab-calendar').innerHTML = `
+    <div class="subtab-row" id="calendar-subtabs">
+      <button class="subtab-btn active" onclick="setCalendarSubTab('schedule')">📅 Calendar</button>
+      <button class="subtab-btn" onclick="setCalendarSubTab('visits')">💡 Visits</button>
+      <button class="subtab-btn" onclick="setCalendarSubTab('reflections')">📝 Reflections</button>
+    </div>
     <div class="sticky-header">
       <div class="day-tabs-wrap">
         <div class="calendar-toolbar">
@@ -1448,6 +1481,12 @@ function isEventNow(ev, nowMins) {
 
 window.selectCalendarDay = function(d) { STATE.scheduleDay = d; renderCalendar(); };
 window.setCalFilter = function(c) { STATE.calendarCategoryFilter = c; renderCalendar(); };
+window.setCalendarSubTab = function(sub) {
+  STATE.calendarSubTab = sub;
+  renderCalendar();
+  if (sub === 'visits')      syncLearnings();
+  if (sub === 'reflections') syncReflections();
+};
 
 // Swipe between Tracker sub-views (List ↔ Map)
 function setupTrackerSwipe() {
@@ -1546,10 +1585,13 @@ window.promptAttendanceCount = function(groupKey, eventId) {
   const bkk = bkkNow();
   const dateLabel = bkk.toLocaleDateString('en-GB', {weekday:'short', day:'numeric', month:'short'});
   const status = n === total ? '✅' : '⚠️';
-  const msg = `📋 <b>ATTENDANCE</b> ${status}
-${formatGroupDisplay(groupKey)}: <b>${n}/${total}</b> present
-Event: ${ev.title}
-Time: ${ev.startTime}H · ${dateLabel}`;
+  // Spec: "[Event] Attendance Check" as header, blank line between sections,
+  // "Present" capitalised. Blank lines in Telegram need literal \n\n.
+  const msg = `<b>${escapeHtml(ev.title)} Attendance Check</b>
+
+${formatGroupDisplay(groupKey)}: <b>${n}/${total}</b> Present ${status}
+
+${ev.startTime}H · ${dateLabel}`;
 
   TELEGRAM.send(msg, CONFIG.telegram.chatId).then(ok => {
     if (ok) toast(`✅ Attendance sent: ${n}/${total}`);
@@ -1614,33 +1656,34 @@ window.openEventEditor = function(eventId) {
   el('event-editor-title').textContent = ev ? 'Edit Event' : 'Add Event';
   el('ev-delete-btn').style.display = ev ? 'inline-flex' : 'none';
 
-  el('ev-day').innerHTML = DAYS.map(d => `<option value="${d.day}" ${ev?.day === d.day ? 'selected' : ''}>Day ${d.day} — ${d.label}</option>`).join('');
-  el('ev-category').innerHTML = Object.entries(EVENT_CATEGORIES).map(([k,c]) => `<option value="${k}" ${ev?.category === k ? 'selected' : ''}>${c.icon} ${c.label}</option>`).join('');
+  // Stash the existing non-editable fields so saveEvent can preserve them.
+  STATE._editingEventOriginal = ev ? { ...ev } : null;
 
   el('ev-title').value = ev?.title || '';
   el('ev-start').value = ev?.startTime || '09:00';
   el('ev-end').value = ev?.endTime || '10:00';
-  el('ev-location').value = ev?.location || '';
   el('ev-attire').value = ev?.attire || '';
   el('ev-remarks').value = ev?.remarks || '';
-  if (!ev) el('ev-day').value = STATE.scheduleDay;
 
-  el('event-detail-modal').classList.add('hidden');
   el('event-editor').classList.remove('hidden');
 };
 window.hideEventEditor = function() { el('event-editor').classList.add('hidden'); _editingEventId = null; };
 
 window.saveEvent = async function() {
+  // Preserve fields that are not editable in the slimmed form.
+  const orig = STATE._editingEventOriginal || {};
   const payload = {
-    day: parseInt(el('ev-day').value),
+    day: orig.day ?? STATE.scheduleDay ?? 1,
     startTime: el('ev-start').value,
     endTime: el('ev-end').value,
     title: el('ev-title').value.trim(),
-    location: el('ev-location').value.trim(),
-    category: el('ev-category').value,
+    location: orig.location || '',
+    category: orig.category || 'other',
     attire: el('ev-attire').value,
     remarks: el('ev-remarks').value.trim(),
-    oics: {},
+    visitId: orig.visitId || '',
+    synicReport: orig.synicReport || false,
+    oics: orig.oics || {},
     actor: STATE.currentUser?.id || ''
   };
   if (!payload.title) return toast('Title is required');
@@ -1752,9 +1795,11 @@ function renderLocation() {
 
   el('tab-location').innerHTML = `
     <div class="subtab-row" id="tracker-subtabs">
-      <button class="subtab-btn ${trackerView === 'list' ? 'active' : ''}" onclick="setTrackerView('list')">📋 List</button>
-      <button class="subtab-btn ${trackerView === 'map'  ? 'active' : ''}" onclick="setTrackerView('map')">🗺️ Map</button>
+      <button class="subtab-btn ${trackerView === 'list'  ? 'active' : ''}" onclick="setTrackerView('list')">📋 List</button>
+      <button class="subtab-btn ${trackerView === 'map'   ? 'active' : ''}" onclick="setTrackerView('map')">🗺️ Map</button>
+      <button class="subtab-btn ${trackerView === 'rooms' ? 'active' : ''}" onclick="setTrackerView('rooms')">🛏️ Rooms</button>
     </div>
+    <div id="tracker-rooms-wrap" style="${trackerView === 'rooms' ? '' : 'display:none'}"></div>
     <div id="tracker-map-wrap" style="${trackerView === 'map' ? '' : 'display:none'}">
       <div id="map-container"><div id="leaflet-map"></div></div>
       <div class="map-legend" style="margin-top:10px">
@@ -1811,6 +1856,16 @@ function renderLocation() {
   // Initialize the map if the user is already on Map view
   if (trackerView === 'map') {
     setTimeout(() => initMap(), 100);
+  }
+  if (trackerView === 'rooms') {
+    // Inject the existing Rooms tab content into the Tracker wrap.
+    // renderRooms() writes to #tab-rooms; mirror it into #tracker-rooms-wrap.
+    setTimeout(() => {
+      renderRooms();
+      const host = el('tracker-rooms-wrap');
+      const src = el('tab-rooms');
+      if (host && src) host.innerHTML = src.innerHTML;
+    }, 30);
   }
 }
 
@@ -2086,19 +2141,28 @@ function initMap() {
   }
   if (typeof L === 'undefined') { setTimeout(initMap, 500); return; }
   STATE.map = L.map('leaflet-map', {
-    // keepBuffer: keep a ring of off-screen tiles so pan/zoom doesn't
-    // expose blank gaps while Leaflet fetches new ones.
-    renderer: L.canvas(),
     zoomAnimation: true,
     fadeAnimation: true,
-    preferCanvas: false
+    // Constrain the zoom range — zooming out past the tile layer's minZoom
+    // was showing a black void. minZoom=10 keeps Bangkok's whole metro
+    // visible but never further out than tiles can render.
+    minZoom: 10,
+    maxZoom: 18,
+    // Keep the camera inside a Bangkok-region box so users can't pan off
+    // the edge and see black. Covers hotel + all likely visit venues.
+    maxBounds: L.latLngBounds([13.40, 100.20], [14.05, 100.95]),
+    maxBoundsViscosity: 0.8,
+    worldCopyJump: false
   }).setView([CONFIG.hotel.lat, CONFIG.hotel.lng], 13);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution:'© OpenStreetMap',
-    maxZoom:19,
-    keepBuffer: 4,   // default is 2 — more tiles off-screen = less flashing
+    maxZoom:18,
+    minZoom:10,
+    keepBuffer: 6,           // generous ring of off-screen tiles
     updateWhenIdle: false,
-    updateWhenZooming: false
+    updateWhenZooming: true, // load tiles mid-zoom so we don't see blanks at the end
+    // If a tile errors, show a transparent png instead of the broken-image icon
+    errorTileUrl: 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='
   }).addTo(STATE.map);
   // Safety net — if the container size ever drifts from the map's internal
   // size (common after dvh changes when the iOS address bar toggles),

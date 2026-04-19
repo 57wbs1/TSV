@@ -299,18 +299,13 @@
     </div>
     <div class="editor-body">
       <div class="form-group">
-        <label>Title *</label>
-        <input id="ev-title" type="text" placeholder="e.g. Visit to ISIS">
+        <label>Title</label>
+        <input id="ev-title" type="text" placeholder="Event title">
       </div>
       <div class="form-row">
-        <div class="form-group"><label>Day *</label><select id="ev-day"></select></div>
-        <div class="form-group"><label>Category</label><select id="ev-category"></select></div>
+        <div class="form-group"><label>Start time</label><input id="ev-start" type="time"></div>
+        <div class="form-group"><label>End time</label><input id="ev-end" type="time"></div>
       </div>
-      <div class="form-row">
-        <div class="form-group"><label>Start *</label><input id="ev-start" type="time"></div>
-        <div class="form-group"><label>End *</label><input id="ev-end" type="time"></div>
-      </div>
-      <div class="form-group"><label>Location</label><input id="ev-location" type="text" placeholder="Venue / route"></div>
       <div class="form-group"><label>Attire</label>
         <select id="ev-attire">
           <option value="">—</option>
@@ -321,6 +316,7 @@
         </select>
       </div>
       <div class="form-group"><label>Remarks</label><textarea id="ev-remarks" placeholder="Notes, OIC instructions…"></textarea></div>
+      <!-- Advanced (day/category/location) kept out on purpose — admin can rebuild an event from scratch via Add. Spec: Edit only touches title, time, attire, remarks. -->
       <div class="editor-actions">
         <button class="btn btn-outline" onclick="hideEventEditor()">Cancel</button>
         <button class="btn btn-red btn-sm" id="ev-delete-btn" onclick="deleteEventConfirm()" style="display:none">🗑 Delete</button>
@@ -494,12 +490,6 @@
     </button>
     <button class="nav-btn" id="nav-location" data-tab="location">
       <span class="nav-icon">📍</span><span class="nav-label">Tracker</span>
-    </button>
-    <button class="nav-btn" id="nav-learnings" data-tab="learnings">
-      <span class="nav-icon">💡</span><span class="nav-label">Learn</span>
-    </button>
-    <button class="nav-btn" id="nav-rooms" data-tab="rooms">
-      <span class="nav-icon">🛏️</span><span class="nav-label">Rooms</span>
     </button>
     <button class="nav-btn urgent" id="nav-ir" data-tab="ir">
       <span class="nav-icon">🚨</span><span class="nav-label">IR</span>

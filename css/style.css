@@ -1794,15 +1794,23 @@ body::after {
   border: 1px solid var(--border-2);
   margin-bottom: 10px;
   position: relative;
-  contain: layout size;
+  /* Solid fallback bg so that when Leaflet repaints during zoom we see a
+     neutral grey / sea-tone rather than black if a tile hasn't loaded yet. */
+  background: #cfd8e0;
+}
+@media (prefers-color-scheme: dark) {
+  #map-container { background: #1e293b; }
 }
 #leaflet-map {
   height: 100%; width: 100%;
   position: absolute; inset: 0;
+  background: inherit;
 }
 /* Keep tile layer opaque during zoom so half-rendered tiles don't flash blank */
 #leaflet-map .leaflet-tile-pane { will-change: transform; }
 #leaflet-map .leaflet-fade-anim .leaflet-tile { transition: opacity .15s linear; }
+/* Hide the ugly 'broken tile' placeholder when OSM is slow */
+#leaflet-map .leaflet-tile-loaded { transition: opacity .15s; }
 .map-legend {
   display: flex; gap: 16px; flex-wrap: wrap;
   padding: 10px 12px;
@@ -2993,8 +3001,34 @@ body::after {
   letter-spacing: -.01em;
 }
 .btn-attendance:active { transform: scale(0.97); }
-/* Edit/Close stay compact so Send Attendance visually dominates */
-.cee-actions .btn.btn-outline { flex: 0 0 auto; padding: 8px 10px; }
+/* Edit/Close — high-contrast on the callout's dark-blue gradient bg */
+.btn-cee-edit, .btn-cee-close {
+  flex: 0 0 auto;
+  padding: 10px 14px;
+  border-radius: var(--r-full);
+  font-size: 12.5px;
+  font-weight: 800;
+  cursor: pointer;
+  border: 1.5px solid transparent;
+  transition: transform .12s var(--ease-out), background .15s var(--ease-out);
+  white-space: nowrap;
+  display: inline-flex; align-items: center; gap: 4px;
+}
+.btn-cee-edit {
+  background: #f59e0b;              /* amber */
+  color: #1f2937;
+  border-color: #b45309;
+  box-shadow: 0 3px 10px rgba(245,158,11,.35);
+}
+.btn-cee-close {
+  background: rgba(255,255,255,.12);
+  color: #f8fafc;
+  border-color: rgba(255,255,255,.28);
+}
+@media (prefers-color-scheme: dark) {
+  .btn-cee-close { color: #f8fafc; background: rgba(255,255,255,.15); }
+}
+.btn-cee-edit:active, .btn-cee-close:active { transform: scale(0.96); }
 .ce-title {
   font-size: 12.5px; font-weight: 800;   /* smaller but still bold */
   letter-spacing: -0.01em;
