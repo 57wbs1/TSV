@@ -1283,11 +1283,9 @@ function renderHome() {
     ${isAdmin() ? `
     <button class="btn-adhoc-inline" onclick="showAdhocPicker()">📤 Send Adhoc SITREP</button>` : ''}
 
-    <div class="parade-grid">
+    <div class="parade-grid two">
       <div class="parade-card in"><div class="big-num green">${inC}</div><div class="label">In Hotel</div></div>
       <div class="parade-card out"><div class="big-num ${outC>0?'red':'green'}">${outC}</div><div class="label">Out</div></div>
-      <div class="parade-card total"><div class="big-num blue">${total}</div><div class="label">Total</div></div>
-      <div class="parade-card status"><div class="big-num gold">${outC===0?'✓':outC}</div><div class="label">${outC===0?'All In':'Out Now'}</div></div>
     </div>
 
     ${nextEventHtml}
@@ -1775,6 +1773,20 @@ window.deleteEventConfirm = async function() {
 
 // ═══════════ LOCATION TAB ════════════════════════════════════
 function renderLocation() {
+  try {
+    return _renderLocationImpl();
+  } catch (err) {
+    console.error('[renderLocation] crash:', err);
+    el('tab-location').innerHTML = `
+      <div class="alert alert-red" style="margin:14px">
+        <b>Tracker failed to render.</b><br>
+        ${escapeHtml(err.message || String(err))}<br>
+        <button class="btn btn-outline btn-sm" style="margin-top:8px" onclick="window.location.reload()">Reload App</button>
+      </div>`;
+  }
+}
+
+function _renderLocationImpl() {
   const user = STATE.currentUser;
   const myStatus = getStatusOf(user?.id || '');
   const visibleGs = visibleGroups();
