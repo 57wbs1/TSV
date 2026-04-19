@@ -694,8 +694,9 @@ window.logout = logout;
 //   'learnings' → calendar tab, Visits sub-tab
 //   'rooms'     → tracker (location) tab, Rooms sub-tab
 const TAB_REDIRECTS = {
-  learnings: () => { STATE.calendarSubTab = 'visits';       return 'calendar'; },
-  rooms:     () => { STATE.trackerView    = 'rooms';        return 'location'; }
+  learnings: () => { STATE.calendarSubTab = 'visits';  return 'calendar'; },
+  rooms:     () => { STATE.trackerView    = 'rooms';   return 'location'; },
+  ir:        () => { STATE.sopSubTab      = 'ir';      return 'sop';      }
 };
 
 function switchTab(tabId) {
@@ -710,7 +711,6 @@ function switchTab(tabId) {
   if (tabId === 'home')      renderHome();
   if (tabId === 'calendar')  { renderCalendar(); if (STATE.calendarSubTab === 'visits') syncLearnings(); }
   if (tabId === 'location')  renderLocation();
-  if (tabId === 'ir')        renderIR();
   if (tabId === 'sop')       renderSOP();
   if (tabId === 'settings')  renderSettings();
 }
@@ -1801,6 +1801,23 @@ function renderLocation() {
     </div>
     <div id="tracker-rooms-wrap" style="${trackerView === 'rooms' ? '' : 'display:none'}"></div>
     <div id="tracker-map-wrap" style="${trackerView === 'map' ? '' : 'display:none'}">
+      <div class="map-filter-bar" id="map-filter-bar">
+        ${(() => {
+          const active = STATE.mapSynFilter || new Set(visibleGs);
+          // Normalise — if it's not a Set (e.g. after restore), convert
+          if (!(active instanceof Set)) STATE.mapSynFilter = new Set(active);
+          const set = STATE.mapSynFilter;
+          const all = set.size === visibleGs.length;
+          return `
+            <button class="map-chip ${all ? 'active' : ''}" onclick="setMapFilterAll()">All</button>
+            ${visibleGs.map(gk => `
+              <button class="map-chip ${set.has(gk) ? 'active' : ''}"
+                      style="${set.has(gk) ? `background:${synColor(gk)};border-color:${synColor(gk)}` : ''}"
+                      onclick="toggleMapSynFilter('${gk.replace(/'/g, "\\'")}')">${formatGroupDisplay(gk)}</button>
+            `).join('')}
+          `;
+        })()}
+      </div>
       <div id="map-container"><div id="leaflet-map"></div></div>
       <div class="map-legend" style="margin-top:10px">
         <div class="legend-item"><div class="legend-dot" style="background:#003580"></div>Hotel</div>
@@ -1873,6 +1890,27 @@ window.setTrackerView = function(view) {
   STATE.trackerView = view;
   renderLocation();
   if (view === 'map') setTimeout(() => initMap(), 100);
+};
+
+// Map syndicate filter — chips above the map. Toggle individual syndicates
+// in/out; 'All' resets to every visible group.
+window.toggleMapSynFilter = function(gk) {
+  const vis = visibleGroups();
+  if (!(STATE.mapSynFilter instanceof Set)) STATE.mapSynFilter = new Set(vis);
+  if (STATE.mapSynFilter.has(gk)) {
+    STATE.mapSynFilter.delete(gk);
+    // Don't allow zero groups — fall back to just this one
+    if (STATE.mapSynFilter.size === 0) STATE.mapSynFilter.add(gk);
+  } else {
+    STATE.mapSynFilter.add(gk);
+  }
+  renderLocation();
+  if (STATE.map) updateMapMarkers();
+};
+window.setMapFilterAll = function() {
+  STATE.mapSynFilter = new Set(visibleGroups());
+  renderLocation();
+  if (STATE.map) updateMapMarkers();
 };
 window.toggleSynGroup = function(s) {
   const m = el(`syn-members-${s}`), h = qs(`#sg-${s} .syn-header`);
@@ -2194,7 +2232,15 @@ function updateMapMarkers() {
   if (!STATE.map) return;
   Object.values(STATE.mapMarkers).forEach(m => m.remove());
   STATE.mapMarkers = {};
+  // Only plot members whose syndicate is in the active map filter. If the
+  // filter Set isn't initialised, default to all visible groups (so the
+  // first render shows everyone before the user narrows down).
+  const vis = visibleGroups();
+  if (!(STATE.mapSynFilter instanceof Set)) STATE.mapSynFilter = new Set(vis);
+  const filter = STATE.mapSynFilter;
   MEMBERS.forEach(m => {
+    const gk = memberGroupKey(m);
+    if (!filter.has(gk)) return;
     const st = getStatusOf(m.id);
     if (!st.lat || !st.lng) return;
     const isOut = st.status === 'out';
@@ -2696,9 +2742,42 @@ window.copyIR = function() {
 
 // ═══════════ SOP TAB ═════════════════════════════════════════
 function renderSOP() {
-  el('tab-sop').innerHTML = `
+  const sub = STATE.sopSubTab || 'sops';
+  const me = STATE.currentUser;
+  const myRole = (me?.role || '').toLowerCase();
+  // Only Syn IC / SL / Dy SL / admin may file IRs. Everyone else sees a
+  // hand-off notice directing them to their Syn IC + SL first.
+  const canFileIR = isAdmin() || /syn ic|\bsl\b|dy sl|dysl/.test(myRole);
+
+  const header = `
+    <div class="subtab-row" id="sop-subtabs">
+      <button class="subtab-btn ${sub === 'sops' ? 'active' : ''}" onclick="setSopSubTab('sops')">🛡️ SOPs</button>
+      <button class="subtab-btn ${sub === 'ir'   ? 'active' : ''}" onclick="setSopSubTab('ir')">🚨 Incident Report for Syn IC</button>
+    </div>`;
+
+  if (sub === 'ir') {
+    if (!canFileIR) {
+      el('tab-sop').innerHTML = `${header}
+        <div class="alert alert-red" style="margin:14px 0">
+          🚨 <b>For all members:</b> call your Syn IC and SL first. They will file the Incident Report.
+        </div>
+        <div class="section-title">Emergency Contacts</div>
+        <div class="contact-grid" style="margin-bottom:12px">
+          ${EMERGENCY_CONTACTS.map(c => `<a class="contact-card" href="tel:${c.dial || c.number}"><div class="c-flag">${c.flag}</div><div class="c-label">${c.label}</div><div class="c-number">${c.number}</div></a>`).join('')}
+        </div>`;
+      return;
+    }
+    // IR form lives in #tab-ir in the DOM. Render it, then hoist the body
+    // under the SOP sub-tab header so the whole flow is inside SOP.
+    renderIR();
+    const irHtml = el('tab-ir')?.innerHTML || '';
+    el('tab-sop').innerHTML = header + irHtml;
+    return;
+  }
+
+  el('tab-sop').innerHTML = `${header}
     <div class="alert alert-red" style="margin-bottom:12px">
-      🚨 <b>Any incident?</b> Use <b>IR tab</b> first, then call Syn IC and SL.
+      🚨 <b>For All — Call Syn IC & SL first.</b> IR submissions are filed by Syn IC only.
     </div>
     <div class="section-title">Emergency Contacts</div>
     <div class="contact-grid" style="margin-bottom:12px">
@@ -2718,6 +2797,10 @@ function renderSOP() {
     </div>
   `;
 }
+window.setSopSubTab = function(sub) {
+  STATE.sopSubTab = sub;
+  renderSOP();
+};
 window.toggleSOP = function(id) {
   const b = el(`sop-body-${id}`), a = el(`sop-arrow-${id}`), h = b?.previousElementSibling;
   if (!b) return;

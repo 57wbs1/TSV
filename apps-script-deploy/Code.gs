@@ -908,23 +908,16 @@ function _buildSitrepData(forceAllInGroups) {
 }
 
 function _buildSitrepMessage(data, header, dateLabel) {
+  // Layout per updated spec — no per-member Location block. Just the
+  // summary line pointing people to the app for specifics.
   let msg = '<b>' + header + '</b>\n' + dateLabel + '\n\n';
   data.groups.forEach(g => {
     const pct = g.total ? Math.round(g.inC / g.total * 100) : 0;
     const tick = pct === 100 ? '✅' : '⚠️';
     msg += g.label + ': ' + g.inC + '/' + g.total + ' (' + pct + '%) ' + tick + '\n';
   });
-  // Location block — every OUT member across all groups when anyone is out
-  const allOut = [];
-  data.groups.forEach(g => g.outMembers.forEach(om => allOut.push(om)));
-  if (allOut.length > 0) {
-    msg += '\nLocation\n';
-    allOut.forEach(om => {
-      msg += om.name + ' (' + om.groupLabel + ') - ' + om.loc + '\n';
-    });
-  }
-  msg += '\n' + data.totals.outC + '/' + data.totals.total + ' Out\n';
-  msg += 'Refer to TSV App for Details\n';
+  msg += '\nOut: ' + data.totals.outC + '/' + data.totals.total + '\n';
+  msg += 'Location: Refer to TSV App for Details\n\n';
   msg += 'End of SITREP';
   return msg;
 }
