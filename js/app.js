@@ -1027,7 +1027,15 @@ async function syncMembers() {
   if (STATE.currentUser) {
     const me = MEMBERS.find(m => m.id === STATE.currentUser.id);
     if (me) {
+      // PIN protection: if the local device set a new PIN recently
+      // (within 5 minutes), don't let the server response overwrite it.
+      // Handles races where a kill-switch reload / SW update triggers
+      // a sync before the server has fully committed the PIN write.
+      const pinLockUntil = parseInt(localStorage.getItem('tsv_pin_lock_until') || '0');
+      const pinLocked = Date.now() < pinLockUntil;
+      const preservedPin = pinLocked ? STATE.currentUser.pin : null;
       STATE.currentUser = { ...STATE.currentUser, ...me };
+      if (preservedPin) STATE.currentUser.pin = preservedPin;
       saveIdentity(STATE.currentUser);
     }
   }
@@ -4092,6 +4100,9 @@ window.submitPinChange = async function() {
   saveIdentity(user);
   const idx = MEMBERS.findIndex(m => m.id === user.id);
   if (idx >= 0) MEMBERS[idx] = { ...MEMBERS[idx], pin: newPin };
+  // Lock local PIN for 5 minutes against any accidental overwrite by a
+  // racing syncMembers (app update reloads, SW takeover, another tab etc.)
+  localStorage.setItem('tsv_pin_lock_until', String(Date.now() + 5 * 60 * 1000));
   _lastMembersHash = '';
   const ok = await withLoader('Updating your PIN…', () =>
     API.post('updateMember', { id: user.id, pin: newPin, actor: user.id })
@@ -4102,6 +4113,15 @@ window.submitPinChange = async function() {
     return;
   }
   await syncMembers();
+  // Belt-and-braces: reassert the new PIN on currentUser + MEMBERS + storage.
+  // syncMembers restores from the lock but this guarantees correctness even
+  // if some other code path mutated currentUser in between.
+  if (STATE.currentUser) {
+    STATE.currentUser.pin = newPin;
+    saveIdentity(STATE.currentUser);
+  }
+  const idx2 = MEMBERS.findIndex(m => m.id === user.id);
+  if (idx2 >= 0) MEMBERS[idx2].pin = newPin;
   hidePinChange();
   toast('✅ PIN changed to ' + newPin);
 };
