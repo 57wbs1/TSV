@@ -232,13 +232,14 @@
         <label>New Syndicate</label>
         <input id="ed-custom-syn" type="text" placeholder="e.g. 2">
       </div>
-      <div id="ed-admin-row" class="form-group hidden" style="border-top:1px solid var(--border-2);padding-top:12px;margin-top:4px">
-        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-weight:700;color:#b45309">
-          <input id="ed-admin" type="checkbox" style="width:20px;height:20px;accent-color:#f59e0b">
-          <span>👑 Grant Admin rights</span>
-        </label>
-        <div style="font-size:10.5px;color:var(--text-3);margin-top:4px;margin-left:30px">
-          Super-admin only. Admins can edit calendar, manage members, send Telegram reports.
+      <div id="ed-admin-row" class="form-group hidden" style="border-top:1px solid var(--border-2);padding-top:14px;margin-top:4px">
+        <label style="display:block;font-size:11px;font-weight:800;letter-spacing:.05em;color:#b45309;text-transform:uppercase;margin-bottom:6px">👑 User Rights</label>
+        <select id="ed-admin" style="width:100%">
+          <option value="false">Non-Admin — standard member</option>
+          <option value="true">Admin — can edit calendar, manage members, send reports</option>
+        </select>
+        <div style="font-size:10.5px;color:var(--text-3);margin-top:6px">
+          Super-admin only. Changes take effect on next login.
         </div>
       </div>
       <div class="editor-actions">

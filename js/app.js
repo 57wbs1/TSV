@@ -3289,9 +3289,9 @@ window.openMemberEditor = function(memberId) {
   // Admin toggle — super-admin (Caspar) only
   const isSuperAdmin = STATE.currentUser?.id === CONFIG.superAdminId;
   const adminRow = el('ed-admin-row');
-  const adminBox = el('ed-admin');
+  const adminSel = el('ed-admin');
   if (adminRow) adminRow.classList.toggle('hidden', !isSuperAdmin);
-  if (adminBox) adminBox.checked = !!(m && (m.isAdmin === true || m.isAdmin === 'true'));
+  if (adminSel) adminSel.value = (m && (m.isAdmin === true || m.isAdmin === 'true')) ? 'true' : 'false';
   el('member-editor').classList.remove('hidden');
 };
 window.hideMemberEditor = function() { el('member-editor').classList.add('hidden'); _editingMemberId = null; };
@@ -3321,7 +3321,7 @@ window.saveMember = async function() {
   const payload = { name, shortName, rank, role, csc, syndicate: syn, actor: STATE.currentUser?.id || '' };
   // Only super-admin can toggle admin rights — enforced client + server-side
   if (STATE.currentUser?.id === CONFIG.superAdminId) {
-    payload.isAdmin = el('ed-admin')?.checked ? 'true' : 'false';
+    payload.isAdmin = el('ed-admin')?.value === 'true' ? 'true' : 'false';
   }
   if (_editingMemberId) {
     payload.id = _editingMemberId;

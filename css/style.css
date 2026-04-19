@@ -2732,7 +2732,7 @@ body::after {
    MANAGE MEMBERS (ADMIN)
    ══════════════════════════════════════════════════════════ */
 .members-header {
-  padding: 14px 18px 12px;
+  padding: calc(14px + var(--safe-t)) 18px 12px;
   display: flex; align-items: center; gap: 8px;
   border-bottom: 1px solid var(--border-2);
 }
@@ -2823,17 +2823,22 @@ body::after {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .mgr-row .mgr-edit-btn {
-  background: var(--n-100);
-  border: 1px solid var(--border);
-  padding: 6px 12px;
-  border-radius: var(--r-sm);
+  background: linear-gradient(135deg, var(--blue-600), var(--blue-500));
+  border: none;
+  padding: 7px 14px;
+  border-radius: var(--r-full);
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 800;
   cursor: pointer;
-  color: var(--blue-600);
-  transition: all .15s var(--ease-out);
+  color: #fff;
+  letter-spacing: .02em;
+  box-shadow: 0 2px 6px rgba(0,53,128,.3);
+  transition: transform .12s var(--ease-out);
 }
-.mgr-row .mgr-edit-btn:active { transform: scale(0.94); background: var(--blue-50); }
+.mgr-row .mgr-edit-btn:active { transform: scale(0.94); }
+@media (prefers-color-scheme: dark) {
+  .mgr-row .mgr-edit-btn { background: linear-gradient(135deg, #3b82f6, #60a5fa); color: #0b1120; box-shadow: 0 2px 8px rgba(59,130,246,.4); }
+}
 
 .mgr-body { display: none; }
 .mgr-body.open { display: block; animation: fadeIn .2s; }
