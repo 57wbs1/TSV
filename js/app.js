@@ -3440,14 +3440,20 @@ function renderRooms() {
   const filter = STATE.roomsFilter;
   const groups = visibleGroups();
   if (!STATE.expandedRoomsGroups) STATE.expandedRoomsGroups = new Set();
-  // Non-admins (who only see their own syndicate) default to expanded; admins default to collapsed
-  const nonAdminAutoExpand = !canSeeAllSyndicates() && groups.length === 1;
+  // Non-admins viewing their single syndicate get it expanded BY DEFAULT
+  // (one-time, first render only). After that, their toggle state wins —
+  // otherwise they could never collapse it. We track the 'seeded' flag
+  // in state so the default only applies once per session.
+  if (!STATE._roomsAutoExpanded && !canSeeAllSyndicates() && groups.length === 1) {
+    STATE.expandedRoomsGroups.add(groups[0]);
+    STATE._roomsAutoExpanded = true;
+  }
 
   const groupSections = groups.map(gk => {
     if (filter !== 'all' && filter !== gk) return '';
     const members = membersInGroup(gk);
     if (!members.length) return '';
-    const isOpen = nonAdminAutoExpand || STATE.expandedRoomsGroups.has(gk);
+    const isOpen = STATE.expandedRoomsGroups.has(gk);
     const rows = !isOpen ? '' : members.map(m => {
       const st = getStatusOf(m.id);
       const rm = st.roomNumber || '';
