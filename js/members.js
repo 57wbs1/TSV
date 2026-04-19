@@ -145,26 +145,43 @@ function groupColorFor(groupKey) {
   return palette[hash % palette.length];
 }
 
-// Group order: 57 SYN 1 → PSO → 57 SYN 3 → 57 SYN 4 → 25E → 26E → 27E
+// Group order: PSO → 57 SYN 1 → 57 SYN 3 → 57 SYN 4 → 25E → 26E → 27E
 function computeGroupOrder() {
   const set = new Set();
   MEMBERS.forEach(m => set.add(memberGroupKey(m)));
   const all = [...set];
   const priority = {};
-  priority[PRIORITY_GROUP] = 0;
-  priority['Leadership']   = 1;
+  priority['Leadership']   = 0;   // PSO / Comdt / DS at the top
+  priority[PRIORITY_GROUP] = 1;   // Then 57 SYN 1
   all.forEach(gk => {
     if (priority[gk] !== undefined) return;
-    // Main course: "57 CSC Syn 3" → use just the syn number (3)
     const mainMatch = gk.match(/^57 CSC Syn (\d+)$/i);
     if (mainMatch) { priority[gk] = 10 + parseInt(mainMatch[1]); return; }
-    // Executive courses: "25th CSC (E) Syn 18" → order by course number (25, 26, 27)
     const execMatch = gk.match(/^(\d+)(?:th)?\s*CSC\s*\(E\)/i);
     if (execMatch) { priority[gk] = 100 + parseInt(execMatch[1]); return; }
     priority[gk] = 999;
   });
   all.sort((a, b) => priority[a] - priority[b]);
   return all;
+}
+
+// Member sort within a group.
+//   Leadership: COL Fun (Comdt) first, then rank-ordered (COL > SLTC > LTC > WCDR).
+//   Everyone else: roster order (as added).
+const _LEADERSHIP_RANK_WEIGHT = { COL: 0, SLTC: 1, LTC: 2, WCDR: 3, 'WG CDR': 3, 'SQN LDR': 4, MAJ: 5 };
+function sortMembersInGroup(members, groupKey) {
+  if (groupKey !== 'Leadership') return members;
+  return [...members].sort((a, b) => {
+    // Comdt always first
+    if (a.id === 'comdt' && b.id !== 'comdt') return -1;
+    if (b.id === 'comdt' && a.id !== 'comdt') return 1;
+    // Then by rank weight (COL high, MAJ low)
+    const ra = _LEADERSHIP_RANK_WEIGHT[a.rank] ?? 99;
+    const rb = _LEADERSHIP_RANK_WEIGHT[b.rank] ?? 99;
+    if (ra !== rb) return ra - rb;
+    // Finally by name for stability
+    return String(a.name).localeCompare(String(b.name));
+  });
 }
 
 function getCSCsInUse() {

@@ -509,7 +509,10 @@ function outCountDisplay()   { return STATE.membersSynced ? outCountScoped() : '
 function totalCountDisplay() { return STATE.membersSynced ? scopedMembers().length : '…'; }
 function synColor(g) { return groupColorFor(g); }
 function groupOrder() { return computeGroupOrder(); }
-function membersInGroup(g) { return MEMBERS.filter(m => memberGroupKey(m) === g); }
+function membersInGroup(g) {
+  const list = MEMBERS.filter(m => memberGroupKey(m) === g);
+  return (typeof sortMembersInGroup === 'function') ? sortMembersInGroup(list, g) : list;
+}
 // Real underlying admin permission (doesn't change with view toggle)
 function hasAdminRights() {
   const u = STATE.currentUser;

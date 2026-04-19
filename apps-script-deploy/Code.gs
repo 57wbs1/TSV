@@ -845,9 +845,9 @@ function _formatGroup(gk) {
   return gk;
 }
 function _groupPriority(gk) {
-  if (gk === 'Leadership') return 1;  // PSO second after Syn 1
+  if (gk === 'Leadership') return 0;  // PSO first (COL Fun etc.)
   var main = gk.match(/^57 CSC Syn (\d+)$/i);
-  if (main) return parseInt(main[1]) === 1 ? 0 : 10 + parseInt(main[1]);
+  if (main) return parseInt(main[1]) === 1 ? 1 : 10 + parseInt(main[1]);
   var exec = gk.match(/^(\d+)(?:th)?\s*CSC\s*\(E\)/i);
   if (exec) return 100 + parseInt(exec[1]);
   return 999;
