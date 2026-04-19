@@ -149,6 +149,33 @@ function updateQueueIndicator() {
   el0.textContent = `⏳ ${n} pending`;
 }
 
+// Centre-screen sync HUD helpers. Wrap any user-initiated async action
+// with withLoader('label', () => …) to show a blocking spinner + message
+// while the promise is in flight. Counter-based so nested calls don't
+// hide the overlay prematurely.
+let _syncOverlayCount = 0;
+function showSyncOverlay(label = 'Syncing…') {
+  _syncOverlayCount++;
+  const o = el('sync-overlay');
+  if (!o) return;
+  const lbl = o.querySelector('.so-label');
+  if (lbl) lbl.textContent = label;
+  o.classList.remove('hidden');
+  o.setAttribute('aria-hidden', 'false');
+}
+function hideSyncOverlay() {
+  _syncOverlayCount = Math.max(0, _syncOverlayCount - 1);
+  if (_syncOverlayCount === 0) {
+    const o = el('sync-overlay');
+    if (o) { o.classList.add('hidden'); o.setAttribute('aria-hidden', 'true'); }
+  }
+}
+async function withLoader(label, fn) {
+  showSyncOverlay(label);
+  try { return await fn(); }
+  finally { hideSyncOverlay(); }
+}
+
 // Saving indicator — shows a floating chip while any mutation is in flight.
 let _savingCount = 0;
 function beginSaving() {
@@ -2393,7 +2420,7 @@ window.confirmLeaveHotel = async function() {
   STATE._pendingGPS = null;
   const now = new Date().toISOString();
 
-  // Mark ME as out
+  // Mark ME as out (local) then mark me + all buddies on the server.
   STATE.memberStatuses[user.id] = {
     ...existingStatus,
     status: 'out',
@@ -2403,35 +2430,36 @@ window.confirmLeaveHotel = async function() {
     buddyWith: buddyLabels.join(', '),
     lastUpdated: now
   };
-  await API.post('updateStatus', {
-    memberId: user.id, name: user.name, shortName: user.shortName,
-    role: user.role, syndicate: user.syndicate,
-    status: 'out', locationText: locText,
-    lat: useLat, lng: useLng,
-    buddyWith: buddyLabels.join(', '),
-    roomNumber: existingStatus.roomNumber || ''
-  });
-
-  // Mark EACH buddy as out too — same location text, GPS only for caller
-  for (const b of buddyObjs) {
-    const otherNames = [myLabel, ...buddyLabels.filter(n => n !== (b.shortName || b.name))];
-    const bStatus = getStatusOf(b.id);
-    STATE.memberStatuses[b.id] = {
-      ...bStatus,
-      status: 'out',
-      locationText: locText,
-      buddyWith: otherNames.join(', '),
-      lastUpdated: now
-    };
+  const nPeople = 1 + buddyObjs.length;
+  await withLoader(`Marking ${nPeople} out of hotel…`, async () => {
     await API.post('updateStatus', {
-      memberId: b.id, name: b.name, shortName: b.shortName,
-      role: b.role, syndicate: b.syndicate,
+      memberId: user.id, name: user.name, shortName: user.shortName,
+      role: user.role, syndicate: user.syndicate,
       status: 'out', locationText: locText,
-      lat: bStatus.lat || '', lng: bStatus.lng || '',
-      buddyWith: otherNames.join(', '),
-      roomNumber: bStatus.roomNumber || ''
+      lat: useLat, lng: useLng,
+      buddyWith: buddyLabels.join(', '),
+      roomNumber: existingStatus.roomNumber || ''
     });
-  }
+    for (const b of buddyObjs) {
+      const otherNames = [myLabel, ...buddyLabels.filter(n => n !== (b.shortName || b.name))];
+      const bStatus = getStatusOf(b.id);
+      STATE.memberStatuses[b.id] = {
+        ...bStatus,
+        status: 'out',
+        locationText: locText,
+        buddyWith: otherNames.join(', '),
+        lastUpdated: now
+      };
+      await API.post('updateStatus', {
+        memberId: b.id, name: b.name, shortName: b.shortName,
+        role: b.role, syndicate: b.syndicate,
+        status: 'out', locationText: locText,
+        lat: bStatus.lat || '', lng: bStatus.lng || '',
+        buddyWith: otherNames.join(', '),
+        roomNumber: bStatus.roomNumber || ''
+      });
+    }
+  });
 
   renderLocation();
   renderPinnedActionBar();
@@ -2445,26 +2473,30 @@ window.returnToHotel = async function() {
   STATE.memberStatuses[user.id] = { status:'in_hotel', locationText:'Hotel', lat:CONFIG.hotel.lat, lng:CONFIG.hotel.lng, buddyWith:'', lastUpdated:new Date().toISOString() };
   renderLocation();
   renderPinnedActionBar();
-  await API.post('updateStatus', { memberId:user.id, name:user.name, shortName:user.shortName, role:user.role, syndicate:user.syndicate, status:'in_hotel', locationText:'Hotel', lat:CONFIG.hotel.lat, lng:CONFIG.hotel.lng, buddyWith:'' });
+  await withLoader('Marking you back in hotel…', () =>
+    API.post('updateStatus', { memberId:user.id, name:user.name, shortName:user.shortName, role:user.role, syndicate:user.syndicate, status:'in_hotel', locationText:'Hotel', lat:CONFIG.hotel.lat, lng:CONFIG.hotel.lng, buddyWith:'' })
+  );
   toast('🏨 Welcome back!');
 };
 
 window.shareGPS = async function() {
   const user = STATE.currentUser;
   if (!user) return;
-  try {
-    const pos = await new Promise((r,rj) => navigator.geolocation.getCurrentPosition(r,rj,{timeout:8000}));
-    const lat = pos.coords.latitude, lng = pos.coords.longitude;
-    STATE.memberStatuses[user.id] = { ...getStatusOf(user.id), lat, lng, lastUpdated:new Date().toISOString() };
-    await API.post('updateStatus', {
-      memberId:user.id, name:user.name, shortName:user.shortName, role:user.role, syndicate:user.syndicate,
-      status:getStatusOf(user.id).status, locationText:getStatusOf(user.id).locationText,
-      lat, lng, buddyWith:getStatusOf(user.id).buddyWith
-    });
-    toast('📡 GPS shared!');
-    renderPinnedActionBar();
-    if (STATE.map) updateMapMarkers();
-  } catch { toast('❌ GPS unavailable — enter location manually'); }
+  await withLoader('Sharing GPS…', async () => {
+    try {
+      const pos = await new Promise((r,rj) => navigator.geolocation.getCurrentPosition(r,rj,{timeout:8000}));
+      const lat = pos.coords.latitude, lng = pos.coords.longitude;
+      STATE.memberStatuses[user.id] = { ...getStatusOf(user.id), lat, lng, lastUpdated:new Date().toISOString() };
+      await API.post('updateStatus', {
+        memberId:user.id, name:user.name, shortName:user.shortName, role:user.role, syndicate:user.syndicate,
+        status:getStatusOf(user.id).status, locationText:getStatusOf(user.id).locationText,
+        lat, lng, buddyWith:getStatusOf(user.id).buddyWith
+      });
+      toast('📡 GPS shared!');
+      renderPinnedActionBar();
+      if (STATE.map) updateMapMarkers();
+    } catch { toast('❌ GPS unavailable — enter location manually'); }
+  });
 };
 
 window.updateLocationText = function() {
@@ -2836,11 +2868,10 @@ window.postVisitLearning = async function(visitId) {
   ta.value = '';
   STATE.composeAhha = false;
 
-  // Post to internal Learnings sheet AND to the Daily Learning Hotwash sheet
-  await Promise.all([
+  await withLoader('Posting your learning…', () => Promise.all([
     API.post('addLearning', post),
     API.post('postHotwash', {
-      dayTab: String(25 + (visit?.dayNum || 1)),  // Day 1 → tab "26", Day 2 → "27", etc.
+      dayTab: String(25 + (visit?.dayNum || 1)),
       date: visit?.date || '',
       visitTitle: visit?.title || '',
       authorName: user.name,
@@ -2848,7 +2879,7 @@ window.postVisitLearning = async function(visitId) {
       content: content,
       isAhha: STATE.composeAhha ? 'Ah-Ha' : ''
     })
-  ]);
+  ]));
   toast('✅ Posted to app + hotwash sheet');
   openVisitDetail(visitId);
 };
@@ -2885,7 +2916,7 @@ window.postReflection = async function() {
   };
   STATE.reflections.unshift(post);
   ta.value = '';
-  await API.post('addReflection', post);
+  await withLoader('Posting reflection…', () => API.post('addReflection', post));
   toast('✅ Reflection posted');
   renderLearnings();
 };
@@ -3054,7 +3085,7 @@ window.updateIRPreview = function() {
 
 window.sendIR = async function() {
   if (!window._irText) return toast('Fill in details first');
-  const ok = await TELEGRAM.send(window._irText, CONFIG.telegram.irChatId, 'Markdown');
+  const ok = await withLoader('Sending Incident Report…', () => TELEGRAM.send(window._irText, CONFIG.telegram.irChatId, 'Markdown'));
   if (!ok) return toast('❌ Telegram send failed');
   toast('✅ IR sent!');
   await API.post('addIncident', {
@@ -3154,7 +3185,7 @@ window.copyReflectionTemplate = function() { navigator.clipboard.writeText(REFLE
 window.sendReport = async function(type) {
   const msg = type === 'evening' ? TELEGRAM.buildEveningReport() : TELEGRAM.buildMidnightReport();
   if (!confirm(`Send ${type === 'evening' ? '2300H SITREP' : '0200H All-In'}?\n\n${msg.replace(/<[^>]+>/g,'').slice(0,200)}…`)) return;
-  const ok = await TELEGRAM.send(msg);
+  const ok = await withLoader('Sending SITREP…', () => TELEGRAM.send(msg));
   if (ok) {
     STATE.reportSent[type] = true;
     toast(`✅ ${type} report sent!`);
@@ -3388,36 +3419,36 @@ function startApp() {
 async function manualRefresh() {
   const btn = el('btn-refresh');
   if (btn) btn.classList.add('spinning');
-  try {
-    // Check for new app version first — if there is one, take it and reload.
-    if ('serviceWorker' in navigator) {
-      try {
-        const reg = await navigator.serviceWorker.getRegistration();
-        if (reg) {
-          await reg.update();
-          if (reg.waiting) {
-            reg.waiting.postMessage('SKIP_WAITING');
-            // controllerchange listener will reload us
-            toast('⬇️ New version, reloading…');
-            return;
+  await withLoader('Refreshing…', async () => {
+    try {
+      if ('serviceWorker' in navigator) {
+        try {
+          const reg = await navigator.serviceWorker.getRegistration();
+          if (reg) {
+            await reg.update();
+            if (reg.waiting) {
+              reg.waiting.postMessage('SKIP_WAITING');
+              toast('⬇️ New version, reloading…');
+              return;
+            }
           }
-        }
-      } catch {}
+        } catch {}
+      }
+      await Promise.all([
+        syncMembers(),
+        syncStatuses(),
+        syncCalendar(),
+        syncLearnings(),
+        STATE.learnSubTab === 'reflections' ? syncReflections() : Promise.resolve()
+      ]);
+      refreshWeather();
+      toast('✓ Refreshed');
+    } catch {
+      toast('⚠ Refresh failed');
+    } finally {
+      if (btn) setTimeout(() => btn.classList.remove('spinning'), 400);
     }
-    await Promise.all([
-      syncMembers(),
-      syncStatuses(),
-      syncCalendar(),
-      syncLearnings(),
-      STATE.learnSubTab === 'reflections' ? syncReflections() : Promise.resolve()
-    ]);
-    refreshWeather();
-    toast('✓ Refreshed');
-  } catch {
-    toast('⚠ Refresh failed');
-  } finally {
-    if (btn) setTimeout(() => btn.classList.remove('spinning'), 400);
-  }
+  });
 }
 
 // ═══════════ INIT ════════════════════════════════════════════
@@ -3604,7 +3635,8 @@ window.sendSyndicateSITREP = async function(groupKey, auto) {
     if (!confirm(`Send this SITREP?\n\n${msg}`)) return;
   }
   const chatId = groupKey === PRIORITY_GROUP ? CONFIG.telegram.syn1ChatId : CONFIG.telegram.chatId;
-  const ok = await TELEGRAM.send(msg.replace(/\n/g, '\n'), chatId);
+  const send = () => TELEGRAM.send(msg.replace(/\n/g, '\n'), chatId);
+  const ok = auto ? await send() : await withLoader(`Sending ${formatGroupDisplay(groupKey)} SITREP…`, send);
   if (ok && !auto) toast(`✅ ${groupKey} SITREP sent`);
   return ok;
 };
@@ -3992,7 +4024,7 @@ window.submitErrorReport = async function() {
   const CASPAR_TG_ID = '922547929';
   hint.textContent = '📤 Sending…';
   hint.style.color = 'var(--text-3)';
-  const ok = await TELEGRAM.send(msg, CASPAR_TG_ID, 'HTML');
+  const ok = await withLoader('Sending error report…', () => TELEGRAM.send(msg, CASPAR_TG_ID, 'HTML'));
   if (ok) {
     toast('✅ Error report sent — Caspar will take a look');
     hideErrorReport();
@@ -4065,13 +4097,14 @@ window.submitPinChange = async function() {
   const idx = MEMBERS.findIndex(m => m.id === user.id);
   if (idx >= 0) MEMBERS[idx] = { ...MEMBERS[idx], pin: newPin };
   _lastMembersHash = '';
-  const ok = await API.post('updateMember', { id: user.id, pin: newPin, actor: user.id });
+  const ok = await withLoader('Updating your PIN…', () =>
+    API.post('updateMember', { id: user.id, pin: newPin, actor: user.id })
+  );
   if (!ok) {
     hint.textContent = '⚠️ Save failed — check connection';
     hint.style.color = 'var(--red-600, #dc2626)';
     return;
   }
-  // Post-mutation: fresh sync to pick up the canonical server value.
   await syncMembers();
   hidePinChange();
   toast('✅ PIN changed to ' + newPin);
@@ -4207,17 +4240,18 @@ window.bulkMarkAllIn = async function(groupKey) {
     };
   }
   renderLocation();
-  // Fire all POSTs in parallel — API.post locks the statuses domain
-  await Promise.all(members.map(m => {
-    const cur = getStatusOf(m.id);
-    return API.post('updateStatus', {
-      memberId: m.id, name: m.name, shortName: m.shortName,
-      role: m.role, syndicate: m.syndicate,
-      status: 'in_hotel', locationText: 'Hotel',
-      lat: cur.lat || '', lng: cur.lng || '',
-      buddyWith: '', roomNumber: cur.roomNumber || ''
-    });
-  }));
+  await withLoader(`Marking ${members.length} back in hotel…`, () =>
+    Promise.all(members.map(m => {
+      const cur = getStatusOf(m.id);
+      return API.post('updateStatus', {
+        memberId: m.id, name: m.name, shortName: m.shortName,
+        role: m.role, syndicate: m.syndicate,
+        status: 'in_hotel', locationText: 'Hotel',
+        lat: cur.lat || '', lng: cur.lng || '',
+        buddyWith: '', roomNumber: cur.roomNumber || ''
+      });
+    }))
+  );
   toast(`🏨 ${members.length} marked IN`);
 };
 
@@ -4239,16 +4273,18 @@ window.icMarkMember = async function(memberId, targetStatus) {
     lastUpdated: now
   };
   renderLocation();
-  await API.post('updateStatus', {
-    memberId: m.id, name: m.name, shortName: m.shortName,
-    role: m.role, syndicate: m.syndicate,
-    status: targetStatus === 'out' ? 'out' : 'in_hotel',
-    locationText: targetStatus === 'out' ? 'Vicinity of Hotel' : 'Hotel',
-    lat: targetStatus === 'in' ? CONFIG.hotel.lat : (cur.lat || ''),
-    lng: targetStatus === 'in' ? CONFIG.hotel.lng : (cur.lng || ''),
-    buddyWith: targetStatus === 'in' ? '' : (cur.buddyWith || ''),
-    roomNumber: cur.roomNumber || ''
-  });
+  await withLoader(`Marking ${m.shortName || m.name} ${verb}…`, () =>
+    API.post('updateStatus', {
+      memberId: m.id, name: m.name, shortName: m.shortName,
+      role: m.role, syndicate: m.syndicate,
+      status: targetStatus === 'out' ? 'out' : 'in_hotel',
+      locationText: targetStatus === 'out' ? 'Vicinity of Hotel' : 'Hotel',
+      lat: targetStatus === 'in' ? CONFIG.hotel.lat : (cur.lat || ''),
+      lng: targetStatus === 'in' ? CONFIG.hotel.lng : (cur.lng || ''),
+      buddyWith: targetStatus === 'in' ? '' : (cur.buddyWith || ''),
+      roomNumber: cur.roomNumber || ''
+    })
+  );
   toast(`✓ ${m.shortName || m.name} marked ${verb}`);
 };
 
@@ -4283,15 +4319,17 @@ window.stopTracking = async function() {
   if (!confirm('Stop sharing your GPS location?\nYou will be removed from the live map.')) return;
   const cur = getStatusOf(user.id);
   STATE.memberStatuses[user.id] = { ...cur, lat: null, lng: null, lastUpdated: new Date().toISOString() };
-  await API.post('updateStatus', {
-    memberId: user.id, name: user.name, shortName: user.shortName,
-    role: user.role, syndicate: user.syndicate,
-    status: cur.status || 'in_hotel',
-    locationText: cur.locationText || '',
-    lat: '', lng: '',
-    buddyWith: cur.buddyWith || '',
-    roomNumber: cur.roomNumber || ''
-  });
+  await withLoader('Stopping GPS share…', () =>
+    API.post('updateStatus', {
+      memberId: user.id, name: user.name, shortName: user.shortName,
+      role: user.role, syndicate: user.syndicate,
+      status: cur.status || 'in_hotel',
+      locationText: cur.locationText || '',
+      lat: '', lng: '',
+      buddyWith: cur.buddyWith || '',
+      roomNumber: cur.roomNumber || ''
+    })
+  );
   toast('🛑 GPS tracking stopped');
   renderPinnedActionBar();
   if (STATE.currentTab === 'location') renderLocation();
