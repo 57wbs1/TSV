@@ -2835,6 +2835,19 @@ body::after {
   box-shadow: 0 2px 6px rgba(0,53,128,.3);
   transition: transform .12s var(--ease-out);
 }
+.mgr-admin-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 2px 7px;
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: .06em;
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  color: #1f2937;
+  border-radius: var(--r-full);
+  vertical-align: middle;
+  box-shadow: 0 1px 3px rgba(245,158,11,.35);
+}
 .mgr-row .mgr-edit-btn:active { transform: scale(0.94); }
 @media (prefers-color-scheme: dark) {
   .mgr-row .mgr-edit-btn { background: linear-gradient(135deg, #3b82f6, #60a5fa); color: #0b1120; box-shadow: 0 2px 8px rgba(59,130,246,.4); }

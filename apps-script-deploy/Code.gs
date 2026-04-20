@@ -63,6 +63,22 @@ function doGet(e) {
         if (e.parameter.actor !== SUPER_ADMIN_ID) { data = { error: 'Unauthorized' }; break; }
         data = setupReflectionsSheet();
         break;
+      case 'createTsvCalendar':
+        if (e.parameter.actor !== SUPER_ADMIN_ID) { data = { error: 'Unauthorized' }; break; }
+        data = createTsvCalendar();
+        break;
+      case 'syncFromGoogleCalendar':
+        if (e.parameter.actor !== SUPER_ADMIN_ID) { data = { error: 'Unauthorized' }; break; }
+        data = syncFromGoogleCalendar();
+        break;
+      case 'shareTsvCalendarWith':
+        if (e.parameter.actor !== SUPER_ADMIN_ID) { data = { error: 'Unauthorized' }; break; }
+        data = shareTsvCalendarWith(e.parameter.email || '');
+        break;
+      case 'renameTsvCalendar':
+        if (e.parameter.actor !== SUPER_ADMIN_ID) { data = { error: 'Unauthorized' }; break; }
+        data = renameTsvCalendar();
+        break;
       case 'cleanSlateForTrip':
         // Super-admin only. Requires ?actor=caspar&confirm=YES_CLEAR_ALL
         if (e.parameter.actor !== SUPER_ADMIN_ID) { data = { error: 'Unauthorized' }; break; }
@@ -1296,7 +1312,7 @@ function sendWeatherBriefing() {
 function setupAllTriggers() {
   ScriptApp.getProjectTriggers().forEach(t => {
     const fn = t.getHandlerFunction();
-    if (['sendDailyReminder','sendEveningSitrep','sendMidnightSitrep','sendWeatherBriefing'].indexOf(fn) >= 0) {
+    if (['sendDailyReminder','sendEveningSitrep','sendMidnightSitrep','sendWeatherBriefing','syncFromGoogleCalendar'].indexOf(fn) >= 0) {
       ScriptApp.deleteTrigger(t);
     }
   });
@@ -1308,7 +1324,243 @@ function setupAllTriggers() {
     .timeBased().atHour(23).nearMinute(0).everyDays(1).inTimezone('Asia/Bangkok').create();
   ScriptApp.newTrigger('sendMidnightSitrep')
     .timeBased().atHour(2).nearMinute(0).everyDays(1).inTimezone('Asia/Bangkok').create();
-  return '✓ 4 triggers installed: 0600H weather · 1900H reminder · 2300H SITREP · 0200H Curfew (BKK daily)';
+  ScriptApp.newTrigger('syncFromGoogleCalendar')
+    .timeBased().everyMinutes(5).create();
+  return '✓ 5 triggers: 0600H weather · 1900H reminder · 2300H SITREP · 0200H Curfew · every 5min GCal pull';
+}
+
+// ════════════════════════════════════════════════════════════
+// GOOGLE CALENDAR SYNC
+// One-time: createTsvCalendar() creates 'TSV Bangkok 2026', stores its
+// ID in script properties, populates it from the Calendar sheet.
+// Ongoing: syncFromGoogleCalendar() runs every 5 min, reads GCal, and
+// mirrors changes back to the Calendar sheet. Sheet remains the source
+// the app reads from — so the app doesn't need any code change to pick
+// up drag-and-drop edits.
+// ════════════════════════════════════════════════════════════
+
+const GCAL_NAME = 'TSV26';
+const GCAL_TIMEZONE = 'Asia/Bangkok';
+const GCAL_PROP_KEY = 'tsvGcalId';
+
+// Day → ISO date lookup (inverse of DAYS_MAP used elsewhere)
+function _gcalDateForDay(dayNum) {
+  for (const [iso, meta] of Object.entries(DAYS_MAP)) {
+    if (meta.day === parseInt(dayNum)) return iso;
+  }
+  return null;
+}
+
+// Build the description block — structured and parseable on sync back.
+function _gcalDescription(ev) {
+  const lines = [];
+  if (ev.category) lines.push('[Category] ' + ev.category);
+  if (ev.attire)   lines.push('[Attire] ' + ev.attire);
+  if (ev.remarks)  lines.push('[Remarks] ' + ev.remarks);
+  if (ev.visitId)  lines.push('[Visit] ' + ev.visitId);
+  if (ev.synicReport === true || ev.synicReport === 'true') lines.push('[Syn IC Report] true');
+  lines.push('');
+  lines.push('— TSV App ref: ' + ev.id + ' (do not remove)');
+  return lines.join('\n');
+}
+
+// Parse back — extracts fields from a GCal event description that was
+// originally written by _gcalDescription. Returns { appId, category,
+// attire, remarks, visitId, synicReport } with sensible defaults.
+function _parseGcalDescription(desc) {
+  const d = String(desc || '');
+  const out = { appId: null, category: null, attire: null, remarks: null, visitId: null, synicReport: false };
+  let m;
+  if ((m = d.match(/\[Category\]\s*([^\n]+)/))) out.category = m[1].trim();
+  if ((m = d.match(/\[Attire\]\s*([^\n]+)/)))   out.attire   = m[1].trim();
+  if ((m = d.match(/\[Remarks\]\s*([\s\S]*?)(?=\n\[|\n—|$)/))) out.remarks = m[1].trim();
+  if ((m = d.match(/\[Visit\]\s*([^\n]+)/)))    out.visitId  = m[1].trim();
+  if (/\[Syn IC Report\]\s*(true|yes|y)/i.test(d)) out.synicReport = true;
+  if ((m = d.match(/— TSV App ref:\s*([a-zA-Z0-9_-]+)/))) out.appId = m[1].trim();
+  return out;
+}
+
+function _getOrCreateTsvCalendar() {
+  const props = PropertiesService.getScriptProperties();
+  const existingId = props.getProperty(GCAL_PROP_KEY);
+  if (existingId) {
+    try {
+      const cal = CalendarApp.getCalendarById(existingId);
+      if (cal) return cal;
+    } catch (e) { /* fall through and create */ }
+  }
+  const cal = CalendarApp.createCalendar(GCAL_NAME, {
+    summary: 'GKSCSC Thailand Study Visit 2026 · live itinerary — drag events to rearrange, app pulls every 5 min',
+    timeZone: GCAL_TIMEZONE,
+    color: CalendarApp.Color.BLUE
+  });
+  props.setProperty(GCAL_PROP_KEY, cal.getId());
+  logAction('gcal_created', 'server', cal.getId());
+  return cal;
+}
+
+// One-shot: create the GCal if needed, then populate every event from
+// the Calendar sheet. Idempotent — if an event with the same App ID
+// already exists in GCal, skip it.
+function createTsvCalendar() {
+  const cal = _getOrCreateTsvCalendar();
+  const sheet = SPREADSHEET.getSheetByName(SHEETS.CALENDAR.name);
+  if (!sheet) return { error: 'Calendar sheet not found' };
+  const rows = readSheet(SHEETS.CALENDAR).filter(r =>
+    r.isDeleted !== 'true' && r.isDeleted !== true
+  );
+  // Build a map of appId → existing GCal event for idempotency
+  const windowStart = new Date('2026-04-25T00:00:00+07:00');
+  const windowEnd   = new Date('2026-05-02T00:00:00+07:00');
+  const existing = cal.getEvents(windowStart, windowEnd);
+  const byAppId = {};
+  existing.forEach(ev => {
+    const p = _parseGcalDescription(ev.getDescription());
+    if (p.appId) byAppId[p.appId] = ev;
+  });
+  let created = 0, skipped = 0, failed = 0;
+  rows.forEach(r => {
+    if (byAppId[r.id]) { skipped++; return; }
+    const dateIso = _gcalDateForDay(r.day);
+    if (!dateIso) { failed++; return; }
+    try {
+      const start = new Date(dateIso + 'T' + (r.startTime || '09:00') + ':00+07:00');
+      const end   = new Date(dateIso + 'T' + (r.endTime   || r.startTime || '10:00') + ':00+07:00');
+      // Handle end < start (crosses midnight) by pushing end +24h
+      if (end.getTime() <= start.getTime()) end.setTime(end.getTime() + 24*60*60*1000);
+      const ev = cal.createEvent(r.title || '(untitled)', start, end, {
+        location: r.location || '',
+        description: _gcalDescription(r)
+      });
+      created++;
+    } catch (e) {
+      failed++;
+      logAction('gcal_create_fail', 'server', r.id + ' ' + e.message);
+    }
+  });
+  return {
+    calendarId: cal.getId(),
+    calendarName: cal.getName(),
+    shareUrl: 'https://calendar.google.com/calendar/u/0?cid=' + Utilities.base64Encode(cal.getId()).replace(/=+$/, ''),
+    created, skipped, failed, total: rows.length
+  };
+}
+
+// 5-min cron: read the GCal, for each event find its App ref, and
+// update the Calendar sheet row if anything changed. Deletes in GCal
+// are ignored (safer — user might have archived by accident).
+function syncFromGoogleCalendar() {
+  const props = PropertiesService.getScriptProperties();
+  const calId = props.getProperty(GCAL_PROP_KEY);
+  if (!calId) { logAction('gcal_sync_skip', 'server', 'no calendar id'); return 'No TSV GCal configured'; }
+  const cal = CalendarApp.getCalendarById(calId);
+  if (!cal) { logAction('gcal_sync_skip', 'server', 'calendar lookup failed'); return 'Calendar not accessible'; }
+
+  const sheet = SPREADSHEET.getSheetByName(SHEETS.CALENDAR.name);
+  const rows = sheet.getDataRange().getValues();
+  const headers = rows[0];
+  const idCol        = headers.indexOf('id');
+  const dayCol       = headers.indexOf('day');
+  const startCol     = headers.indexOf('startTime');
+  const endCol       = headers.indexOf('endTime');
+  const titleCol     = headers.indexOf('title');
+  const locCol       = headers.indexOf('location');
+  const catCol       = headers.indexOf('category');
+  const attireCol    = headers.indexOf('attire');
+  const remarksCol   = headers.indexOf('remarks');
+  const visitCol     = headers.indexOf('visitId');
+  const synicCol     = headers.indexOf('synicReport');
+  const updatedCol   = headers.indexOf('updatedAt');
+
+  const windowStart = new Date('2026-04-25T00:00:00+07:00');
+  const windowEnd   = new Date('2026-05-02T00:00:00+07:00');
+  const events = cal.getEvents(windowStart, windowEnd);
+
+  let updated = 0, unchanged = 0, unmatched = 0;
+  const nowIso = new Date().toISOString();
+
+  events.forEach(ev => {
+    const parsed = _parseGcalDescription(ev.getDescription());
+    if (!parsed.appId) { unmatched++; return; }
+    // Find the row with this appId
+    for (let i = 1; i < rows.length; i++) {
+      if (rows[i][idCol] !== parsed.appId) continue;
+      const row = rows[i];
+      const evStart = ev.getStartTime();
+      const evEnd   = ev.getEndTime();
+      const dateStr = Utilities.formatDate(evStart, GCAL_TIMEZONE, 'yyyy-MM-dd');
+      const dayMeta = DAYS_MAP[dateStr];
+      if (!dayMeta) { unmatched++; return; }
+      const newDay     = dayMeta.day;
+      const newStart   = Utilities.formatDate(evStart, GCAL_TIMEZONE, 'HH:mm');
+      const newEnd     = Utilities.formatDate(evEnd,   GCAL_TIMEZONE, 'HH:mm');
+      const newTitle   = ev.getTitle();
+      const newLoc     = ev.getLocation();
+      const newCat     = parsed.category || row[catCol] || 'event';
+      const newAttire  = parsed.attire   != null ? parsed.attire   : row[attireCol];
+      const newRemarks = parsed.remarks  != null ? parsed.remarks  : row[remarksCol];
+      const newVisit   = parsed.visitId  != null ? parsed.visitId  : row[visitCol];
+      const newSynic   = parsed.synicReport ? 'true' : 'false';
+
+      // Any change?
+      const changed =
+        String(row[dayCol])    !== String(newDay) ||
+        String(row[startCol])  !== newStart ||
+        String(row[endCol])    !== newEnd ||
+        String(row[titleCol])  !== newTitle ||
+        String(row[locCol])    !== (newLoc || '') ||
+        String(row[catCol])    !== String(newCat) ||
+        String(row[attireCol]) !== String(newAttire) ||
+        String(row[remarksCol])!== String(newRemarks) ||
+        String(row[visitCol])  !== String(newVisit) ||
+        String(row[synicCol])  !== newSynic;
+
+      if (!changed) { unchanged++; return; }
+
+      row[dayCol]     = newDay;
+      row[startCol]   = newStart;
+      row[endCol]     = newEnd;
+      row[titleCol]   = newTitle;
+      row[locCol]     = newLoc || '';
+      row[catCol]     = newCat;
+      if (attireCol >= 0)  row[attireCol]  = newAttire;
+      if (remarksCol >= 0) row[remarksCol] = newRemarks;
+      if (visitCol >= 0)   row[visitCol]   = newVisit;
+      if (synicCol >= 0)   row[synicCol]   = newSynic;
+      if (updatedCol >= 0) row[updatedCol] = nowIso;
+      sheet.getRange(i + 1, 1, 1, headers.length).setValues([row]);
+      updated++;
+      return;
+    }
+    unmatched++;
+  });
+
+  if (updated > 0) logAction('gcal_sync', 'server', 'updated=' + updated + ' unchanged=' + unchanged + ' unmatched=' + unmatched);
+  return { updated, unchanged, unmatched };
+}
+
+// Rename the existing TSV calendar if it was created with an older name.
+function renameTsvCalendar() {
+  const props = PropertiesService.getScriptProperties();
+  const calId = props.getProperty(GCAL_PROP_KEY);
+  if (!calId) return { error: 'No calendar created yet' };
+  const cal = CalendarApp.getCalendarById(calId);
+  if (!cal) return { error: 'Calendar lookup failed' };
+  const oldName = cal.getName();
+  if (oldName === GCAL_NAME) return { ok: true, status: 'already named ' + GCAL_NAME };
+  cal.setName(GCAL_NAME);
+  return { ok: true, renamed: oldName + ' → ' + GCAL_NAME };
+}
+
+// Share the calendar with a given email (view + edit). Run once.
+function shareTsvCalendarWith(email) {
+  const props = PropertiesService.getScriptProperties();
+  const calId = props.getProperty(GCAL_PROP_KEY);
+  if (!calId) return { error: 'No calendar created yet' };
+  const cal = CalendarApp.getCalendarById(calId);
+  if (!cal) return { error: 'Calendar lookup failed' };
+  cal.addEditor(email);
+  return { ok: true, calendarId: calId, shared: email };
 }
 
 

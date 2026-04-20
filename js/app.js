@@ -3350,14 +3350,17 @@ window.renderMembersList = function() {
         <span id="mgr-caret-${safeId}" style="font-size:10px;opacity:.8">${isOpen?'▲':'▼'}</span>
       </div>
       <div class="mgr-body ${isOpen?'open':''}" id="mgr-body-${safeId}" data-groupkey="${escapeHtml(gk)}">
-        ${grp.map(m => `
+        ${grp.map(m => {
+          const isAdm = (m.isAdmin === true || m.isAdmin === 'true' || m.isAdmin === 'TRUE');
+          return `
           <div class="mgr-row">
             <div class="mgr-info">
-              <div class="mgr-name">${escapeHtml(m.name)}</div>
+              <div class="mgr-name">${escapeHtml(m.name)}${isAdm ? ' <span class="mgr-admin-badge">👑 ADMIN</span>' : ''}</div>
               <div class="mgr-meta">${escapeHtml(m.role || '')}${m.rank ? ' · '+escapeHtml(m.rank) : ''} · ${escapeHtml(m.shortName || '—')}</div>
             </div>
             <button class="mgr-edit-btn" onclick="openMemberEditor('${m.id}')">Edit</button>
-          </div>`).join('')}
+          </div>`;
+        }).join('')}
       </div>`;
   }).join('') || '<div class="empty-state"><p>No members</p></div>';
 };
