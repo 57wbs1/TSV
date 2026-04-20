@@ -681,7 +681,14 @@ function setupPinKeypad() {
 }
 
 function tryPin() {
-  const expectedPin = loginCandidateMember?.pin || CONFIG.defaultPin || '0000';
+  // Re-look up the member's PIN from the live MEMBERS array at the moment
+  // the user finishes entering their digits. syncMembers() may have completed
+  // (and loaded the server's custom PIN) AFTER the user tapped their name —
+  // using the stale loginCandidateMember.pin would give '0000' in that window.
+  const fresh = loginCandidateMember
+    ? MEMBERS.find(m => m.id === loginCandidateMember.id)
+    : null;
+  const expectedPin = (fresh || loginCandidateMember)?.pin || CONFIG.defaultPin || '0000';
   if (pinBuffer === expectedPin) {
     saveIdentity(loginCandidateMember);
     hideLoginFlow();
