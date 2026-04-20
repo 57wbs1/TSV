@@ -2478,6 +2478,12 @@ window.confirmLeaveHotel = async function() {
 window.returnToHotel = async function() {
   const user = STATE.currentUser;
   if (!user) return;
+  // Stop the live GPS watcher — they're back at the hotel, no need to track.
+  if (STATE._gpsWatchId != null) {
+    try { navigator.geolocation.clearWatch(STATE._gpsWatchId); } catch {}
+    STATE._gpsWatchId = null;
+  }
+  STATE._lastGpsSent = null;
   STATE.memberStatuses[user.id] = { status:'in_hotel', locationText:'Hotel', lat:CONFIG.hotel.lat, lng:CONFIG.hotel.lng, buddyWith:'', lastUpdated:new Date().toISOString() };
   renderLocation();
   renderPinnedActionBar();
@@ -2487,25 +2493,89 @@ window.returnToHotel = async function() {
   toast('🏨 Welcome back!');
 };
 
+// Share GPS: takes an initial fix THEN starts a watchPosition so the
+// location updates live as the user moves. Throttled to avoid slamming
+// the Sheets API:
+//   • Don't POST more than once per 45 seconds
+//   • Don't POST unless moved > ~25m from the last sent position
+// watchPosition pauses when the PWA is backgrounded by iOS; when the app
+// comes back to the foreground, we get a fresh ping and resume.
 window.shareGPS = async function() {
   const user = STATE.currentUser;
   if (!user) return;
-  await withLoader('Sharing GPS…', async () => {
+  if (!navigator.geolocation) return toast('❌ GPS not supported on this device');
+
+  await withLoader('Getting your GPS…', async () => {
     try {
-      const pos = await new Promise((r,rj) => navigator.geolocation.getCurrentPosition(r,rj,{timeout:8000}));
+      const pos = await new Promise((r, rj) => navigator.geolocation.getCurrentPosition(r, rj, { timeout: 8000, enableHighAccuracy: true }));
       const lat = pos.coords.latitude, lng = pos.coords.longitude;
-      STATE.memberStatuses[user.id] = { ...getStatusOf(user.id), lat, lng, lastUpdated:new Date().toISOString() };
-      await API.post('updateStatus', {
-        memberId:user.id, name:user.name, shortName:user.shortName, role:user.role, syndicate:user.syndicate,
-        status:getStatusOf(user.id).status, locationText:getStatusOf(user.id).locationText,
-        lat, lng, buddyWith:getStatusOf(user.id).buddyWith
-      });
-      toast('📡 GPS shared!');
+      STATE.memberStatuses[user.id] = { ...getStatusOf(user.id), lat, lng, lastUpdated: new Date().toISOString() };
+      await _postGpsUpdate(user, lat, lng);
+      STATE._lastGpsSent = { lat, lng, ts: Date.now() };
+      toast('📡 GPS live — tracking every move');
       renderPinnedActionBar();
       if (STATE.map) updateMapMarkers();
-    } catch { toast('❌ GPS unavailable — enter location manually'); }
+    } catch {
+      toast('❌ GPS unavailable — enter location manually');
+      return;
+    }
   });
+
+  // Start the continuous watcher. Clear any existing one first to avoid
+  // duplicate posts if the user double-taps Share GPS.
+  if (STATE._gpsWatchId != null) {
+    try { navigator.geolocation.clearWatch(STATE._gpsWatchId); } catch {}
+    STATE._gpsWatchId = null;
+  }
+  STATE._gpsWatchId = navigator.geolocation.watchPosition(
+    (pos) => _handleGpsFix(user, pos),
+    (err) => { console.warn('[gps watch] error', err); },
+    { enableHighAccuracy: true, maximumAge: 15000, timeout: 20000 }
+  );
 };
+
+// Called by the geolocation watcher each time the device reports a new
+// fix. We keep the UI live on every fix (cheap) but throttle the server
+// POST so we don't hammer Sheets.
+async function _handleGpsFix(user, pos) {
+  const lat = pos.coords.latitude, lng = pos.coords.longitude;
+  // Always refresh local UI for responsive feel
+  STATE.memberStatuses[user.id] = { ...getStatusOf(user.id), lat, lng, lastUpdated: new Date().toISOString() };
+  if (STATE.map) updateMapMarkers();
+  // Throttle server updates
+  const prev = STATE._lastGpsSent;
+  const now = Date.now();
+  if (prev) {
+    const dt = now - prev.ts;
+    const dMeters = _haversineMeters(prev.lat, prev.lng, lat, lng);
+    if (dt < 45 * 1000 && dMeters < 25) return;   // too soon and too close — skip
+  }
+  STATE._lastGpsSent = { lat, lng, ts: now };
+  await _postGpsUpdate(user, lat, lng);
+}
+
+async function _postGpsUpdate(user, lat, lng) {
+  const cur = getStatusOf(user.id);
+  await API.post('updateStatus', {
+    memberId: user.id, name: user.name, shortName: user.shortName,
+    role: user.role, syndicate: user.syndicate,
+    status: cur.status || 'in_hotel',
+    locationText: cur.locationText || '',
+    lat, lng,
+    buddyWith: cur.buddyWith || '',
+    roomNumber: cur.roomNumber || ''
+  });
+}
+
+// Great-circle distance in metres — cheap approximation plenty good for
+// "did the user move more than 25m" check.
+function _haversineMeters(lat1, lng1, lat2, lng2) {
+  const R = 6371000;
+  const toRad = d => d * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1), dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng/2)**2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
 
 window.updateLocationText = function() {
   const loc = prompt('Current location:');
@@ -4333,6 +4403,12 @@ window.stopTracking = async function() {
   const user = STATE.currentUser;
   if (!user) return;
   if (!confirm('Stop sharing your GPS location?\nYou will be removed from the live map.')) return;
+  // Kill the live watcher so we stop posting new positions
+  if (STATE._gpsWatchId != null) {
+    try { navigator.geolocation.clearWatch(STATE._gpsWatchId); } catch {}
+    STATE._gpsWatchId = null;
+  }
+  STATE._lastGpsSent = null;
   const cur = getStatusOf(user.id);
   STATE.memberStatuses[user.id] = { ...cur, lat: null, lng: null, lastUpdated: new Date().toISOString() };
   await withLoader('Stopping GPS share…', () =>
