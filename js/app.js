@@ -1276,13 +1276,18 @@ function setupPullToRefresh() {
       // impossible to miss).
       resetIndicator();
       try {
-        await withLoader('Refreshing…', () => Promise.all([
-          syncMembers(),
-          syncStatuses(),
-          syncCalendar(),
-          syncLearnings(),
-          syncReflections()
-        ]));
+        await withLoader('Refreshing…', async () => {
+          // Fire GCal sync first so any Google Calendar edits land before
+          // we re-read the Calendar sheet
+          try { await API.get('syncFromGoogleCalendar'); } catch {}
+          await Promise.all([
+            syncMembers(),
+            syncStatuses(),
+            syncCalendar(),
+            syncLearnings(),
+            syncReflections()
+          ]);
+        });
       } catch {}
       toast('✓ Refreshed');
       refreshing = false;
@@ -1367,8 +1372,8 @@ function renderHome() {
     <button class="btn-adhoc-inline" onclick="showAdhocPicker()">📤 Send Adhoc SITREP</button>` : ''}
 
     <div class="parade-grid two">
-      <div class="parade-card in"><div class="big-num green">${inC}</div><div class="label">In Hotel</div></div>
-      <div class="parade-card out"><div class="big-num ${outC>0?'red':'green'}">${outC}</div><div class="label">Out</div></div>
+      <div class="parade-card in" onclick="showInList()"><div class="big-num green">${inC}</div><div class="label">In Hotel</div><div class="pc-hint">Tap for list</div></div>
+      <div class="parade-card out" onclick="showOutList()"><div class="big-num ${outC>0?'red':'green'}">${outC}</div><div class="label">Out</div><div class="pc-hint">Tap for list</div></div>
     </div>
 
     ${nextEventHtml}
@@ -1432,6 +1437,56 @@ function renderMySyndicateMini(groupKey) {
       </div>
       <div class="syn-mini-body">${rows}</div>
     </div>`;
+}
+
+// Home: tap the In Hotel / Out card to see the list with locations.
+// Scope respects visibleGroups() — non-admins see their own syndicate.
+window.showInList  = function() { _showPresenceList('in');  };
+window.showOutList = function() { _showPresenceList('out'); };
+function _showPresenceList(mode) {
+  const vis = visibleGroups();
+  const inScope = MEMBERS.filter(m => vis.includes(memberGroupKey(m)));
+  const st = STATE.memberStatuses;
+  const list = mode === 'out'
+    ? inScope.filter(m => st[m.id]?.status === 'out')
+    : inScope.filter(m => (st[m.id]?.status || 'in_hotel') !== 'out');
+
+  const title = mode === 'out' ? '🔴 Out of Hotel' : '🟢 In Hotel';
+  const empty = mode === 'out'
+    ? '✅ Everyone accounted for.'
+    : 'Nobody signed in as In Hotel yet.';
+
+  const body = !list.length
+    ? `<div class="pl-empty">${empty}</div>`
+    : `<div class="pl-list">${list.map(m => {
+        const s = st[m.id] || {};
+        const loc = mode === 'out'
+          ? (s.locationText ? escapeHtml(s.locationText) : 'location unknown')
+          : 'Hotel';
+        const buddy = s.buddyWith ? `<div class="pl-buddy">👥 w/ ${escapeHtml(s.buddyWith)}</div>` : '';
+        return `
+          <div class="pl-row">
+            <span class="pl-dot ${mode==='out'?'out':'in'}"></span>
+            <div class="pl-info">
+              <div class="pl-name">${escapeHtml(m.shortName || m.name)}</div>
+              <div class="pl-meta">${escapeHtml(formatGroupDisplay(memberGroupKey(m)))} · 📍 ${loc}</div>
+              ${buddy}
+            </div>
+          </div>`;
+      }).join('')}</div>`;
+
+  const wrap = document.createElement('div');
+  wrap.className = 'presence-overlay';
+  wrap.onclick = (e) => { if (e.target === wrap) wrap.remove(); };
+  wrap.innerHTML = `
+    <div class="presence-sheet">
+      <div class="presence-header">
+        <h2>${title} <span class="pl-count">${list.length}</span></h2>
+        <button class="close-btn" onclick="this.closest('.presence-overlay').remove()">✕</button>
+      </div>
+      <div class="presence-body">${body}</div>
+    </div>`;
+  document.body.appendChild(wrap);
 }
 
 // ═══════════ ADHOC SITREP PICKER ═════════════════════════════
@@ -2460,35 +2515,42 @@ window.confirmLeaveHotel = async function() {
     lastUpdated: now
   };
   const nPeople = 1 + buddyObjs.length;
-  await withLoader(`Marking ${nPeople} out of hotel…`, async () => {
-    await API.post('updateStatus', {
+  // Build every status update up front, then fire them in PARALLEL.
+  // Previously this was a sequential for-await loop — 5 buddies × ~1.5s
+  // server round-trip = 7-8s blocking the user. Parallel brings it to the
+  // slowest single request (~1-2s).
+  const payloads = [
+    {
       memberId: user.id, name: user.name, shortName: user.shortName,
       role: user.role, syndicate: user.syndicate,
       status: 'out', locationText: locText,
       lat: useLat, lng: useLng,
       buddyWith: buddyLabels.join(', '),
       roomNumber: existingStatus.roomNumber || ''
-    });
-    for (const b of buddyObjs) {
-      const otherNames = [myLabel, ...buddyLabels.filter(n => n !== (b.shortName || b.name))];
-      const bStatus = getStatusOf(b.id);
-      STATE.memberStatuses[b.id] = {
-        ...bStatus,
-        status: 'out',
-        locationText: locText,
-        buddyWith: otherNames.join(', '),
-        lastUpdated: now
-      };
-      await API.post('updateStatus', {
-        memberId: b.id, name: b.name, shortName: b.shortName,
-        role: b.role, syndicate: b.syndicate,
-        status: 'out', locationText: locText,
-        lat: bStatus.lat || '', lng: bStatus.lng || '',
-        buddyWith: otherNames.join(', '),
-        roomNumber: bStatus.roomNumber || ''
-      });
     }
+  ];
+  buddyObjs.forEach(b => {
+    const otherNames = [myLabel, ...buddyLabels.filter(n => n !== (b.shortName || b.name))];
+    const bStatus = getStatusOf(b.id);
+    STATE.memberStatuses[b.id] = {
+      ...bStatus,
+      status: 'out',
+      locationText: locText,
+      buddyWith: otherNames.join(', '),
+      lastUpdated: now
+    };
+    payloads.push({
+      memberId: b.id, name: b.name, shortName: b.shortName,
+      role: b.role, syndicate: b.syndicate,
+      status: 'out', locationText: locText,
+      lat: bStatus.lat || '', lng: bStatus.lng || '',
+      buddyWith: otherNames.join(', '),
+      roomNumber: bStatus.roomNumber || ''
+    });
   });
+  await withLoader(`Marking ${nPeople} out of hotel…`, () =>
+    Promise.all(payloads.map(p => API.post('updateStatus', p)))
+  );
 
   renderLocation();
   renderPinnedActionBar();
@@ -3536,6 +3598,10 @@ async function manualRefresh() {
           }
         } catch {}
       }
+      // Kick a GCal pull first so any edits you made in Google Calendar
+      // land in the Sheet before we re-read it. Fail-soft: ignore errors
+      // (cron still covers the background case).
+      try { await API.get('syncFromGoogleCalendar'); } catch {}
       await Promise.all([
         syncMembers(),
         syncStatuses(),

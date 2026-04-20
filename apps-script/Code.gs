@@ -68,7 +68,8 @@ function doGet(e) {
         data = createTsvCalendar();
         break;
       case 'syncFromGoogleCalendar':
-        if (e.parameter.actor !== SUPER_ADMIN_ID) { data = { error: 'Unauthorized' }; break; }
+        // Callable by any signed-in user — we want pull-to-refresh to kick
+        // a GCal sync so edits in Google Calendar propagate immediately.
         data = syncFromGoogleCalendar();
         break;
       case 'shareTsvCalendarWith':
@@ -1325,8 +1326,108 @@ function setupAllTriggers() {
   ScriptApp.newTrigger('sendMidnightSitrep')
     .timeBased().atHour(2).nearMinute(0).everyDays(1).inTimezone('Asia/Bangkok').create();
   ScriptApp.newTrigger('syncFromGoogleCalendar')
-    .timeBased().everyMinutes(5).create();
-  return '✓ 5 triggers: 0600H weather · 1900H reminder · 2300H SITREP · 0200H Curfew · every 5min GCal pull';
+    .timeBased().everyMinutes(15).create();
+  return '✓ 5 triggers: 0600H weather · 1900H reminder · 2300H SITREP · 0200H Curfew · every 15min GCal pull';
+}
+
+// Server-side mirror of CALENDAR_SEED from js/data.js. Used to populate
+// the Calendar sheet + GCal if they're empty. Keep in sync with data.js.
+const CALENDAR_SEED_SERVER = [
+  // DAY 1 — 26 Apr
+  { id:'d1_01', day:1, startTime:'06:00', endTime:'08:30', title:'Commence Check-In', location:'Changi Airport Terminal 2', category:'admin', attire:'Smart Casual', synicReport:true, remarks:'Syndicate-level attendance tracking begins.' },
+  { id:'d1_02', day:1, startTime:'07:30', endTime:'08:00', title:'Cohort Photo', location:'Dreamscape Indoor Garden, Changi T2', category:'event', remarks:'All check-in to be completed.' },
+  { id:'d1_03', day:1, startTime:'08:00', endTime:'08:30', title:'Complete Check-In', location:'Changi T2', category:'admin' },
+  { id:'d1_04', day:1, startTime:'08:30', endTime:'09:00', title:'Attendance Check @ Departure Gate', location:'Changi T2', category:'admin', synicReport:true },
+  { id:'d1_05', day:1, startTime:'09:00', endTime:'11:00', title:'Outbound Flight SQ 708', location:'SIN → BKK', category:'flight', remarks:'Depart 0930H. Breakfast provided by airline.' },
+  { id:'d1_06', day:1, startTime:'11:30', endTime:'12:30', title:'Arrival in Bangkok', location:'Suvarnabhumi Airport', category:'event' },
+  { id:'d1_07', day:1, startTime:'12:30', endTime:'13:00', title:'Movement to Lunch Venue', location:'Airport → TBC', category:'movement' },
+  { id:'d1_08', day:1, startTime:'13:00', endTime:'14:00', title:'Lunch', location:'TBC (Catered)', category:'meal' },
+  { id:'d1_09', day:1, startTime:'14:00', endTime:'14:30', title:'Movement to Chao Phraya River', location:'TBC → Chao Phraya River', category:'movement' },
+  { id:'d1_10', day:1, startTime:'14:30', endTime:'17:30', title:'Long Tail Boat Tour', location:'Chao Phraya River', category:'event', attire:'Smart Casual', visitId:'boat_tour', remarks:'3-hour boat tour.' },
+  { id:'d1_11', day:1, startTime:'18:00', endTime:'18:30', title:'Movement to Hotel', location:'Chao Phraya → Pullman Bangkok Hotel G', category:'movement' },
+  { id:'d1_12', day:1, startTime:'18:30', endTime:'19:00', title:'Hotel Check-in / Syndicate Reflections', location:'Pullman Bangkok Hotel G', category:'reflection', synicReport:true, remarks:'Submit Rooming List to Syn ICs.' },
+  { id:'d1_13', day:1, startTime:'19:00', endTime:'19:30', title:'TSV Comm Huddle w/ PDS', location:'Pullman Bangkok Hotel G', category:'reflection' },
+  { id:'d1_14', day:1, startTime:'19:30', endTime:'23:59', title:'Executive Time', location:'Free', category:'free', remarks:'Dinner self-funded. Buddy system for leaving hotel.' },
+
+  // DAY 2 — 27 Apr
+  { id:'d2_01', day:2, startTime:'06:00', endTime:'08:00', title:'Breakfast & Admin Time', location:'Pullman Bangkok Hotel G', category:'meal', remarks:'Hotel Buffet (Catered).' },
+  { id:'d2_02', day:2, startTime:'08:00', endTime:'08:30', title:'Gather & Board Buses', location:'Hotel Lobby', category:'admin', remarks:'Group by Bus Level.' },
+  { id:'d2_03', day:2, startTime:'08:30', endTime:'09:30', title:'Movement to True Digital Park', location:'Pullman → True Digital Park', category:'movement' },
+  { id:'d2_04', day:2, startTime:'09:30', endTime:'11:30', title:'Guided Tour @ True Digital Park', location:'True Digital Park', category:'event', attire:'Smart Casual', visitId:'true_digital' },
+  { id:'d2_05', day:2, startTime:'11:30', endTime:'12:30', title:'Lunch @ True Digital Park', location:'True Digital Park', category:'meal' },
+  { id:'d2_06', day:2, startTime:'12:30', endTime:'13:00', title:'Movement to Hotel', location:'TDP → Pullman Bangkok Hotel G', category:'movement' },
+  { id:'d2_07', day:2, startTime:'13:00', endTime:'13:30', title:'Cohort Attire Change to No. 3 Uniform', location:'Pullman Bangkok Hotel G', category:'admin', attire:'No. 3 Uniform' },
+  { id:'d2_08', day:2, startTime:'13:30', endTime:'14:00', title:'Movement to ISIS, Chulalongkorn', location:'Pullman → Chulalongkorn University', category:'movement' },
+  { id:'d2_09', day:2, startTime:'14:00', endTime:'16:00', title:'Visit to ISIS', location:'Kasem Udyanin Building, ISIS, Chulalongkorn University', category:'event', attire:'No. 3 Uniform', visitId:'isis', remarks:'2× Keynote Address · 1× Q&A session.' },
+  { id:'d2_10', day:2, startTime:'16:00', endTime:'16:30', title:'Movement to Hotel', location:'ISIS → Pullman Bangkok Hotel G', category:'movement' },
+  { id:'d2_11', day:2, startTime:'16:30', endTime:'17:30', title:'Syndicate Reflections / TSV Comm Huddle', location:'Pullman Bangkok Hotel G', category:'reflection' },
+  { id:'d2_12', day:2, startTime:'17:00', endTime:'17:30', title:'Learning Comm Huddle w/ HoD', location:'Pullman Bangkok Hotel G', category:'reflection' },
+  { id:'d2_13', day:2, startTime:'17:30', endTime:'23:59', title:'Executive Time', location:'Free', category:'free', remarks:'Dinner self-funded.' },
+
+  // DAY 3 — 28 Apr SCOPE DAY
+  { id:'d3_01', day:3, startTime:'06:00', endTime:'08:00', title:'Breakfast & Admin Time', location:'Pullman Bangkok Hotel G', category:'meal', remarks:'SCOPE groups to be filled in after AOP approved by HoD.' },
+  { id:'d3_02', day:3, startTime:'08:00', endTime:'10:00', title:'SCOPE — Movement to Research Areas', location:'Ayutthaya · Chonburi/Rayong · Kanchanaburi', category:'scope', attire:'Smart Casual', remarks:'Syndicate-led field research.' },
+  { id:'d3_03', day:3, startTime:'10:00', endTime:'10:30', title:'✅ 1st Check-In (1000H)', location:'Via Syn IC', category:'scope', synicReport:true, remarks:'SCOPE teams to Syn IC → TSV Group Chat.' },
+  { id:'d3_04', day:3, startTime:'14:00', endTime:'14:30', title:'✅ 2nd Check-In (1400H)', location:'Via Syn IC', category:'scope', synicReport:true },
+  { id:'d3_05', day:3, startTime:'18:00', endTime:'18:30', title:'✅ 3rd Check-In (1800H)', location:'Via Syn IC', category:'scope', synicReport:true },
+  { id:'d3_06', day:3, startTime:'22:00', endTime:'22:30', title:'✅ Final Check-In (2200H)', location:'Hotel / En-route', category:'scope', synicReport:true, remarks:'All SCOPE teams should be back in Bangkok.' },
+
+  // DAY 4 — 29 Apr
+  { id:'d4_01', day:4, startTime:'06:00', endTime:'08:00', title:'Breakfast & Admin Time', location:'Pullman Bangkok Hotel G', category:'meal' },
+  { id:'d4_02', day:4, startTime:'08:00', endTime:'08:30', title:'Gather & Board Buses', location:'Hotel Lobby', category:'admin' },
+  { id:'d4_03', day:4, startTime:'08:30', endTime:'09:30', title:'Movement to RTA CGSC', location:'Pullman → RTA CGSC', category:'movement' },
+  { id:'d4_04', day:4, startTime:'09:30', endTime:'10:00', title:'Call on Comd RTA CGSC', location:'818 Rama V Road, Dusit, Bangkok 10300', category:'event', attire:'No. 3 Uniform', visitId:'rta_cgsc' },
+  { id:'d4_05', day:4, startTime:'10:00', endTime:'10:30', title:'Exchange of Briefs (RTA CGSC ↔ GKSCSC)', location:'RTA CGSC', category:'event', attire:'No. 3 Uniform', visitId:'rta_cgsc' },
+  { id:'d4_06', day:4, startTime:'10:30', endTime:'11:00', title:'Cohort Level Discussion / Q&A', location:'RTA CGSC', category:'event', visitId:'rta_cgsc' },
+  { id:'d4_07', day:4, startTime:'11:00', endTime:'11:30', title:'Tour of RTA CGSC', location:'RTA CGSC', category:'event', visitId:'rta_cgsc' },
+  { id:'d4_08', day:4, startTime:'12:00', endTime:'12:30', title:'Movement to Lunch Venue', location:'RTA CGSC → TBC', category:'movement' },
+  { id:'d4_09', day:4, startTime:'12:30', endTime:'13:30', title:'Lunch', location:'TBC (Catered)', category:'meal' },
+  { id:'d4_10', day:4, startTime:'13:30', endTime:'14:00', title:'Movement to SG Embassy / Hotel (IOs)', location:'TBC → SG Embassy / Pullman', category:'movement', remarks:'SAF Officers to Embassy; IOs to Hotel.' },
+  { id:'d4_11', day:4, startTime:'14:00', endTime:'15:00', title:'Diplomatic Engagement w/ DAO', location:'Singapore Embassy, Bangkok', category:'event', attire:'No. 3 Uniform', visitId:'sg_embassy' },
+  { id:'d4_12', day:4, startTime:'15:00', endTime:'16:00', title:'Diplomatic Engagement w/ SG Ambassador', location:'Singapore Embassy, Bangkok', category:'event', attire:'No. 3 Uniform', visitId:'sg_embassy' },
+  { id:'d4_13', day:4, startTime:'16:00', endTime:'16:30', title:'Movement to Hotel', location:'SG Embassy → Pullman Bangkok Hotel G', category:'movement' },
+  { id:'d4_14', day:4, startTime:'16:30', endTime:'17:00', title:'Syndicate Reflections / TSV Comm Huddle', location:'Pullman Bangkok Hotel G', category:'reflection' },
+  { id:'d4_15', day:4, startTime:'17:00', endTime:'23:59', title:'Executive Time / Learning Huddle', location:'Free', category:'free', remarks:'Dinner self-funded.' },
+
+  // DAY 5 — 30 Apr
+  { id:'d5_01', day:5, startTime:'06:00', endTime:'10:30', title:'Breakfast / Syndicate Reflections', location:'Pullman Bangkok Hotel G', category:'reflection', attire:'Smart Casual', remarks:'Draft writeup: observations, insights, link to hypothesis, lessons for SG.' },
+  { id:'d5_02', day:5, startTime:'10:30', endTime:'11:00', title:'Commence Check-Out', location:'Pullman Bangkok Hotel G', category:'admin' },
+  { id:'d5_03', day:5, startTime:'11:00', endTime:'11:30', title:'Complete Check-Out & Board Buses', location:'Pullman Bangkok Hotel G', category:'admin' },
+  { id:'d5_04', day:5, startTime:'11:30', endTime:'12:30', title:'Movement to Suvarnabhumi Airport', location:'Pullman → Suvarnabhumi', category:'movement' },
+  { id:'d5_05', day:5, startTime:'12:30', endTime:'14:00', title:'Check-In at Airport / Lunch (OTOT)', location:'Suvarnabhumi Airport', category:'admin', remarks:'Lunch on your own time.' },
+  { id:'d5_06', day:5, startTime:'14:00', endTime:'14:30', title:'Complete Check-In', location:'Suvarnabhumi Airport', category:'admin' },
+  { id:'d5_07', day:5, startTime:'14:30', endTime:'15:00', title:'Attendance Check @ Departure Gate', location:'Suvarnabhumi Airport', category:'admin', synicReport:true },
+  { id:'d5_08', day:5, startTime:'15:00', endTime:'19:00', title:'Outbound Flight SQ 709', location:'BKK → SIN', category:'flight', remarks:'Depart 1530H. Dinner provided by airline.' },
+  { id:'d5_09', day:5, startTime:'19:30', endTime:'20:00', title:'Collect Luggage', location:'Changi Airport Terminal 2', category:'admin' },
+  { id:'d5_10', day:5, startTime:'20:00', endTime:'20:30', title:'Return Home', location:'—', category:'admin' },
+  { id:'d5_11', day:5, startTime:'20:30', endTime:'21:00', title:'Last Man Out of Arrival Hall', location:'Changi Airport Terminal 2', category:'admin', synicReport:true }
+];
+
+// Populate the Calendar sheet from CALENDAR_SEED_SERVER. Safe to re-run —
+// skips events whose id is already in the sheet.
+function seedCalendarFromServer() {
+  const sheet = getOrCreateSheet(SHEETS.CALENDAR);
+  // Ensure header row
+  if (sheet.getLastRow() === 0) {
+    sheet.appendRow(SHEETS.CALENDAR.headers);
+  }
+  const rows = sheet.getDataRange().getValues();
+  const existing = new Set(rows.slice(1).map(r => r[0]));
+  const now = new Date().toISOString();
+  let added = 0;
+  CALENDAR_SEED_SERVER.forEach(ev => {
+    if (existing.has(ev.id)) return;
+    sheet.appendRow([
+      ev.id, ev.day, ev.startTime, ev.endTime, ev.title,
+      ev.location || '', ev.category || 'event',
+      ev.attire || '', ev.remarks || '',
+      ev.visitId || '',
+      ev.synicReport ? 'true' : 'false',
+      '{}', 'false', now, now
+    ]);
+    added++;
+  });
+  return { added, total: CALENDAR_SEED_SERVER.length };
 }
 
 // ════════════════════════════════════════════════════════════
@@ -1404,11 +1505,17 @@ function _getOrCreateTsvCalendar() {
 // already exists in GCal, skip it.
 function createTsvCalendar() {
   const cal = _getOrCreateTsvCalendar();
-  const sheet = SPREADSHEET.getSheetByName(SHEETS.CALENDAR.name);
-  if (!sheet) return { error: 'Calendar sheet not found' };
-  const rows = readSheet(SHEETS.CALENDAR).filter(r =>
+  // If Calendar sheet is empty / missing, populate from the server seed
+  // so GCal has events to mirror.
+  let rows = readSheet(SHEETS.CALENDAR).filter(r =>
     r.isDeleted !== 'true' && r.isDeleted !== true
   );
+  if (!rows.length) {
+    seedCalendarFromServer();
+    rows = readSheet(SHEETS.CALENDAR).filter(r =>
+      r.isDeleted !== 'true' && r.isDeleted !== true
+    );
+  }
   // Build a map of appId → existing GCal event for idempotency
   const windowStart = new Date('2026-04-25T00:00:00+07:00');
   const windowEnd   = new Date('2026-05-02T00:00:00+07:00');
