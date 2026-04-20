@@ -2881,18 +2881,19 @@ const TRANSPORT_BUSES = [
   { id: 'bus3', label: 'Bus 3', pax: 'Syn 4 · 25E · DS4 · CXO',   syns: ['Syn 4', '25E', 'DS4', 'CXO']   },
   { id: 'car',  label: '🚗 Car', pax: 'HOD · SO',                  syns: ['HOD', 'SO']                    },
 ];
-const TRANSPORT_FLIGHT = { id: 'flight', label: '✈️ Flight', syns: ['All'] };
+// All syndicate labels that exist across all vehicles (for flight boarding picker)
+const ALL_TRANSPORT_SYNS = ['Syn 1','27E','Dy CC','DS1','Syn 3','26E','DS3','DSE','Syn 4','25E','DS4','CXO','HOD','SO'];
 
-// Returns the syndicate label that matches the current user (for boarding button)
+// Returns the short syn label for the current user (for boarding affordance)
 function _mySynLabel(user) {
   if (!user) return null;
   const gk = memberGroupKey(user);
   const disp = formatGroupDisplay(gk);
-  // Map display → short label used in TRANSPORT_BUSES.syns
   const MAP = {
-    'Syndicate 1':'Syn 1', 'Syndicate 3':'Syn 3', 'Syndicate 4':'Syn 4',
-    'Leadership':'HOD', 'PSO':'HOD',
-    '25ES18':'25E', '26ES14':'26E', '27ES18':'27E'
+    'Syndicate 1':'Syn 1','Syndicate 3':'Syn 3','Syndicate 4':'Syn 4',
+    'Leadership':'HOD','PSO':'HOD','SO':'SO',
+    '25ES18':'25E','26ES14':'26E','27ES18':'27E',
+    'DS1':'DS1','DS3':'DS3','DS4':'DS4','DSE':'DSE','CXO':'CXO','Dy CC':'Dy CC'
   };
   return MAP[disp] || disp;
 }
@@ -2901,119 +2902,269 @@ async function refreshTransportState() {
   const data = await API.get('getTransport');
   if (data && typeof data === 'object') STATE.transport = data;
   const body = el('calendar-sub-content');
-  if (body && STATE.calendarSubTab === 'transport') renderTransportSubTab(body);
+  if (body && STATE.calendarSubTab === 'transport') _redrawTransport(body);
 }
 
-async function renderTransportSubTab(container) {
-  // Show spinner while fetching
-  container.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text-3)">Loading transport status…</div>`;
-  const data = await API.get('getTransport');
-  if (data && typeof data === 'object') STATE.transport = data;
-  const ts = STATE.transport || {};
+// Which vehicle picker is open; which bus card is expanded for driver details
+// Both are stored on STATE dynamically (not in initial STATE declaration)
+
+window.openTransportPicker = function(vehicleId) {
+  STATE.transportPickerVehicle = (STATE.transportPickerVehicle === vehicleId) ? null : vehicleId;
+  const body = el('calendar-sub-content');
+  if (body) _redrawTransport(body);
+};
+
+window.toggleTransportExpand = function(vehicleId) {
+  STATE.transportExpanded = (STATE.transportExpanded === vehicleId) ? null : vehicleId;
+  const body = el('calendar-sub-content');
+  if (body) _redrawTransport(body);
+};
+
+window.saveTransportDriver = async function(vehicleId) {
+  const nameEl  = el(`tdr-name-${vehicleId}`);
+  const phoneEl = el(`tdr-phone-${vehicleId}`);
+  const result  = await API.post('updateTransport', {
+    vehicleId,
+    action: 'editDriver',
+    driverName:  (nameEl?.value  || '').trim(),
+    driverPhone: (phoneEl?.value || '').trim(),
+    actorName: STATE.currentUser?.shortName || STATE.currentUser?.name || ''
+  });
+  if (result) { STATE.transport = result; toast('✅ Driver info saved'); }
+  STATE.transportExpanded = null;
+  const body = el('calendar-sub-content');
+  if (body) _redrawTransport(body);
+};
+
+// Send pushing sitrep to Telegram ops chat
+window.transportSendSitrep = async function(vehicleId) {
+  const ts   = STATE.transport || {};
+  const v    = ts[vehicleId] || {};
+  const veh  = TRANSPORT_BUSES.find(b => b.id === vehicleId);
+  if (!veh) return;
+  const remarksEl = el(`tsitrep-remarks-${vehicleId}`);
+  const remarks   = (remarksEl?.value || '').trim();
+  const boarded   = (v.boardedSyns || []).join(', ') || veh.pax;
+  let msg = `🚌 <b>${escapeHtml(veh.label)} is pushing</b>\nPax: ${escapeHtml(boarded)}`;
+  if (v.driver?.name) msg += `\nDriver: ${escapeHtml(v.driver.name)}`;
+  if (remarks)        msg += `\n⚠️ Remarks: ${escapeHtml(remarks)}`;
+  msg += `\n🕐 ${new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}H`;
+  const ok = await TELEGRAM.send(msg, CONFIG.telegram.opsChatId, 'HTML');
+  if (ok) {
+    toast('✅ Sitrep sent to ops chat');
+    if (remarksEl) remarksEl.value = '';
+    STATE.transportSitrepSent = STATE.transportSitrepSent || {};
+    STATE.transportSitrepSent[vehicleId] = true;
+    const body = el('calendar-sub-content');
+    if (body) _redrawTransport(body);
+  }
+};
+
+window.transportAction = async function(action, vehicleId, synLabel) {
   const user = STATE.currentUser;
-  const mySyn = _mySynLabel(user);
+  const actorName = user ? (user.shortName || user.name) : 'unknown';
+  const payload = { action, vehicleId, actorName };
+  if (synLabel) payload.synLabel = synLabel;
+  // For flights: Telegram is sent client-side after server confirms
+  const result = await API.post('updateTransport', payload);
+  if (result) STATE.transport = result;
+  STATE.transportPickerVehicle = null; // close picker after any action
+  if (action === 'board' && (vehicleId === 'flight_sq708' || vehicleId === 'flight_sq709')) {
+    const flightLabel = vehicleId === 'flight_sq708'
+      ? 'SQ708 · SIN→BKK (0930H)' : 'SQ709 · BKK→SIN (1530H)';
+    TELEGRAM.send(`✈️ <b>${escapeHtml(synLabel || actorName)}</b> has boarded ${flightLabel}`, CONFIG.telegram.opsChatId, 'HTML');
+  }
+  const body = el('calendar-sub-content');
+  if (body) _redrawTransport(body);
+};
+
+// ── Synchronous (no API) redraw of the transport sub-tab ──────
+function _redrawTransport(container) {
+  const ts      = STATE.transport || {};
+  const user    = STATE.currentUser;
+  const mySyn   = _mySynLabel(user);
   const canAdmin = isAdmin();
+  const pickerV  = STATE.transportPickerVehicle || null;
+  const expandV  = STATE.transportExpanded       || null;
+  const sitrepSent = STATE.transportSitrepSent   || {};
 
-  function vehicleRow(leg, veh, isPlane) {
-    const key = `${leg}/${veh.id}`;
-    const v = (ts[leg] || {})[veh.id] || { status: 'idle', boardedSyns: [] };
+  // ── Flight card ──────────────────────────────────────────
+  function flightCard(vehicleId, flightNum, route, date, depart, arrive, note) {
+    const v      = ts[vehicleId] || { boardedSyns: [] };
     const boarded = v.boardedSyns || [];
-    const allBoarded = veh.syns.every(s => boarded.includes(s) || s === 'All' || boarded.includes('All'));
-    const status = v.status || 'idle';
+    const isOpen  = pickerV === vehicleId;
 
-    const statusColors = { idle: '#6b7280', pushing: '#2563eb', dropped: '#16a34a' };
-    const statusLabels = { idle: '—', pushing: isPlane ? '✈️ Departed' : '🚌 Pushing', dropped: isPlane ? '🛬 Landed' : '✅ Dropped Off' };
-    const statusColor = statusColors[status];
-    const statusLabel = statusLabels[status];
+    const chips = boarded.map(s =>
+      `<span class="transport-boarded-chip" style="background:#dcfce7;color:#166534">✅ ${escapeHtml(s)}</span>`).join('');
 
-    // Board button for my syndicate
-    const myBoarded = boarded.includes(mySyn) || boarded.includes('All');
-    const myOnThisVehicle = veh.syns.includes(mySyn) || veh.syns.includes('All');
-    const boardBtn = user && myOnThisVehicle ? (
-      myBoarded
-        ? `<button class="btn btn-sm" style="background:#dcfce7;color:#15803d;border:1px solid #86efac;font-size:11px" onclick="transportAction('unboard','${leg}','${veh.id}','${mySyn}')">✅ ${escapeHtml(mySyn)} Boarded</button>`
-        : `<button class="btn btn-sm" style="background:#f0f9ff;color:#0369a1;border:1px solid #7dd3fc;font-size:11px" onclick="transportAction('board','${leg}','${veh.id}','${mySyn}')">🔲 Confirm Boarded</button>`
-    ) : '';
-
-    // Boarded summary
-    const boardedChips = boarded.map(s => `<span style="font-size:10px;background:#d1fae5;color:#065f46;padding:1px 6px;border-radius:10px;font-weight:700">${escapeHtml(s)}</span>`).join(' ');
-
-    // IC action buttons
-    const pushBtn  = canAdmin && status === 'idle' && allBoarded ? `<button class="btn btn-sm" style="background:#2563eb;color:#fff;font-size:11px" onclick="transportAction('pushing','${leg}','${veh.id}')">🚌 Mark Pushing</button>` : '';
-    const dropBtn  = canAdmin && status === 'pushing' ? `<button class="btn btn-sm" style="background:#16a34a;color:#fff;font-size:11px" onclick="transportAction('dropped','${leg}','${veh.id}')">✅ Dropped Off</button>` : '';
-    const resetBtn = canAdmin && status !== 'idle' ? `<button class="btn btn-sm btn-outline" style="font-size:11px" onclick="transportAction('reset','${leg}','${veh.id}')">↺</button>` : '';
-    const readyBadge = allBoarded && status === 'idle' ? `<span style="font-size:10px;background:#dcfce7;color:#166534;padding:2px 7px;border-radius:10px;font-weight:700">All Boarded ✓</span>` : '';
+    const picker = isOpen ? `
+      <div class="transport-picker">
+        <div style="font-size:11px;color:var(--text-3);margin-bottom:8px">Select your syndicate / group:</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px">
+          ${ALL_TRANSPORT_SYNS.map(s => {
+            const already = boarded.includes(s);
+            return `<button class="btn btn-sm" style="${already
+              ? 'background:#dcfce7;color:#15803d;border:1px solid #86efac'
+              : 'background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe'}"
+              onclick="transportAction('${already ? 'unboard' : 'board'}','${vehicleId}','${s}')">
+              ${already ? '✅ ' : ''}${escapeHtml(s)}${already ? ' (undo)' : ''}
+            </button>`;
+          }).join('')}
+        </div>
+        <button class="btn btn-sm btn-outline" style="margin-top:8px;width:100%" onclick="openTransportPicker('${vehicleId}')">Close</button>
+      </div>` : '';
 
     return `
-      <div class="transport-row" style="border-left:3px solid ${statusColor}">
-        <div class="transport-label">
-          <b style="font-size:13px">${escapeHtml(veh.label)}</b>
-          <div style="font-size:11px;color:var(--text-3);margin-top:1px">${escapeHtml(veh.pax)}</div>
-          ${boarded.length ? `<div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:3px">${boardedChips} ${readyBadge}</div>` : ''}
-        </div>
-        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px;min-width:0">
-          <div style="font-size:12px;font-weight:700;color:${statusColor}">${statusLabel}</div>
-          <div style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end">
-            ${boardBtn}${pushBtn}${dropBtn}${resetBtn}
+      <div class="transport-bus-card" style="border-left:4px solid #3b82f6">
+        <div style="display:flex;gap:10px;align-items:flex-start">
+          <div style="background:#003580;color:#fff;font-size:12px;font-weight:800;border-radius:8px;padding:4px 10px;white-space:nowrap;flex-shrink:0">${escapeHtml(flightNum)}</div>
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:700;font-size:14px">${escapeHtml(route)} · ${escapeHtml(date)}</div>
+            <div style="font-size:12px;color:var(--text-2);margin-top:1px">Depart ${escapeHtml(depart)} → Arrive ${escapeHtml(arrive)}</div>
+            <div style="font-size:11px;color:var(--text-3)">${escapeHtml(note)}</div>
           </div>
-          ${v.pushedAt ? `<div style="font-size:10px;color:var(--text-3)">Pushed ${new Date(v.pushedAt).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}</div>` : ''}
-          ${v.droppedAt ? `<div style="font-size:10px;color:#16a34a">Dropped ${new Date(v.droppedAt).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}</div>` : ''}
         </div>
+        ${boarded.length ? `<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:8px">${chips}</div>` : ''}
+        <button class="btn btn-sm" style="margin-top:10px;width:100%;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;font-size:13px"
+          onclick="openTransportPicker('${vehicleId}')">✈️ ${isOpen ? 'Cancel' : 'Confirm Boarded'}</button>
+        ${picker}
       </div>`;
   }
 
-  function vehicleSection(leg, title, icon) {
-    const vehicles = [...TRANSPORT_BUSES, TRANSPORT_FLIGHT];
+  // ── Bus card ─────────────────────────────────────────────
+  function busCard(veh) {
+    const v        = ts[veh.id] || { status: 'idle', boardedSyns: [], driver: {} };
+    const boarded  = v.boardedSyns || [];
+    const status   = v.status || 'idle';
+    const driver   = v.driver || {};
+    const isOpen   = pickerV === veh.id;
+    const isExpand = expandV === veh.id;
+    const pct      = veh.syns.length ? Math.round(boarded.length / veh.syns.length * 100) : 0;
+    const allBoarded = pct >= 100;
+    const pushing    = status === 'pushing';
+
+    // Progress bar
+    const barColor = allBoarded ? '#16a34a' : '#3b82f6';
+    const bar = `
+      <div style="margin:10px 0 4px;background:#e2e8f0;border-radius:6px;height:8px;overflow:hidden">
+        <div style="height:100%;width:${pct}%;background:${barColor};border-radius:6px;transition:width .3s"></div>
+      </div>
+      <div style="font-size:11px;color:var(--text-3)">${boarded.length}/${veh.syns.length} groups confirmed · ${pct}%</div>`;
+
+    // Chips per syn
+    const synChips = veh.syns.map(s => {
+      const on = boarded.includes(s);
+      return `<span class="transport-boarded-chip" style="${on
+        ? 'background:#dcfce7;color:#166534'
+        : 'background:#fee2e2;color:#991b1b'}">
+        ${on ? '✅' : '⧖'} ${escapeHtml(s)}
+      </span>`;
+    }).join('');
+
+    // Picker
+    const picker = isOpen ? `
+      <div class="transport-picker">
+        <div style="font-size:11px;color:var(--text-3);margin-bottom:8px">Who is boarding?</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px">
+          ${veh.syns.map(s => {
+            const on = boarded.includes(s);
+            return `<button class="btn btn-sm" style="font-size:13px;${on
+              ? 'background:#dcfce7;color:#15803d;border:1px solid #86efac'
+              : 'background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe'}"
+              onclick="transportAction('${on ? 'unboard' : 'board'}','${veh.id}','${s}')">
+              ${on ? '✅ ' : '🔲 '}${escapeHtml(s)}
+            </button>`;
+          }).join('')}
+        </div>
+        <button class="btn btn-sm btn-outline" style="margin-top:8px;width:100%" onclick="openTransportPicker('${veh.id}')">Close</button>
+      </div>` : '';
+
+    // Sitrep panel (shown when pushing and sitrep not yet sent)
+    const sitrepPanel = pushing ? `
+      <div class="transport-sitrep-panel">
+        <div style="font-size:12px;font-weight:700;color:#92400e;margin-bottom:6px">📤 Send Pushing Sitrep to Ops Chat</div>
+        <textarea id="tsitrep-remarks-${veh.id}" class="ref-form-field" style="width:100%;box-sizing:border-box;border:1px solid #fcd34d;border-radius:8px;padding:6px 8px;font-size:12px;font-family:inherit;min-height:48px;background:#fefce8;color:var(--text)"
+          placeholder="Optional: e.g. 26E 1 pax joined Bus 1 · Syn 1 short 1 man (at hotel)"></textarea>
+        <button class="btn btn-sm" style="width:100%;margin-top:6px;background:#d97706;color:#fff;font-size:13px"
+          onclick="transportSendSitrep('${veh.id}')">📤 Send Sitrep</button>
+      </div>` : '';
+
+    // Action buttons
+    const boardBtn = status === 'idle' ? `<button class="btn btn-sm" style="background:#eff6ff;color:#0369a1;border:1px solid #7dd3fc;font-size:13px" onclick="openTransportPicker('${veh.id}')">🔲 Boarded?</button>` : '';
+    const pushBtn  = canAdmin && status === 'idle' && allBoarded ? `<button class="btn btn-sm" style="background:#2563eb;color:#fff;font-size:13px" onclick="transportAction('pushing','${veh.id}')">🚌 Mark Pushing</button>` : '';
+    const dropBtn  = canAdmin && pushing ? `<button class="btn btn-sm" style="background:#16a34a;color:#fff;font-size:13px" onclick="transportAction('dropped','${veh.id}')">✅ Dropped Off</button>` : '';
+    const resetBtn = canAdmin && status !== 'idle' ? `<button class="btn btn-sm btn-outline" style="font-size:12px" onclick="transportAction('reset','${veh.id}')">↺ Reset</button>` : '';
+
+    const statusBadge = pushing
+      ? `<span style="font-size:11px;background:#dbeafe;color:#1e40af;border:1px solid #bfdbfe;padding:2px 7px;border-radius:10px;font-weight:700;margin-left:6px">🚌 Pushing</span>`
+      : (allBoarded ? `<span style="font-size:11px;background:#dcfce7;color:#166534;border:1px solid #bbf7d0;padding:2px 7px;border-radius:10px;font-weight:700;margin-left:6px">All Boarded ✓</span>` : '');
+
+    // Driver section (expanded)
+    const driverSection = isExpand ? `
+      <div class="transport-driver-section">
+        ${driver.name || driver.phone ? `
+          <div style="font-size:12px;color:var(--text-2);margin-bottom:8px">
+            ${driver.name ? `<b>Driver:</b> ${escapeHtml(driver.name)}` : ''}
+            ${driver.phone ? ` · <a href="tel:${escapeHtml(driver.phone)}" style="color:var(--blue-500)">${escapeHtml(driver.phone)}</a>` : ''}
+          </div>` : ''}
+        ${canAdmin ? `
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+            <div>
+              <label class="ref-form-label">Driver Name</label>
+              <input id="tdr-name-${veh.id}" type="text" class="text-input" value="${escapeHtml(driver.name || '')}" placeholder="e.g. Khun Somsak" style="width:100%;box-sizing:border-box;border:1px solid var(--border);border-radius:7px;padding:6px 8px;font-size:12px">
+            </div>
+            <div>
+              <label class="ref-form-label">Phone</label>
+              <input id="tdr-phone-${veh.id}" type="tel" class="text-input" value="${escapeHtml(driver.phone || '')}" placeholder="+66 8X XXX XXXX" style="width:100%;box-sizing:border-box;border:1px solid var(--border);border-radius:7px;padding:6px 8px;font-size:12px">
+            </div>
+          </div>
+          <button class="btn btn-sm btn-primary" style="width:100%" onclick="saveTransportDriver('${veh.id}')">Save Driver Info</button>` : ''}
+      </div>` : '';
+
     return `
-      <div class="section-title" style="margin-top:16px">${icon} ${title}</div>
-      <div class="transport-card">
-        ${vehicles.map(v => vehicleRow(leg, v, v.id === 'flight')).join('')}
+      <div class="transport-bus-card" style="border-left:4px solid ${pushing ? '#2563eb' : allBoarded ? '#16a34a' : '#e2e8f0'}">
+        <div class="transport-bus-header" onclick="toggleTransportExpand('${veh.id}')">
+          <div>
+            <span style="font-size:15px;font-weight:800">${escapeHtml(veh.label)}</span>${statusBadge}
+            <div style="font-size:11px;color:var(--text-3);margin-top:2px">${escapeHtml(veh.pax)}</div>
+            ${driver.name ? `<div style="font-size:11px;color:var(--text-3)">🚗 ${escapeHtml(driver.name)}${driver.phone ? ' · ' + escapeHtml(driver.phone) : ''}</div>` : ''}
+          </div>
+          <span style="color:var(--text-3);font-size:16px;flex-shrink:0">${isExpand ? '▲' : '▼'}</span>
+        </div>
+        ${driverSection}
+        ${bar}
+        <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:8px">${synChips}</div>
+        <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">
+          ${boardBtn}${pushBtn}${dropBtn}${resetBtn}
+        </div>
+        ${picker}
+        ${sitrepPanel}
+        ${v.pushedAt ? `<div style="font-size:10px;color:var(--text-3);margin-top:4px">Pushed ${new Date(v.pushedAt).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}H${v.pushedBy ? ' by ' + escapeHtml(v.pushedBy) : ''}</div>` : ''}
+        ${v.lastDroppedAt ? `<div style="font-size:10px;color:var(--text-3);margin-top:2px">Last dropped ${new Date(v.lastDroppedAt).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}H</div>` : ''}
       </div>`;
   }
 
   container.innerHTML = `
-    <div class="card" style="margin:12px 12px 0">
-      <div class="card-header"><span class="icon">✈️</span><h3>Flights</h3></div>
-      <div class="card-body" style="padding:12px 14px">
-        <div style="display:flex;gap:12px;align-items:flex-start;margin-bottom:10px">
-          <div style="background:#003580;color:#fff;font-size:12px;font-weight:800;border-radius:8px;padding:4px 10px;white-space:nowrap">SQ 708</div>
-          <div>
-            <div style="font-weight:700;font-size:13px">SIN → BKK · 26 Apr</div>
-            <div style="font-size:12px;color:var(--text-2)">Depart Changi T2 · 0930H &nbsp;·&nbsp; Arrive BKK 1100H</div>
-            <div style="font-size:11px;color:var(--text-3)">Economy (G) · 25 kg baggage · Check-in from 0600H</div>
-          </div>
-        </div>
-        <div style="display:flex;gap:12px;align-items:flex-start">
-          <div style="background:#003580;color:#fff;font-size:12px;font-weight:800;border-radius:8px;padding:4px 10px;white-space:nowrap">SQ 709</div>
-          <div>
-            <div style="font-weight:700;font-size:13px">BKK → SIN · 30 Apr</div>
-            <div style="font-size:12px;color:var(--text-2)">Depart BKK · 1530H &nbsp;·&nbsp; Arrive Changi 1900H</div>
-            <div style="font-size:11px;color:var(--text-3)">Economy (G) · 25 kg baggage · Report to airport by 1300H</div>
-          </div>
-        </div>
+    <div style="padding:0 0 32px">
+      <div class="section-title" style="margin:12px 12px 8px">✈️ Flights</div>
+      <div style="display:flex;flex-direction:column;gap:10px;margin:0 12px">
+        ${flightCard('flight_sq708','SQ 708','SIN → BKK','Sun 26 Apr','0930H','1100H','Changi T2 · Economy G · 25 kg · Check-in from 0600H')}
+        ${flightCard('flight_sq709','SQ 709','BKK → SIN','Thu 30 Apr','1530H','1900H','Economy G · 25 kg · Report to airport by 1300H')}
       </div>
-    </div>
 
-    ${vehicleSection('arr', 'Ground Transport · Arrival', '🛬')}
-    <div style="font-size:11px;color:var(--text-3);padding:4px 12px 2px">26 Apr · BKK Airport → Pullman G</div>
-
-    ${vehicleSection('dep', 'Ground Transport · Departure', '🛫')}
-    <div style="font-size:11px;color:var(--text-3);padding:4px 12px 2px">30 Apr · Pullman G → BKK Airport</div>
-
-    <div style="height:24px"></div>
-  `;
+      <div class="section-title" style="margin:20px 12px 8px">🚌 Ground Transport</div>
+      <div style="display:flex;flex-direction:column;gap:10px;margin:0 12px">
+        ${TRANSPORT_BUSES.map(b => busCard(b)).join('')}
+      </div>
+    </div>`;
 }
 
-window.transportAction = async function(action, leg, vehicleId, synLabel) {
-  const user = STATE.currentUser;
-  const actorName = user ? (user.shortName || user.name) : 'unknown';
-  const payload = { action, leg, vehicleId, actorName };
-  if (synLabel) payload.synLabel = synLabel;
-  const result = await API.post('updateTransport', payload);
-  if (result) STATE.transport = result;
-  const body = el('calendar-sub-content');
-  if (body) renderTransportSubTab(body);
-};
+async function renderTransportSubTab(container) {
+  container.innerHTML = `<div style="padding:28px;text-align:center;color:var(--text-3)">Loading transport…</div>`;
+  const data = await API.get('getTransport');
+  if (data && typeof data === 'object') STATE.transport = data;
+  _redrawTransport(container);
+}
 
 function renderReflectionsSubTab() {
   const user = STATE.currentUser;

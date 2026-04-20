@@ -214,21 +214,21 @@ function getTransportState() {
 }
 
 function updateTransportState(body) {
-  // body: { leg, vehicleId, action, synLabel, actorName }
-  // action: 'board' | 'unboard' | 'pushing' | 'dropped' | 'reset'
+  // body: { vehicleId, action, synLabel, actorName, driverName, driverPhone, remarks }
+  // action: 'board' | 'unboard' | 'pushing' | 'dropped' | 'reset' | 'editDriver'
+  // No 'leg' concept — state is keyed flat by vehicleId.
+  // 'dropped' immediately resets boardedSyns → bus is free again.
   const props = PropertiesService.getScriptProperties();
   let state;
   try { state = JSON.parse(props.getProperty(TRANSPORT_PROP_KEY) || '{}'); }
   catch (e) { state = {}; }
 
-  const leg = body.leg || 'arr';   // 'arr' or 'dep'
   const vid = body.vehicleId || '';
-  if (!leg || !vid) return { error: 'Missing leg or vehicleId' };
+  if (!vid) return { error: 'Missing vehicleId' };
 
-  if (!state[leg]) state[leg] = {};
-  if (!state[leg][vid]) state[leg][vid] = { status: 'idle', boardedSyns: [] };
-
-  const v = state[leg][vid];
+  if (!state[vid]) state[vid] = { status: 'idle', boardedSyns: [], driver: {} };
+  const v = state[vid];
+  if (!v.driver) v.driver = {};
   const now = new Date().toISOString();
 
   switch (body.action) {
@@ -240,26 +240,33 @@ function updateTransportState(body) {
       v.boardedSyns = v.boardedSyns.filter(s => s !== body.synLabel);
       break;
     case 'pushing':
-      v.status = 'pushing';
-      v.pushedBy = body.actorName || '';
-      v.pushedAt = now;
+      v.status    = 'pushing';
+      v.pushedBy  = body.actorName || '';
+      v.pushedAt  = now;
+      v.remarks   = body.remarks || '';
       break;
     case 'dropped':
-      v.status = 'dropped';
-      v.droppedBy = body.actorName || '';
-      v.droppedAt = now;
+      // Bus is freed — clear boarded list, return to idle
+      v.status    = 'idle';
+      v.boardedSyns = [];
+      v.lastDroppedBy = body.actorName || '';
+      v.lastDroppedAt = now;
+      delete v.pushedBy; delete v.pushedAt; delete v.remarks;
       break;
     case 'reset':
       v.status = 'idle';
       v.boardedSyns = [];
-      delete v.pushedBy; delete v.pushedAt;
-      delete v.droppedBy; delete v.droppedAt;
+      delete v.pushedBy; delete v.pushedAt; delete v.remarks;
+      delete v.lastDroppedBy; delete v.lastDroppedAt;
+      break;
+    case 'editDriver':
+      v.driver = { name: body.driverName || '', phone: body.driverPhone || '' };
       break;
   }
 
   v.updatedAt = now;
   props.setProperty(TRANSPORT_PROP_KEY, JSON.stringify(state));
-  logAction('transport_' + body.action, body.actorName || 'unknown', `${leg}/${vid}`);
+  logAction('transport_' + body.action, body.actorName || 'unknown', vid);
   return state;
 }
 
