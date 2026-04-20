@@ -1436,8 +1436,6 @@ function renderMySyndicateMini(groupKey) {
 
 // ═══════════ ADHOC SITREP PICKER ═════════════════════════════
 window.showAdhocPicker = function() {
-  // Non-admins can only send for their OWN syndicate. If that's the only
-  // option, skip the picker and fire directly.
   const canAll = canSeeAllSyndicates();
   const allowed = (canAll ? groupOrder() : visibleGroups())
     .filter(g => g !== 'Leadership');
@@ -1451,9 +1449,13 @@ window.showAdhocPicker = function() {
     return;
   }
 
+  // Multi-select rows — user can tap multiple syndicates and then hit
+  // 'Send selected'. Keeps the mass-send shortcut available too.
+  STATE._adhocSelected = new Set();
   const rows = opts.map(o => `
-    <button class="adhoc-row" onclick="sendSyndicateSITREP('${o.key.replace(/'/g,"\\'")}'); closeAdhocPicker()">
-      <span>${escapeHtml(o.label)}</span>
+    <button class="adhoc-row adhoc-multi" data-key="${escapeHtml(o.key)}" onclick="toggleAdhocPick(this)">
+      <span class="ah-check">☐</span>
+      <span class="ah-label">${escapeHtml(o.label)}</span>
       <span class="ah-count">${o.count} ${o.count === 1 ? 'member' : 'members'}</span>
     </button>`).join('');
 
@@ -1463,14 +1465,50 @@ window.showAdhocPicker = function() {
   wrap.innerHTML = `
     <div class="adhoc-sheet">
       <h3>📤 Send Adhoc SITREP</h3>
-      <p class="ah-sub">Which syndicate?</p>
+      <p class="ah-sub">Tap each syndicate to include. Send when ready.</p>
       ${rows}
+      <div class="adhoc-actions">
+        <button class="adhoc-cancel" onclick="closeAdhocPicker()">Cancel</button>
+        <button id="adhoc-send-btn" class="adhoc-send" onclick="sendAdhocSelected()" disabled>Send selected (0)</button>
+      </div>
       ${canAll ? `<button class="adhoc-row mass" onclick="sendAllSITREPs(); closeAdhocPicker()">
         📣 Mass send — all syndicates
       </button>` : ''}
-      <button class="adhoc-cancel" onclick="closeAdhocPicker()">Cancel</button>
     </div>`;
   document.body.appendChild(wrap);
+};
+
+window.toggleAdhocPick = function(btn) {
+  const key = btn.dataset.key;
+  if (!STATE._adhocSelected) STATE._adhocSelected = new Set();
+  const check = btn.querySelector('.ah-check');
+  if (STATE._adhocSelected.has(key)) {
+    STATE._adhocSelected.delete(key);
+    btn.classList.remove('picked');
+    if (check) check.textContent = '☐';
+  } else {
+    STATE._adhocSelected.add(key);
+    btn.classList.add('picked');
+    if (check) check.textContent = '☑';
+  }
+  const sendBtn = el('adhoc-send-btn');
+  if (sendBtn) {
+    const n = STATE._adhocSelected.size;
+    sendBtn.disabled = n === 0;
+    sendBtn.textContent = `Send selected (${n})`;
+  }
+};
+
+window.sendAdhocSelected = async function() {
+  const picks = [...(STATE._adhocSelected || [])];
+  if (!picks.length) return;
+  closeAdhocPicker();
+  await withLoader(`Sending ${picks.length} SITREP${picks.length > 1 ? 's' : ''}…`, async () => {
+    for (const gk of picks) {
+      await sendSyndicateSITREP(gk, true);   // auto=true skips confirm
+    }
+  });
+  toast(`✅ Sent ${picks.length} SITREP${picks.length > 1 ? 's' : ''}`);
 };
 window.closeAdhocPicker = function() { el('adhoc-picker')?.remove(); };
 
@@ -2401,27 +2439,10 @@ window.confirmLeaveHotel = async function() {
   const buddyLabels = buddyObjs.map(b => b.shortName || b.name);
   hideBuddyModal();
 
-  // Auto-GPS: if the user hasn't already shared in this modal session and
-  // hasn't explicitly declined, silently ask the browser for a position.
-  // Max 4s wait so we don't block the confirm flow; falls through to the
-  // manual/stored coords if anything goes wrong.
-  let pending = STATE._pendingGPS;
-  if (!pending && !localStorage.getItem('tsv_gps_declined_session') && navigator.geolocation) {
-    try {
-      const pos = await new Promise((res, rej) => {
-        const t = setTimeout(() => rej(new Error('timeout')), 4000);
-        navigator.geolocation.getCurrentPosition(
-          p => { clearTimeout(t); res(p); },
-          e => { clearTimeout(t); rej(e); },
-          { timeout: 4000, maximumAge: 30000, enableHighAccuracy: false }
-        );
-      });
-      pending = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-    } catch (e) {
-      // Remember a permission denial for this session so we don't re-prompt
-      if (e && e.code === 1) sessionStorage.setItem('tsv_gps_declined_session', '1');
-    }
-  }
+  // User explicitly does NOT want auto-GPS on Leaving Hotel. Only use
+  // coords if the user shared GPS via the 📡 button in the buddy modal
+  // (STATE._pendingGPS) or from their existing status. No silent prompt.
+  const pending = STATE._pendingGPS;
   const existingStatus = getStatusOf(user.id);
   const useLat = pending ? pending.lat : (existingStatus.lat || '');
   const useLng = pending ? pending.lng : (existingStatus.lng || '');

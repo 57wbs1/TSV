@@ -3820,11 +3820,48 @@ body::after {
   box-shadow: var(--shadow-primary);
 }
 .adhoc-row.mass:active { filter: brightness(.95); }
+.adhoc-row.adhoc-multi { gap: 10px; }
+.adhoc-row.adhoc-multi .ah-check {
+  flex-shrink: 0;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--text-2);
+}
+.adhoc-row.adhoc-multi .ah-label { flex: 1; text-align: left; }
+.adhoc-row.adhoc-multi.picked {
+  background: var(--blue-600);
+  color: #fff;
+  border-color: var(--blue-600);
+}
+.adhoc-row.adhoc-multi.picked .ah-check { color: #fff; }
+.adhoc-row.adhoc-multi.picked .ah-count { color: rgba(255,255,255,.8); opacity: 1; }
+@media (prefers-color-scheme: dark) {
+  .adhoc-row.adhoc-multi.picked { background: #3b82f6; border-color: #3b82f6; color: #fff; }
+}
+.adhoc-actions {
+  display: flex; gap: 8px;
+  margin-top: 12px;
+}
+.adhoc-send {
+  flex: 1;
+  padding: 12px;
+  background: linear-gradient(135deg, var(--blue-600), var(--blue-500));
+  color: #fff;
+  border: none;
+  border-radius: var(--r-md);
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: transform .12s, opacity .12s;
+}
+.adhoc-send:disabled { opacity: .4; cursor: not-allowed; }
+.adhoc-send:not(:disabled):active { transform: scale(0.98); }
 .adhoc-cancel {
-  width: 100%; padding: 12px;
+  flex: 0 0 auto;
+  padding: 12px 18px;
   background: transparent; border: none;
   color: var(--text-2); font-size: 14px; font-weight: 600;
-  margin-top: 8px; cursor: pointer;
+  cursor: pointer;
 }
 
 /* Dark mode overrides — keep colors distinct */

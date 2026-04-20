@@ -7,6 +7,9 @@
 // Sheet ID — from https://docs.google.com/spreadsheets/d/<ID>/edit
 const SHEET_ID = '19IjTK0I_L2NXJ9afqTxf3GkCXbcONio4ORaw-54JOjY';
 const HOTWASH_SHEET_ID = '10gub3Ya6rgq70OnaLxf-yGkt8IrhTPC1f7r2Cj7TuMc';
+// External Reflections workbook — each syndicate has its own tab so the
+// Learning IC can grab their tab and drop into ChatGPT for consolidation.
+const REFLECTIONS_EXT_SHEET_ID = '10zMjWkHqWRhPDAHSzv_WWGpLi96csLflhsuHfBHPfng';
 const SPREADSHEET = SpreadsheetApp.openById(SHEET_ID);
 
 // Sheet schemas
@@ -52,6 +55,20 @@ function doGet(e) {
       case 'testEveningSitrep': data = sendEveningSitrep(); break;
       case 'testMidnightSitrep': data = sendMidnightSitrep(); break;
       case 'installTriggers': data = setupAllTriggers(); break;
+      case 'ensureIsAdminColumn':
+        if (e.parameter.actor !== SUPER_ADMIN_ID) { data = { error: 'Unauthorized' }; break; }
+        data = ensureIsAdminColumn();
+        break;
+      case 'setupReflectionsSheet':
+        if (e.parameter.actor !== SUPER_ADMIN_ID) { data = { error: 'Unauthorized' }; break; }
+        data = setupReflectionsSheet();
+        break;
+      case 'cleanSlateForTrip':
+        // Super-admin only. Requires ?actor=caspar&confirm=YES_CLEAR_ALL
+        if (e.parameter.actor !== SUPER_ADMIN_ID) { data = { error: 'Unauthorized' }; break; }
+        if (e.parameter.confirm !== 'YES_CLEAR_ALL') { data = { error: 'Missing confirm=YES_CLEAR_ALL' }; break; }
+        data = cleanSlateForTrip();
+        break;
       case 'getAdminRequests': data = readSheet(SHEETS.ADMINREQ); break;
       default: return json({ ok: false, error: 'Unknown action: ' + action });
     }
@@ -424,6 +441,7 @@ function readReflections() {
 function addReflection(data) {
   const sheet = getOrCreateSheet(SHEETS.REFLECTIONS);
   const id = 'R' + Date.now();
+  const nowIso = new Date().toISOString();
   sheet.appendRow([
     id,
     data.authorId || '',
@@ -431,10 +449,120 @@ function addReflection(data) {
     data.syndicate || '',
     data.day || '',
     data.content || '',
-    new Date().toISOString()
+    nowIso
   ]);
+  // Also write to the external Reflections workbook (Learning IC facing).
+  // Failure to write there never blocks the main save.
+  try { appendReflectionExternal(data, nowIso); }
+  catch (e) { logAction('reflection_ext_fail', 'server', e.message); }
   logAction('addReflection', data.authorId, (data.content || '').substring(0, 50));
   return { id };
+}
+
+// Tabs on the external workbook — one per syndicate for the Learning IC.
+// ChatGPT-friendly Q&A layout: timestamp, day, author, then the four
+// reflection-template sections split into columns + raw content as a
+// catch-all for unstructured submissions.
+const REFLECTION_TABS = ['57 SYN 1', '57 SYN 3', '57 SYN 4', '25E', '26E', '27E'];
+const REFLECTION_HEADERS = [
+  'Timestamp (BKK)', 'Day', 'Author',
+  'Q: Observations',
+  'Q: Implications for SG / SAF',
+  'Q: Key Takeaway / Ah-Ha',
+  'Q: Follow-up Questions',
+  'Raw Content'
+];
+
+// Returns the tab name for a given syndicate label (as app would send it).
+// e.g. 'PSO', '57 SYN 1' → '57 SYN 1'; '25E' → '25E'.
+function _reflectionTabFor(syndicate) {
+  const s = String(syndicate || '').trim();
+  if (!s) return '57 SYN 1';
+  // Normalise common variants
+  if (/^57\s*SYN\s*1$/i.test(s)) return '57 SYN 1';
+  if (/^57\s*SYN\s*3$/i.test(s)) return '57 SYN 3';
+  if (/^57\s*SYN\s*4$/i.test(s)) return '57 SYN 4';
+  if (/^25\s*E$/i.test(s))  return '25E';
+  if (/^26\s*E$/i.test(s))  return '26E';
+  if (/^27\s*E$/i.test(s))  return '27E';
+  if (/^PSO|LEAD/i.test(s)) return '57 SYN 1';   // PSO contributions land under Syn 1
+  return s;
+}
+
+// Parse the reflection template sections out of free-form text. Looks
+// for the exact headings used in REFLECTION_TEMPLATE. Returns columns
+// [observations, implications, ahha, followups] — empty string if not
+// found. If user didn't use the template, everything goes to Raw Content.
+function _parseReflectionSections(text) {
+  const t = String(text || '');
+  const sections = { observations: '', implications: '', ahha: '', followups: '' };
+  // Flexible matching — headers can be slightly reworded
+  const patterns = [
+    { key: 'observations', re: /what did we observe\?([\s\S]*?)(?=what does it mean|key takeaway|follow[-\s]*up|$)/i },
+    { key: 'implications',  re: /what does it mean[^\n]*([\s\S]*?)(?=key takeaway|follow[-\s]*up|$)/i },
+    { key: 'ahha',          re: /key takeaway[^\n]*([\s\S]*?)(?=follow[-\s]*up|$)/i },
+    { key: 'followups',     re: /follow[-\s]*up[^\n]*([\s\S]*?)$/i }
+  ];
+  patterns.forEach(p => {
+    const m = t.match(p.re);
+    if (m && m[1]) sections[p.key] = m[1].trim().replace(/^[•\-\*]\s*/gm, '• ');
+  });
+  return sections;
+}
+
+function appendReflectionExternal(data, timestampIso) {
+  const ss = SpreadsheetApp.openById(REFLECTIONS_EXT_SHEET_ID);
+  const tabName = _reflectionTabFor(data.syndicate);
+  let tab = ss.getSheetByName(tabName);
+  if (!tab) {
+    tab = ss.insertSheet(tabName);
+    tab.getRange(1, 1, 1, REFLECTION_HEADERS.length).setValues([REFLECTION_HEADERS]).setFontWeight('bold').setBackground('#1e40af').setFontColor('#ffffff');
+    tab.setFrozenRows(1);
+    tab.setColumnWidths(1, 1, 160);
+    tab.setColumnWidths(2, 1, 60);
+    tab.setColumnWidths(3, 1, 140);
+    for (let c = 4; c <= 7; c++) tab.setColumnWidths(c, 1, 340);
+    tab.setColumnWidths(8, 1, 400);
+  }
+  const bkkTs = Utilities.formatDate(new Date(timestampIso), 'Asia/Bangkok', 'yyyy-MM-dd HH:mm');
+  const s = _parseReflectionSections(data.content);
+  tab.appendRow([
+    bkkTs,
+    data.day ? 'Day ' + data.day : '',
+    data.authorName || '',
+    s.observations,
+    s.implications,
+    s.ahha,
+    s.followups,
+    data.content || ''
+  ]);
+}
+
+// One-shot util: initialise all six syndicate tabs in the external
+// Reflections workbook with headers + formatting. Safe to run multiple
+// times — skips tabs that already exist.
+function setupReflectionsSheet() {
+  const ss = SpreadsheetApp.openById(REFLECTIONS_EXT_SHEET_ID);
+  const created = [];
+  REFLECTION_TABS.forEach(name => {
+    if (ss.getSheetByName(name)) { created.push(name + ' (exists)'); return; }
+    const tab = ss.insertSheet(name);
+    tab.getRange(1, 1, 1, REFLECTION_HEADERS.length).setValues([REFLECTION_HEADERS]).setFontWeight('bold').setBackground('#1e40af').setFontColor('#ffffff');
+    tab.setFrozenRows(1);
+    tab.setColumnWidths(1, 1, 160);
+    tab.setColumnWidths(2, 1, 60);
+    tab.setColumnWidths(3, 1, 140);
+    for (let c = 4; c <= 7; c++) tab.setColumnWidths(c, 1, 340);
+    tab.setColumnWidths(8, 1, 400);
+    created.push(name + ' (created)');
+  });
+  // Drop the default 'Sheet1' if it's empty and we now have named tabs
+  const sheet1 = ss.getSheetByName('Sheet1');
+  if (sheet1 && sheet1.getLastRow() <= 1 && ss.getSheets().length > 1) {
+    ss.deleteSheet(sheet1);
+    created.push('Sheet1 (removed)');
+  }
+  return { tabs: created };
 }
 
 function addIncident(data) {
@@ -1367,6 +1495,79 @@ function resetCasparPin() {
   }
   Logger.log('caspar not found');
   return 'caspar not found';
+}
+
+// Migration: the Members sheet was created without an isAdmin column.
+// Every 'grant admin' write since has silently done nothing. This inserts
+// the column after pin (position 9) with 'false' as the default for all
+// existing rows, and drops any trailing blank columns.
+function ensureIsAdminColumn() {
+  const sheet = SPREADSHEET.getSheetByName(SHEETS.MEMBERS.name);
+  if (!sheet) return { error: 'Members sheet not found' };
+  const lastCol = sheet.getLastColumn();
+  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  if (headers.indexOf('isAdmin') >= 0) return { ok: true, status: 'already present' };
+
+  const pinIdx = headers.indexOf('pin');
+  if (pinIdx < 0) return { error: 'pin column missing — aborting' };
+  // Insert a new column AFTER pin (Apps Script col index is 1-based)
+  sheet.insertColumnAfter(pinIdx + 1);
+  const newCol = pinIdx + 2;   // 1-based index of the new column
+  sheet.getRange(1, newCol).setValue('isAdmin');
+  const lastRow = sheet.getLastRow();
+  if (lastRow > 1) {
+    const range = sheet.getRange(2, newCol, lastRow - 1, 1);
+    // Default everyone to 'false'. Caspar is super-admin by hardcoded ID
+    // so the flag doesn't matter for him; everyone else starts non-admin.
+    const values = [];
+    for (let i = 0; i < lastRow - 1; i++) values.push(['false']);
+    range.setValues(values);
+    range.setNumberFormat('@');   // force text format
+  }
+  // Clean up any trailing blank-header column
+  const cleanHeaders = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  for (let i = cleanHeaders.length - 1; i > 0; i--) {
+    if (!cleanHeaders[i]) {
+      sheet.deleteColumn(i + 1);
+    } else break;
+  }
+  return { ok: true, added: 'isAdmin column inserted at position ' + newCol };
+}
+
+// Pre-trip clean slate — clears every trip-data sheet but KEEPS the
+// roster (Members) and itinerary (Calendar). Run once before the trip.
+// Preserves each sheet's header row; only data rows go.
+function cleanSlateForTrip() {
+  const TARGET_SHEETS = [
+    SHEETS.STATUS,      // current in/out/GPS
+    SHEETS.STATUSLOG,   // audit trail
+    SHEETS.LEARNINGS,   // test learning posts
+    SHEETS.REFLECTIONS, // test reflection posts
+    SHEETS.INCIDENTS,   // test IR submissions
+    SHEETS.PINGS,       // in-app pings
+    SHEETS.ADMINREQ,    // admin-rights requests
+    SHEETS.LOG          // action log (server-side audit)
+  ];
+  const summary = [];
+  TARGET_SHEETS.forEach(spec => {
+    try {
+      const sheet = SPREADSHEET.getSheetByName(spec.name);
+      if (!sheet) { summary.push(spec.name + ' → not found'); return; }
+      const lastRow = sheet.getLastRow();
+      const dataRows = Math.max(0, lastRow - 1);
+      if (dataRows > 0) {
+        sheet.deleteRows(2, dataRows);
+      }
+      summary.push(spec.name + ' → ' + dataRows + ' rows cleared');
+    } catch (e) {
+      summary.push(spec.name + ' → FAILED: ' + e.message);
+    }
+  });
+  // Also reset the seed-mutex so subsequent admin boots can re-run any
+  // missing-member checks cleanly.
+  try { PropertiesService.getScriptProperties().deleteProperty('lastSeedTs'); } catch {}
+  logAction('cleanSlateForTrip', 'server', summary.join(' · '));
+  return { cleared: summary, ts: new Date().toISOString() };
 }
 
 // One-shot util: repair every PIN in the Members sheet back to a
