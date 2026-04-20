@@ -491,6 +491,27 @@ function getTripStatus() {
 
 function getMemberById(id) { return MEMBERS.find(m => m.id === id); }
 function getStatusOf(id) { return STATE.memberStatuses[id] || { status:'in_hotel', locationText:'', buddyWith:'' }; }
+
+// Filter buddyWith string to only include people who are still OUT.
+// buddyWith stores shortName (or name) as comma-separated string.
+// If Caspar goes back IN, his name disappears from everyone else's buddy display.
+function filterActiveBuddies(buddyWithStr) {
+  if (!buddyWithStr) return '';
+  return buddyWithStr.split(',').map(s => s.trim()).filter(name => {
+    if (!name) return false;
+    const m = MEMBERS.find(m => (m.shortName || m.name) === name || m.name === name);
+    if (!m) return true; // unknown → keep (don't silently drop)
+    return getStatusOf(m.id).status === 'out';
+  }).join(', ');
+}
+
+// Role label: return role text only if it's meaningful (not the generic "Member").
+// "Syn IC", "SL", "Dy SL", "HoD", "PDS", "Admin", etc. are kept.
+function meaningfulRole(m) {
+  const r = (m.role || '').trim();
+  if (!r || r === 'Member') return '';
+  return r;
+}
 function inCount() { return MEMBERS.filter(m => getStatusOf(m.id).status !== 'out').length; }
 function outCount() { return MEMBERS.filter(m => getStatusOf(m.id).status === 'out').length; }
 // Scoped-to-user helpers: non-admins see their own syndicate counts only.
@@ -1463,13 +1484,15 @@ function _showPresenceList(mode) {
         const loc = mode === 'out'
           ? (s.locationText ? escapeHtml(s.locationText) : 'location unknown')
           : 'Hotel';
-        const buddy = s.buddyWith ? `<div class="pl-buddy">👥 w/ ${escapeHtml(s.buddyWith)}</div>` : '';
+        const activeBuds = filterActiveBuddies(s.buddyWith);
+        const buddy = activeBuds ? `<div class="pl-buddy">👥 w/ ${escapeHtml(activeBuds)}</div>` : '';
+        const plRole = meaningfulRole(m);
         return `
           <div class="pl-row">
             <span class="pl-dot ${mode==='out'?'out':'in'}"></span>
             <div class="pl-info">
-              <div class="pl-name">${escapeHtml(m.shortName || m.name)}</div>
-              <div class="pl-meta">${escapeHtml(formatGroupDisplay(memberGroupKey(m)))} · 📍 ${loc}</div>
+              <div class="pl-name">${escapeHtml(m.shortName || m.name)}${plRole ? ` <span class="pl-role-tag">${escapeHtml(plRole)}</span>` : ''}</div>
+              <div class="pl-meta">📍 ${loc}</div>
               ${buddy}
             </div>
           </div>`;
@@ -2051,16 +2074,16 @@ function _renderLocationImpl() {
       // Syn IC + admin can toggle anyone in their syndicate (except themselves
       // — members self-manage via the 'Leaving Hotel' / 'Return to Hotel' flow).
       const canToggle = !isMe && (isAdmin() || isSynIC);
+      const roleTag  = meaningfulRole(m);
+      const activeBuddies = filterActiveBuddies(st.buddyWith);
       return `
         <div class="member-row" ${isMe ? 'data-me="1"' : ''}>
           <div class="status-dot ${isOut ? 'dot-out' : 'dot-in'}"></div>
           <div class="m-info">
             <div class="m-name">${escapeHtml(m.name)}${isMe ? ' <span class="you-pill">(You)</span>' : ''}</div>
-            <div class="m-detail">
-              ${escapeHtml(m.role || '')}${m.csc && m.csc !== 'Staff' ? ' · ' + escapeHtml(m.csc) : ''}
-              ${isOut && st.locationText ? ` · 📍 ${escapeHtml(st.locationText)}` : ''}
-            </div>
-            ${isOut && st.buddyWith ? `<div class="m-buddy">👥 w/ ${escapeHtml(st.buddyWith)}</div>` : ''}
+            ${roleTag ? `<div class="m-detail">${escapeHtml(roleTag)}</div>` : ''}
+            ${isOut && st.locationText ? `<div class="m-location">📍 ${escapeHtml(st.locationText)}</div>` : ''}
+            ${isOut && activeBuddies ? `<div class="m-buddy">👥 w/ ${escapeHtml(activeBuddies)}</div>` : ''}
           </div>
           ${canToggle ? (isOut
             ? `<button class="btn-ic-mark ic-in"  onclick="event.stopPropagation(); icMarkMember('${m.id}', 'in')"  title="Mark ${escapeHtml(m.shortName)} as In Hotel">🏨 In</button>`

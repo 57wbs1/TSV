@@ -1729,11 +1729,18 @@ body::after {
   letter-spacing: -0.005em;
 }
 .pl-meta {
-  font-size: 12px; color: var(--text-2);
-  margin-top: 2px; line-height: 1.4;
+  font-size: 13px; color: var(--text);
+  margin-top: 2px; line-height: 1.4; font-weight: 500;
+}
+.pl-role-tag {
+  display: inline-block;
+  font-size: 10px; font-weight: 700;
+  background: rgba(100,116,139,.15); color: var(--text-2);
+  border-radius: 4px; padding: 1px 5px; margin-left: 4px;
+  vertical-align: middle; text-transform: uppercase; letter-spacing: .03em;
 }
 .pl-buddy {
-  font-size: 11px; color: var(--blue-600);
+  font-size: 12px; color: var(--blue-600);
   margin-top: 3px; font-weight: 600;
 }
 @media (prefers-color-scheme: dark) {
@@ -2193,8 +2200,13 @@ body::after {
   margin-top: 2px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+.member-row .m-location {
+  font-size: 12px; color: var(--text);
+  margin-top: 2px; font-weight: 500;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .member-row .m-buddy {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--blue-600);
   margin-top: 2px;
   font-weight: 600;
@@ -2202,6 +2214,8 @@ body::after {
 @media (prefers-color-scheme: dark) {
   .member-row .m-buddy,
   .member-row .m-info .m-buddy { color: #93c5fd !important; }
+  .member-row .m-location { color: #e2e8f0; }
+  .pl-buddy { color: #93c5fd; }
 }
 
 .filter-bar {
