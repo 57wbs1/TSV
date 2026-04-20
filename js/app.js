@@ -2190,24 +2190,15 @@ function _renderLocationImpl() {
     <div id="tracker-list-wrap" style="${trackerView === 'list' ? '' : 'display:none'}">
     ${user ? `
     <div class="my-status-card">
-      <div class="status-header"><h3>👤 My Status — ${escapeHtml(user.shortName)}</h3></div>
-      <div class="status-body">
-        <div class="current-status-display">
-          <span class="status-dot ${myStatus.status==='out'?'dot-out':'dot-in'}" style="width:14px;height:14px"></span>
-          <div class="status-info">
-            <div class="status-label">${myStatus.status==='out'?'🔴 OUT OF HOTEL':'🟢 IN HOTEL'}</div>
-            ${myStatus.status==='out' && myStatus.locationText ? `<div class="status-detail">📍 ${escapeHtml(myStatus.locationText)}</div>` : ''}
-            ${myStatus.status==='out' && myStatus.buddyWith ? `<div class="status-detail">👥 Buddy: ${escapeHtml(myStatus.buddyWith)}</div>` : ''}
-          </div>
-        </div>
-        ${myStatus.status==='out' ? `
-          <button class="btn btn-outline btn-sm btn-block" onclick="updateLocationText()" style="margin-top:8px">📍 Update Location Text</button>` : ''}
-        ${myStatus.lat && myStatus.lng ? `
-          <div class="tracking-indicator" style="margin-top:10px">
-            <div class="live-dot"></div>
-            <span>GPS shared · ${myStatus.lat.toFixed(4)}, ${myStatus.lng.toFixed(4)}</span>
-          </div>` : ''}
+      <div class="msc-row">
+        <span class="status-dot ${myStatus.status==='out'?'dot-out':'dot-in'}"></span>
+        <span class="msc-name">${escapeHtml(user.shortName)}</span>
+        <span class="msc-pill ${myStatus.status==='out'?'msc-out':'msc-in'}">${myStatus.status==='out'?'OUT':'IN HOTEL'}</span>
+        ${myStatus.lat && myStatus.lng ? `<span class="msc-gps" title="GPS active">📡</span>` : ''}
       </div>
+      ${myStatus.status==='out' && myStatus.locationText ? `<div class="msc-detail">📍 ${escapeHtml(myStatus.locationText)}</div>` : ''}
+      ${myStatus.status==='out' && filterActiveBuddies(myStatus.buddyWith) ? `<div class="msc-detail">👥 ${escapeHtml(filterActiveBuddies(myStatus.buddyWith))}</div>` : ''}
+      ${myStatus.status==='out' ? `<button class="btn btn-outline btn-sm btn-block" onclick="updateLocationText()" style="margin-top:6px;font-size:11px;padding:5px 10px">📍 Update Location</button>` : ''}
     </div>` : `<div class="alert alert-orange">Tap 👤 in header to sign in.</div>`}
 
     <div class="team-overview">
