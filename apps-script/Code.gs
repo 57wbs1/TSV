@@ -55,6 +55,20 @@ function doGet(e) {
       case 'testEveningSitrep': data = sendEveningSitrep(); break;
       case 'testMidnightSitrep': data = sendMidnightSitrep(); break;
       case 'installTriggers': data = setupAllTriggers(); break;
+      case 'diagnose':     data = diagnose(); break;
+      case 'resetGcal':
+        if (e.parameter.actor !== SUPER_ADMIN_ID) { data = { error: 'Unauthorized' }; break; }
+        PropertiesService.getScriptProperties().deleteProperty(GCAL_PROP_KEY);
+        data = { ok: true, cleared: 'tsvGcalId — next createTsvCalendar will build a fresh one' };
+        break;
+      case 'forcePopulateGcal':
+        if (e.parameter.actor !== SUPER_ADMIN_ID) { data = { error: 'Unauthorized' }; break; }
+        data = createTsvCalendar();
+        break;
+      case 'wipeGcalTripEvents':
+        if (e.parameter.actor !== SUPER_ADMIN_ID) { data = { error: 'Unauthorized' }; break; }
+        data = wipeGcalTripEvents();
+        break;
       case 'ensureIsAdminColumn':
         if (e.parameter.actor !== SUPER_ADMIN_ID) { data = { error: 'Unauthorized' }; break; }
         data = ensureIsAdminColumn();
@@ -1173,6 +1187,64 @@ function sendMidnightSitrep() {
   return 'Sent 0200H';
 }
 
+// ── Air quality helpers ──
+// Singapore PSI from data.gov.sg (no key). Returns { value, label, band, emoji, source } or null.
+function _fetchSgPsi() {
+  try {
+    const res = UrlFetchApp.fetch('https://api.data.gov.sg/v1/environment/psi', {
+      method: 'get', muteHttpExceptions: true
+    });
+    if (res.getResponseCode() >= 400) return null;
+    const body = JSON.parse(res.getContentText());
+    const item = (body.items && body.items[0]) || null;
+    if (!item) return null;
+    const psi  = (item.readings && item.readings.psi_twenty_four_hourly)  || {};
+    const pm25 = (item.readings && item.readings.pm25_twenty_four_hourly) || {};
+    const v = psi.national;
+    if (v == null) return null;
+    return Object.assign(_psiBand(v, 'PSI'), {
+      value: v,
+      source: 'NEA · SG (24h)',
+      pm25: pm25.national,
+      updatedAt: item.update_timestamp || item.timestamp
+    });
+  } catch (e) { return null; }
+}
+
+// Bangkok hourly AQI (US scale) from Open-Meteo air-quality API (no key).
+function _fetchBkkAqi() {
+  try {
+    const url = 'https://air-quality-api.open-meteo.com/v1/air-quality'
+      + '?latitude=13.7256&longitude=100.5279'
+      + '&hourly=us_aqi,pm2_5,pm10'
+      + '&timezone=Asia%2FBangkok&forecast_days=1';
+    const res = UrlFetchApp.fetch(url, { method: 'get', muteHttpExceptions: true });
+    if (res.getResponseCode() >= 400) return null;
+    const body = JSON.parse(res.getContentText());
+    const idx = new Date(Utilities.formatDate(new Date(), 'Asia/Bangkok', "yyyy-MM-dd'T'HH:mm:ss")).getHours();
+    const aqiArr = (body.hourly && body.hourly.us_aqi) || [];
+    const pm25Arr = (body.hourly && body.hourly.pm2_5) || [];
+    const v = aqiArr[idx];
+    if (v == null) return null;
+    return Object.assign(_psiBand(v, 'AQI'), {
+      value: Math.round(v),
+      source: 'Open-Meteo · BKK (US AQI)',
+      pm25: pm25Arr[idx] != null ? Math.round(pm25Arr[idx]) : null
+    });
+  } catch (e) { return null; }
+}
+
+// Shared band scale (works for both PSI and US AQI — breakpoints align closely
+// for the purposes of a morning health advisory).
+function _psiBand(v, label) {
+  if (v <= 50)  return { label, emoji: '🟢', band: 'Good' };
+  if (v <= 100) return { label, emoji: '🟡', band: 'Moderate' };
+  if (v <= 150) return { label, emoji: '🟠', band: 'Unhealthy for Sensitive' };
+  if (v <= 200) return { label, emoji: '🟠', band: 'Unhealthy' };
+  if (v <= 300) return { label, emoji: '🔴', band: 'Very Unhealthy' };
+  return              { label, emoji: '🟣', band: 'Hazardous' };
+}
+
 // ── 0600H: Bangkok weather briefing (to announce chat) ──
 // Pulls the day's forecast from Open-Meteo (free, no key) and builds a
 // briefing with tailored advice based on max temp + humidity + rain.
@@ -1249,10 +1321,12 @@ function sendWeatherBriefing() {
   let firstAttire = '';
   if (dayMeta) {
     try {
-      const cal = readSheet(SHEETS.CALENDAR).filter(e =>
-        parseInt(e.day) === dayMeta.day &&
-        e.isDeleted !== 'true' && e.isDeleted !== true
-      );
+      const cal = readSheet(SHEETS.CALENDAR)
+        .map(e => Object.assign({}, e, { startTime: _normalizeHHmm(e.startTime), endTime: _normalizeHHmm(e.endTime) }))
+        .filter(e =>
+          parseInt(e.day) === dayMeta.day &&
+          e.isDeleted !== 'true' && e.isDeleted !== true
+        );
       cal.sort((a, b) => (a.startTime || '').localeCompare(b.startTime || ''));
       // Gist: pick up to 4 'big' events (skip admin / flight / transit where
       // possible, unless they're the only ones). If fewer than 3 after
@@ -1286,6 +1360,24 @@ function sendWeatherBriefing() {
     }
   }
 
+  // Air quality — pre-trip (SG PSI for NEA scale) and in-trip (BKK US AQI).
+  // Post-trip: SG PSI again so the community still gets the advisory.
+  const tripStart = new Date('2026-04-26T00:00:00+07:00');
+  const tripEnd   = new Date('2026-04-30T23:59:59+07:00');
+  const nowTs     = bkk.getTime();
+  const inTrip    = (nowTs >= tripStart.getTime() && nowTs <= tripEnd.getTime());
+
+  const sgPsi  = _fetchSgPsi();
+  const bkkAqi = inTrip ? _fetchBkkAqi() : null;   // only pull BKK live AQI in-trip
+
+  // Health advice tied to the most relevant reading
+  const primary = inTrip ? (bkkAqi || sgPsi) : (sgPsi || bkkAqi);
+  if (primary) {
+    if (primary.value > 150)      tips.unshift('😷 <b>' + primary.label + ' ' + primary.value + ' — ' + primary.band + '</b>. Wear an N95, limit outdoor activity, close windows at hotel.');
+    else if (primary.value > 100) tips.unshift('😷 ' + primary.label + ' ' + primary.value + ' — ' + primary.band + '. Sensitive groups (asthma, kids) wear a mask outside.');
+    else if (primary.value > 50)  tips.unshift('🫧 ' + primary.label + ' ' + primary.value + ' — ' + primary.band + '. Fine for everyone; sensitive groups consider a mask for long outdoor stints.');
+  }
+
   let msg = '☀️ <b>Good morning, TSV!</b>\n';
   msg += dateLabel + '\n';
   msg += '\n' + wc[0] + ' <b>' + wc[1] + '</b>\n';
@@ -1299,14 +1391,22 @@ function sendWeatherBriefing() {
   if (rainProb)       msg += '🌧️ Rain: ' + rainProb + '% · ' + (Math.round(rainSum*10)/10) + 'mm\n';
   if (uvMax != null)  msg += '☀️ UV: ' + Math.round(uvMax) + '/11\n';
 
+  // Air quality block — SG PSI always, BKK AQI when in-trip
+  if (sgPsi || bkkAqi) {
+    msg += '\n<b>Air quality</b>\n';
+    if (sgPsi)  msg += sgPsi.emoji  + ' SG PSI '  + sgPsi.value  + ' · ' + sgPsi.band  + (sgPsi.pm25  != null ? ' · PM2.5 ' + Math.round(sgPsi.pm25)  + '㎍/㎥' : '') + '\n';
+    if (bkkAqi) msg += bkkAqi.emoji + ' BKK AQI ' + bkkAqi.value + ' · ' + bkkAqi.band + (bkkAqi.pm25 != null ? ' · PM2.5 ' + Math.round(bkkAqi.pm25) + '㎍/㎥' : '') + '\n';
+  }
+
   msg += programmeBlock;
 
   msg += '\n<b>Today\'s tips</b>\n' + tips.map(t => '• ' + t).join('\n');
   msg += '\n\nStay sharp 🇹🇭';
 
   tgSend(msg, MAIN_CHAT);
-  logAction('weather_0600', 'server', (tMax||'?') + '°C ' + wc[1]);
-  return 'Sent weather ' + today;
+  const psiTag = (sgPsi ? 'SG' + sgPsi.value : '') + (bkkAqi ? ' BKK' + bkkAqi.value : '');
+  logAction('weather_0600', 'server', (tMax||'?') + '°C ' + wc[1] + (psiTag ? ' · ' + psiTag : ''));
+  return 'Sent weather ' + today + (psiTag ? ' (' + psiTag + ')' : '');
 }
 
 // ── Setup: run this ONCE from Apps Script editor ──
@@ -1525,14 +1625,16 @@ function createTsvCalendar() {
     const p = _parseGcalDescription(ev.getDescription());
     if (p.appId) byAppId[p.appId] = ev;
   });
-  let created = 0, skipped = 0, failed = 0;
+  let created = 0, skipped = 0, failed = 0, failures = [];
   rows.forEach(r => {
     if (byAppId[r.id]) { skipped++; return; }
     const dateIso = _gcalDateForDay(r.day);
-    if (!dateIso) { failed++; return; }
+    if (!dateIso) { failed++; failures.push(r.id + ' · no day mapping (day=' + r.day + ')'); return; }
     try {
-      const start = new Date(dateIso + 'T' + (r.startTime || '09:00') + ':00+07:00');
-      const end   = new Date(dateIso + 'T' + (r.endTime   || r.startTime || '10:00') + ':00+07:00');
+      const startStr = _normalizeHHmm(r.startTime) || '09:00';
+      const endStr   = _normalizeHHmm(r.endTime)   || startStr;
+      const start = new Date(dateIso + 'T' + startStr + ':00+07:00');
+      const end   = new Date(dateIso + 'T' + endStr   + ':00+07:00');
       // Handle end < start (crosses midnight) by pushing end +24h
       if (end.getTime() <= start.getTime()) end.setTime(end.getTime() + 24*60*60*1000);
       const ev = cal.createEvent(r.title || '(untitled)', start, end, {
@@ -1542,6 +1644,7 @@ function createTsvCalendar() {
       created++;
     } catch (e) {
       failed++;
+      failures.push(r.id + ' · ' + e.message);
       logAction('gcal_create_fail', 'server', r.id + ' ' + e.message);
     }
   });
@@ -1549,8 +1652,54 @@ function createTsvCalendar() {
     calendarId: cal.getId(),
     calendarName: cal.getName(),
     shareUrl: 'https://calendar.google.com/calendar/u/0?cid=' + Utilities.base64Encode(cal.getId()).replace(/=+$/, ''),
-    created, skipped, failed, total: rows.length
+    created, skipped, failed, total: rows.length,
+    failures: failures.slice(0, 10)
   };
+}
+
+// Delete every event in the TSV26 calendar inside the trip window.
+// Destructive — only callable by super-admin.
+function wipeGcalTripEvents() {
+  const props = PropertiesService.getScriptProperties();
+  const calId = props.getProperty(GCAL_PROP_KEY);
+  if (!calId) return { error: 'No TSV calendar configured' };
+  const cal = CalendarApp.getCalendarById(calId);
+  if (!cal) return { error: 'Calendar lookup failed' };
+  const windowStart = new Date('2026-04-25T00:00:00+07:00');
+  const windowEnd   = new Date('2026-05-02T00:00:00+07:00');
+  const evs = cal.getEvents(windowStart, windowEnd);
+  let deleted = 0, failed = 0;
+  evs.forEach(ev => {
+    try { ev.deleteEvent(); deleted++; }
+    catch (e) { failed++; }
+  });
+  logAction('gcal_wipe', 'server', 'deleted=' + deleted + ' failed=' + failed);
+  return { calendarId: calId, deleted, failed };
+}
+
+// Sheet time cells can come back as Date objects (with the 1899-12-30 epoch),
+// as ISO strings, or as plain "HH:mm" strings. Normalize to "HH:mm".
+//
+// IMPORTANT: Sheets stores time-only cells as Date objects whose UTC instant
+// equals the user-entered time-of-day. e.g. "06:00" → Date(1899-12-30T06:00:00Z).
+// Formatting with a real timezone (Asia/Bangkok) corrupts the value by applying
+// a historical BMT/ICT offset. So we extract the UTC hours/minutes directly.
+function _normalizeHHmm(v) {
+  if (v == null || v === '') return '';
+  if (v instanceof Date && !isNaN(v.getTime())) {
+    const h = v.getUTCHours();
+    const m = v.getUTCMinutes();
+    return (h < 10 ? '0' + h : '' + h) + ':' + (m < 10 ? '0' + m : '' + m);
+  }
+  const s = String(v).trim();
+  if (/^\d{1,2}:\d{2}$/.test(s)) {
+    const [h, m] = s.split(':');
+    return (h.length === 1 ? '0' + h : h) + ':' + m;
+  }
+  // ISO-like "1899-12-30T06:00:00.000Z" → grab HH:mm directly from the UTC form
+  const iso = s.match(/T(\d{2}):(\d{2})/);
+  if (iso) return iso[1] + ':' + iso[2];
+  return '';
 }
 
 // 5-min cron: read the GCal, for each event find its App ref, and
@@ -1668,6 +1817,71 @@ function shareTsvCalendarWith(email) {
   if (!cal) return { error: 'Calendar lookup failed' };
   cal.addEditor(email);
   return { ok: true, calendarId: calId, shared: email };
+}
+
+
+// ════════════════════════════════════════════════════════════
+// DIAGNOSTICS — read-only peek into trigger state + GCal status
+// GET  ?action=diagnose
+// ════════════════════════════════════════════════════════════
+function diagnose() {
+  const out = { ok: true, now: new Date().toISOString(), bkkNow: Utilities.formatDate(bkkNow(), 'Asia/Bangkok', 'yyyy-MM-dd HH:mm:ss EEE') };
+
+  // 1. Trigger inventory
+  try {
+    const triggers = ScriptApp.getProjectTriggers().map(t => {
+      const info = { handler: t.getHandlerFunction(), type: String(t.getEventType()) };
+      try {
+        if (info.type === 'CLOCK') {
+          // No getAtHour on triggers; we can only report source/handler
+          info.source = String(t.getTriggerSource());
+        }
+      } catch (e) {}
+      return info;
+    });
+    out.triggers = triggers;
+    out.triggerCount = triggers.length;
+    out.expectedHandlers = ['sendWeatherBriefing','sendDailyReminder','sendEveningSitrep','sendMidnightSitrep','syncFromGoogleCalendar'];
+    out.missingHandlers = out.expectedHandlers.filter(h => !triggers.some(t => t.handler === h));
+  } catch (e) { out.triggerError = e.message; }
+
+  // 2. GCal state
+  try {
+    const calId = PropertiesService.getScriptProperties().getProperty(GCAL_PROP_KEY);
+    out.gcalId = calId || null;
+    if (calId) {
+      const cal = CalendarApp.getCalendarById(calId);
+      if (cal) {
+        out.gcalName = cal.getName();
+        const windowStart = new Date('2026-04-25T00:00:00+07:00');
+        const windowEnd   = new Date('2026-05-02T00:00:00+07:00');
+        const evs = cal.getEvents(windowStart, windowEnd);
+        out.gcalEventCount = evs.length;
+        out.gcalFirstFive = evs.slice(0, 5).map(ev => ({
+          title: ev.getTitle(),
+          start: ev.getStartTime().toISOString(),
+          loc:   ev.getLocation() || ''
+        }));
+      } else {
+        out.gcalError = 'calendarId stored but lookup failed';
+      }
+    }
+  } catch (e) { out.gcalError = e.message; }
+
+  // 3. Calendar sheet state
+  try {
+    const rows = readSheet(SHEETS.CALENDAR).filter(r => r.isDeleted !== 'true' && r.isDeleted !== true);
+    out.calendarSheetRows = rows.length;
+    out.calendarSheetFirst = rows.slice(0, 3).map(r => ({ id: r.id, day: r.day, t: r.startTime, title: r.title }));
+  } catch (e) { out.calendarSheetError = e.message; }
+
+  // 4. Recent Log rows (last 25)
+  try {
+    const log = readSheet(SHEETS.LOG);
+    out.recentLog = log.slice(-25);
+  } catch (e) { out.logError = e.message; }
+
+  return out;
 }
 
 
