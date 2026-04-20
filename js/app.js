@@ -1634,12 +1634,15 @@ function renderCalendar() {
         <button class="subtab-btn" onclick="setCalendarSubTab('schedule')">📅 Calendar</button>
         <button class="subtab-btn ${sub === 'visits'      ? 'active' : ''}" onclick="setCalendarSubTab('visits')">💡 Visits</button>
         <button class="subtab-btn ${sub === 'reflections' ? 'active' : ''}" onclick="setCalendarSubTab('reflections')">📝 Reflections</button>
+        <button class="subtab-btn ${sub === 'transport'   ? 'active' : ''}" onclick="setCalendarSubTab('transport')">🚌 Transport</button>
       </div>
       <div id="calendar-sub-content"></div>
     `;
     const body = el('calendar-sub-content');
-    if (body) body.innerHTML = sub === 'visits' ? renderVisitsSubTab() : renderReflectionsSubTab();
-    if (sub === 'reflections') syncReflections();
+    if (!body) return;
+    if (sub === 'visits')      { body.innerHTML = renderVisitsSubTab(); }
+    else if (sub === 'reflections') { body.innerHTML = renderReflectionsSubTab(); syncReflections(); }
+    else if (sub === 'transport')   { renderTransportSubTab(body); }
     return;
   }
 
@@ -1727,6 +1730,7 @@ function renderCalendar() {
       <button class="subtab-btn active" onclick="setCalendarSubTab('schedule')">📅 Calendar</button>
       <button class="subtab-btn" onclick="setCalendarSubTab('visits')">💡 Visits</button>
       <button class="subtab-btn" onclick="setCalendarSubTab('reflections')">📝 Reflections</button>
+      <button class="subtab-btn" onclick="setCalendarSubTab('transport')">🚌 Transport</button>
     </div>
     <div class="sticky-header">
       <div class="day-tabs-wrap">
@@ -2870,11 +2874,152 @@ function renderVisitsSubTab() {
   `;
 }
 
+// ═══════════ TRANSPORT SUB-TAB ═══════════════════════════════
+const TRANSPORT_BUSES = [
+  { id: 'bus1', label: 'Bus 1', pax: 'Syn 1 · 27E · Dy CC · DS1', syns: ['Syn 1', '27E', 'Dy CC', 'DS1'] },
+  { id: 'bus2', label: 'Bus 2', pax: 'Syn 3 · 26E · DS3 · DSE',   syns: ['Syn 3', '26E', 'DS3', 'DSE']   },
+  { id: 'bus3', label: 'Bus 3', pax: 'Syn 4 · 25E · DS4 · CXO',   syns: ['Syn 4', '25E', 'DS4', 'CXO']   },
+  { id: 'car',  label: '🚗 Car', pax: 'HOD · SO',                  syns: ['HOD', 'SO']                    },
+];
+const TRANSPORT_FLIGHT = { id: 'flight', label: '✈️ Flight', syns: ['All'] };
+
+// Returns the syndicate label that matches the current user (for boarding button)
+function _mySynLabel(user) {
+  if (!user) return null;
+  const gk = memberGroupKey(user);
+  const disp = formatGroupDisplay(gk);
+  // Map display → short label used in TRANSPORT_BUSES.syns
+  const MAP = {
+    'Syndicate 1':'Syn 1', 'Syndicate 3':'Syn 3', 'Syndicate 4':'Syn 4',
+    'Leadership':'HOD', 'PSO':'HOD',
+    '25ES18':'25E', '26ES14':'26E', '27ES18':'27E'
+  };
+  return MAP[disp] || disp;
+}
+
+async function refreshTransportState() {
+  const data = await API.get('getTransport');
+  if (data && typeof data === 'object') STATE.transport = data;
+  const body = el('calendar-sub-content');
+  if (body && STATE.calendarSubTab === 'transport') renderTransportSubTab(body);
+}
+
+async function renderTransportSubTab(container) {
+  // Show spinner while fetching
+  container.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text-3)">Loading transport status…</div>`;
+  const data = await API.get('getTransport');
+  if (data && typeof data === 'object') STATE.transport = data;
+  const ts = STATE.transport || {};
+  const user = STATE.currentUser;
+  const mySyn = _mySynLabel(user);
+  const canAdmin = isAdmin();
+
+  function vehicleRow(leg, veh, isPlane) {
+    const key = `${leg}/${veh.id}`;
+    const v = (ts[leg] || {})[veh.id] || { status: 'idle', boardedSyns: [] };
+    const boarded = v.boardedSyns || [];
+    const allBoarded = veh.syns.every(s => boarded.includes(s) || s === 'All' || boarded.includes('All'));
+    const status = v.status || 'idle';
+
+    const statusColors = { idle: '#6b7280', pushing: '#2563eb', dropped: '#16a34a' };
+    const statusLabels = { idle: '—', pushing: isPlane ? '✈️ Departed' : '🚌 Pushing', dropped: isPlane ? '🛬 Landed' : '✅ Dropped Off' };
+    const statusColor = statusColors[status];
+    const statusLabel = statusLabels[status];
+
+    // Board button for my syndicate
+    const myBoarded = boarded.includes(mySyn) || boarded.includes('All');
+    const myOnThisVehicle = veh.syns.includes(mySyn) || veh.syns.includes('All');
+    const boardBtn = user && myOnThisVehicle ? (
+      myBoarded
+        ? `<button class="btn btn-sm" style="background:#dcfce7;color:#15803d;border:1px solid #86efac;font-size:11px" onclick="transportAction('unboard','${leg}','${veh.id}','${mySyn}')">✅ ${escapeHtml(mySyn)} Boarded</button>`
+        : `<button class="btn btn-sm" style="background:#f0f9ff;color:#0369a1;border:1px solid #7dd3fc;font-size:11px" onclick="transportAction('board','${leg}','${veh.id}','${mySyn}')">🔲 Confirm Boarded</button>`
+    ) : '';
+
+    // Boarded summary
+    const boardedChips = boarded.map(s => `<span style="font-size:10px;background:#d1fae5;color:#065f46;padding:1px 6px;border-radius:10px;font-weight:700">${escapeHtml(s)}</span>`).join(' ');
+
+    // IC action buttons
+    const pushBtn  = canAdmin && status === 'idle' && allBoarded ? `<button class="btn btn-sm" style="background:#2563eb;color:#fff;font-size:11px" onclick="transportAction('pushing','${leg}','${veh.id}')">🚌 Mark Pushing</button>` : '';
+    const dropBtn  = canAdmin && status === 'pushing' ? `<button class="btn btn-sm" style="background:#16a34a;color:#fff;font-size:11px" onclick="transportAction('dropped','${leg}','${veh.id}')">✅ Dropped Off</button>` : '';
+    const resetBtn = canAdmin && status !== 'idle' ? `<button class="btn btn-sm btn-outline" style="font-size:11px" onclick="transportAction('reset','${leg}','${veh.id}')">↺</button>` : '';
+    const readyBadge = allBoarded && status === 'idle' ? `<span style="font-size:10px;background:#dcfce7;color:#166534;padding:2px 7px;border-radius:10px;font-weight:700">All Boarded ✓</span>` : '';
+
+    return `
+      <div class="transport-row" style="border-left:3px solid ${statusColor}">
+        <div class="transport-label">
+          <b style="font-size:13px">${escapeHtml(veh.label)}</b>
+          <div style="font-size:11px;color:var(--text-3);margin-top:1px">${escapeHtml(veh.pax)}</div>
+          ${boarded.length ? `<div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:3px">${boardedChips} ${readyBadge}</div>` : ''}
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px;min-width:0">
+          <div style="font-size:12px;font-weight:700;color:${statusColor}">${statusLabel}</div>
+          <div style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end">
+            ${boardBtn}${pushBtn}${dropBtn}${resetBtn}
+          </div>
+          ${v.pushedAt ? `<div style="font-size:10px;color:var(--text-3)">Pushed ${new Date(v.pushedAt).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}</div>` : ''}
+          ${v.droppedAt ? `<div style="font-size:10px;color:#16a34a">Dropped ${new Date(v.droppedAt).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}</div>` : ''}
+        </div>
+      </div>`;
+  }
+
+  function vehicleSection(leg, title, icon) {
+    const vehicles = [...TRANSPORT_BUSES, TRANSPORT_FLIGHT];
+    return `
+      <div class="section-title" style="margin-top:16px">${icon} ${title}</div>
+      <div class="transport-card">
+        ${vehicles.map(v => vehicleRow(leg, v, v.id === 'flight')).join('')}
+      </div>`;
+  }
+
+  container.innerHTML = `
+    <div class="card" style="margin:12px 12px 0">
+      <div class="card-header"><span class="icon">✈️</span><h3>Flights</h3></div>
+      <div class="card-body" style="padding:12px 14px">
+        <div style="display:flex;gap:12px;align-items:flex-start;margin-bottom:10px">
+          <div style="background:#003580;color:#fff;font-size:12px;font-weight:800;border-radius:8px;padding:4px 10px;white-space:nowrap">SQ 708</div>
+          <div>
+            <div style="font-weight:700;font-size:13px">SIN → BKK · 26 Apr</div>
+            <div style="font-size:12px;color:var(--text-2)">Depart Changi T2 · 0930H &nbsp;·&nbsp; Arrive BKK 1100H</div>
+            <div style="font-size:11px;color:var(--text-3)">Economy (G) · 25 kg baggage · Check-in from 0600H</div>
+          </div>
+        </div>
+        <div style="display:flex;gap:12px;align-items:flex-start">
+          <div style="background:#003580;color:#fff;font-size:12px;font-weight:800;border-radius:8px;padding:4px 10px;white-space:nowrap">SQ 709</div>
+          <div>
+            <div style="font-weight:700;font-size:13px">BKK → SIN · 30 Apr</div>
+            <div style="font-size:12px;color:var(--text-2)">Depart BKK · 1530H &nbsp;·&nbsp; Arrive Changi 1900H</div>
+            <div style="font-size:11px;color:var(--text-3)">Economy (G) · 25 kg baggage · Report to airport by 1300H</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    ${vehicleSection('arr', 'Ground Transport · Arrival', '🛬')}
+    <div style="font-size:11px;color:var(--text-3);padding:4px 12px 2px">26 Apr · BKK Airport → Pullman G</div>
+
+    ${vehicleSection('dep', 'Ground Transport · Departure', '🛫')}
+    <div style="font-size:11px;color:var(--text-3);padding:4px 12px 2px">30 Apr · Pullman G → BKK Airport</div>
+
+    <div style="height:24px"></div>
+  `;
+}
+
+window.transportAction = async function(action, leg, vehicleId, synLabel) {
+  const user = STATE.currentUser;
+  const actorName = user ? (user.shortName || user.name) : 'unknown';
+  const payload = { action, leg, vehicleId, actorName };
+  if (synLabel) payload.synLabel = synLabel;
+  const result = await API.post('updateTransport', payload);
+  if (result) STATE.transport = result;
+  const body = el('calendar-sub-content');
+  if (body) renderTransportSubTab(body);
+};
+
 function renderReflectionsSubTab() {
   const user = STATE.currentUser;
   const reflections = STATE.reflections || [];
-  const mine = user ? reflections.filter(r => r.authorId === user.id) : [];
-  const others = user ? reflections.filter(r => r.authorId !== user.id) : reflections;
+  const sheetUrl   = `https://docs.google.com/spreadsheets/d/${CONFIG.sheetId}/edit`;
+  const extSheetUrl = 'https://docs.google.com/spreadsheets/d/10zMjWkHqWRhPDAHSzv_WWGpLi96csLflhsuHfBHPfng/edit';
 
   const feedHtml = !reflections.length
     ? `<div class="empty-state"><div class="icon">📝</div><p>No reflections posted yet.<br>Be the first to contribute!</p></div>`
@@ -2896,32 +3041,51 @@ function renderReflectionsSubTab() {
   return `
     <div class="learn-intro">
       <h3>📝 Daily Reflections</h3>
-      <p>Use the template below to guide your end-of-day syndicate reflection. Posts go to the shared Reflections sheet and are visible to everyone.</p>
+      <p>End-of-day syndicate reflections. Fill in each field below and tap Post — your response is visible to all and synced to the Learning IC sheet.</p>
     </div>
 
-    <div class="card" style="margin-bottom:12px">
-      <div class="card-header"><span class="icon">🧭</span><h3>Reflection Template</h3></div>
-      <div class="card-body">
-        <pre style="font-size:11.5px;line-height:1.65;white-space:pre-wrap;color:var(--text);margin:0">${REFLECTION_TEMPLATE}</pre>
-        <button class="btn btn-outline btn-sm mt-8" onclick="copyReflectionTemplate()">📋 Copy Template</button>
-      </div>
+    <div style="display:flex;gap:8px;margin:0 12px 12px;flex-wrap:wrap">
+      <a class="sheet-link" href="${sheetUrl}#gid=Reflections" target="_blank" rel="noopener" style="flex:1;min-width:140px">
+        <span>📊</span> View Reflections Sheet <span class="sheet-link-arrow">↗</span>
+      </a>
+      <a class="sheet-link" href="${extSheetUrl}" target="_blank" rel="noopener" style="flex:1;min-width:140px">
+        <span>📋</span> Learning IC Workbook <span class="sheet-link-arrow">↗</span>
+      </a>
     </div>
 
     ${user ? `
-    <div class="visit-compose" style="background:linear-gradient(135deg,#eef2ff,#e0e7ff);border-color:#818cf8">
-      <div class="visit-compose-label" style="color:#3730a3">
+    <div class="visit-compose" style="background:linear-gradient(135deg,#eef2ff,#e0e7ff);border-color:#818cf8;padding:14px 14px 10px">
+      <div class="visit-compose-label" style="color:#3730a3;margin-bottom:12px">
         <span>✍️ Post Your Reflection</span>
+        <span style="font-size:11px;font-weight:400;color:#6d6aac;margin-left:6px">· ${escapeHtml(user.shortName || user.name)} · ${escapeHtml(formatGroupDisplay(memberGroupKey(user)))}</span>
       </div>
-      <textarea id="reflection-compose-text" placeholder="Paste your filled-in template or free-form reflection here…"></textarea>
-      <div class="compose-toolbar" style="display:flex;gap:8px;margin-top:10px;align-items:center">
-        <label style="font-size:12px;color:#3730a3;font-weight:700">Day:
-          <select id="reflection-day-select" style="margin-left:6px;padding:4px 8px;border-radius:6px;border:1px solid #c7d2fe">
+
+      <div class="ref-form-field">
+        <label class="ref-form-label">🔍 What did we observe?</label>
+        <textarea id="ref-obs" rows="3" placeholder="• Observation 1&#10;• Observation 2"></textarea>
+      </div>
+      <div class="ref-form-field">
+        <label class="ref-form-label">🇸🇬 What does it mean for Singapore / SAF?</label>
+        <textarea id="ref-impl" rows="3" placeholder="• Implication 1&#10;• Implication 2"></textarea>
+      </div>
+      <div class="ref-form-field">
+        <label class="ref-form-label">💡 Key Takeaway / Ah-Ha:</label>
+        <textarea id="ref-ahha" rows="2" placeholder="• Key insight"></textarea>
+      </div>
+      <div class="ref-form-field">
+        <label class="ref-form-label" style="opacity:.8">❓ Follow-up questions <span style="font-weight:400">(optional)</span></label>
+        <textarea id="ref-followup" rows="2" placeholder="• Question for further inquiry"></textarea>
+      </div>
+
+      <div class="compose-toolbar" style="margin-top:10px">
+        <label style="font-size:12px;color:#3730a3;font-weight:700;display:flex;align-items:center;gap:6px">Day
+          <select id="reflection-day-select" style="padding:4px 8px;border-radius:6px;border:1px solid #c7d2fe;font-size:12px">
             <option value="">—</option>
             ${DAYS.map(d => `<option value="${d.day}">Day ${d.day}</option>`).join('')}
           </select>
         </label>
         <div style="flex:1"></div>
-        <button class="btn btn-primary btn-sm" onclick="postReflection()">Post</button>
+        <button class="btn btn-primary btn-sm" onclick="postReflection()">Post Reflection</button>
       </div>
     </div>` : `<div class="alert alert-orange">Sign in to post a reflection.</div>`}
 
@@ -3041,6 +3205,7 @@ window.postVisitLearning = async function(visitId) {
   const user = STATE.currentUser;
   const post = {
     authorId: user.id, authorName: user.name,
+    syndicate: formatGroupDisplay(memberGroupKey(user)),
     day: visit?.dayNum || '',
     visitId: visitId,
     visitTitle: visit?.title || '',
@@ -3083,23 +3248,33 @@ window.draftForMe = function(visitId) {
 
 // ═══════════ REFLECTIONS ═════════════════════════════════════
 window.postReflection = async function() {
-  const ta = el('reflection-compose-text');
-  const content = ta?.value?.trim();
-  if (!content) return toast('Type your reflection first');
   const user = STATE.currentUser;
   if (!user) return toast('Sign in first');
-  const daySel = el('reflection-day-select');
-  const day = daySel?.value || '';
+  const obs      = (el('ref-obs')?.value      || '').trim();
+  const impl     = (el('ref-impl')?.value     || '').trim();
+  const ahha     = (el('ref-ahha')?.value     || '').trim();
+  const followup = (el('ref-followup')?.value || '').trim();
+  if (!obs && !impl && !ahha) return toast('Fill in at least one field');
+  // Concatenate into the standard template format so the server-side
+  // section parser (_parseReflectionSections) can split it correctly.
+  const parts = [];
+  if (obs)      parts.push(`What did we observe?\n${obs}`);
+  if (impl)     parts.push(`What does it mean for Singapore / SAF?\n${impl}`);
+  if (ahha)     parts.push(`Key Takeaway / Ah-Ha:\n${ahha}`);
+  if (followup) parts.push(`Follow-up questions:\n${followup}`);
+  const content = parts.join('\n\n');
+  const day = el('reflection-day-select')?.value || '';
   const post = {
-    authorId: user.id,
+    authorId:  user.id,
     authorName: user.name,
-    syndicate: formatGroupDisplay(memberGroupKey(user)),
-    day: day,
-    content: content,
+    syndicate:  formatGroupDisplay(memberGroupKey(user)),
+    day,
+    content,
     timestamp: new Date().toISOString()
   };
   STATE.reflections.unshift(post);
-  ta.value = '';
+  // Clear all fields
+  ['ref-obs','ref-impl','ref-ahha','ref-followup'].forEach(id => { const el2 = el(id); if (el2) el2.value = ''; });
   await withLoader('Posting reflection…', () => API.post('addReflection', post));
   toast('✅ Reflection posted');
   renderLearnings();

@@ -16,7 +16,7 @@ const SPREADSHEET = SpreadsheetApp.openById(SHEET_ID);
 const SHEETS = {
   MEMBERS:   { name: 'Members',   headers: ['id','name','shortName','rank','role','csc','syndicate','pin','isAdmin','isDeleted','createdAt','updatedAt'] },
   STATUS:    { name: 'Status',    headers: ['id','status','locationText','lat','lng','buddyWith','roomNumber','lastUpdated'] },
-  LEARNINGS: { name: 'Learnings', headers: ['id','authorId','authorName','day','content','isAhha','timestamp'] },
+  LEARNINGS: { name: 'Learnings', headers: ['id','authorId','authorName','day','content','isAhha','timestamp','visitId','visitTitle','syndicate'] },
   INCIDENTS: { name: 'Incidents', headers: ['id','reportedBy','type','who','what','where','when','why','how','status','buddy','medicalFacility','actionsText','timestamp'] },
   LOG:       { name: 'Log',       headers: ['timestamp','action','actor','detail'] },
   PINGS:     { name: 'Pings',     headers: ['id','fromId','fromName','toId','message','timestamp','read'] },
@@ -101,6 +101,27 @@ function doGet(e) {
         data = cleanSlateForTrip();
         break;
       case 'getAdminRequests': data = readSheet(SHEETS.ADMINREQ); break;
+      case 'getTransport':    data = getTransportState(); break;
+      case 'getCalendar':
+        // Returns Calendar sheet rows with times normalised and oicsJson → oics
+        data = readSheet(SHEETS.CALENDAR)
+          .filter(r => r.isDeleted !== 'true' && r.isDeleted !== true)
+          .map(r => ({
+            id:          String(r.id          || ''),
+            day:         r.day,
+            startTime:   _normalizeHHmm(r.startTime),
+            endTime:     _normalizeHHmm(r.endTime),
+            title:       String(r.title       || ''),
+            location:    String(r.location    || ''),
+            category:    String(r.category    || ''),
+            attire:      String(r.attire      || ''),
+            remarks:     String(r.remarks     || ''),
+            visitId:     String(r.visitId     || ''),
+            synicReport: r.synicReport === 'true' || r.synicReport === true,
+            oics:        (() => { try { return JSON.parse(r.oicsJson || '{}'); } catch(e) { return {}; } })(),
+            isDeleted:   false
+          }));
+        break;
       default: return json({ ok: false, error: 'Unknown action: ' + action });
     }
     return json({ ok: true, data });
@@ -164,12 +185,172 @@ function doPost(e) {
       case 'resolveAdminRequest': data = resolveAdminRequest(body); break;
       case 'postHotwash':  data = postHotwash(body); break;
       case 'sendTelegram': data = sendTelegramFromServer(body); break;
+      case 'updateEvent':      data = updateCalendarEvent(body); break;
+      case 'addEvent':         data = addCalendarEvent(body); break;
+      case 'deleteEvent':      data = deleteCalendarEvent(body); break;
+      case 'updateTransport':  data = updateTransportState(body); break;
       default: return json({ ok: false, error: 'Unknown action: ' + action });
     }
     return json({ ok: true, data });
   } catch (err) {
     return json({ ok: false, error: err.message, stack: err.stack });
   }
+}
+
+// ────────────────────────────────────────────────────────────
+// CALENDAR CRUD
+// ────────────────────────────────────────────────────────────
+
+// ────────────────────────────────────────────────────────────
+// TRANSPORT STATE (ScriptProperties — shared across all users)
+// ────────────────────────────────────────────────────────────
+const TRANSPORT_PROP_KEY = 'tsvTransport';
+
+function getTransportState() {
+  try {
+    const raw = PropertiesService.getScriptProperties().getProperty(TRANSPORT_PROP_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch (e) { return {}; }
+}
+
+function updateTransportState(body) {
+  // body: { leg, vehicleId, action, synLabel, actorName }
+  // action: 'board' | 'unboard' | 'pushing' | 'dropped' | 'reset'
+  const props = PropertiesService.getScriptProperties();
+  let state;
+  try { state = JSON.parse(props.getProperty(TRANSPORT_PROP_KEY) || '{}'); }
+  catch (e) { state = {}; }
+
+  const leg = body.leg || 'arr';   // 'arr' or 'dep'
+  const vid = body.vehicleId || '';
+  if (!leg || !vid) return { error: 'Missing leg or vehicleId' };
+
+  if (!state[leg]) state[leg] = {};
+  if (!state[leg][vid]) state[leg][vid] = { status: 'idle', boardedSyns: [] };
+
+  const v = state[leg][vid];
+  const now = new Date().toISOString();
+
+  switch (body.action) {
+    case 'board':
+      if (body.synLabel && !v.boardedSyns.includes(body.synLabel))
+        v.boardedSyns.push(body.synLabel);
+      break;
+    case 'unboard':
+      v.boardedSyns = v.boardedSyns.filter(s => s !== body.synLabel);
+      break;
+    case 'pushing':
+      v.status = 'pushing';
+      v.pushedBy = body.actorName || '';
+      v.pushedAt = now;
+      break;
+    case 'dropped':
+      v.status = 'dropped';
+      v.droppedBy = body.actorName || '';
+      v.droppedAt = now;
+      break;
+    case 'reset':
+      v.status = 'idle';
+      v.boardedSyns = [];
+      delete v.pushedBy; delete v.pushedAt;
+      delete v.droppedBy; delete v.droppedAt;
+      break;
+  }
+
+  v.updatedAt = now;
+  props.setProperty(TRANSPORT_PROP_KEY, JSON.stringify(state));
+  logAction('transport_' + body.action, body.actorName || 'unknown', `${leg}/${vid}`);
+  return state;
+}
+
+// ────────────────────────────────────────────────────────────
+// CALENDAR CRUD
+// ────────────────────────────────────────────────────────────
+function _calSheet() { return getOrCreateSheet(SHEETS.CALENDAR); }
+function _calHeaders(sheet) {
+  const rows = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues();
+  return rows[0];
+}
+
+function updateCalendarEvent(body) {
+  const sheet = _calSheet();
+  const rows  = sheet.getDataRange().getValues();
+  const h     = rows[0];
+  const idCol = h.indexOf('id');
+  for (let i = 1; i < rows.length; i++) {
+    if (String(rows[i][idCol]) !== String(body.id)) continue;
+    const now = new Date().toISOString();
+    const newRow = h.map(col => {
+      switch (col) {
+        case 'id':          return body.id;
+        case 'day':         return body.day || rows[i][h.indexOf('day')];
+        case 'startTime':   return body.startTime || '';
+        case 'endTime':     return body.endTime || '';
+        case 'title':       return body.title || '';
+        case 'location':    return body.location || '';
+        case 'category':    return body.category || 'event';
+        case 'attire':      return body.attire || '';
+        case 'remarks':     return body.remarks || '';
+        case 'visitId':     return body.visitId || '';
+        case 'synicReport': return body.synicReport ? 'true' : 'false';
+        case 'oicsJson':    return typeof body.oics === 'object' ? JSON.stringify(body.oics) : (body.oicsJson || '{}');
+        case 'isDeleted':   return 'false';
+        case 'createdAt':   return rows[i][h.indexOf('createdAt')] || now;
+        case 'updatedAt':   return now;
+        default:            return rows[i][h.indexOf(col)] || '';
+      }
+    });
+    sheet.getRange(i + 1, 1, 1, h.length).setValues([newRow]);
+    logAction('updateEvent', body.actor || 'unknown', body.id);
+    return { updated: body.id };
+  }
+  return { error: 'Event not found: ' + body.id };
+}
+
+function addCalendarEvent(body) {
+  const sheet = _calSheet();
+  const now   = new Date().toISOString();
+  const h     = _calHeaders(sheet);
+  const newRow = h.map(col => {
+    switch (col) {
+      case 'id':          return body.id || ('ev_' + Date.now());
+      case 'day':         return body.day || 1;
+      case 'startTime':   return body.startTime || '';
+      case 'endTime':     return body.endTime || '';
+      case 'title':       return body.title || '';
+      case 'location':    return body.location || '';
+      case 'category':    return body.category || 'event';
+      case 'attire':      return body.attire || '';
+      case 'remarks':     return body.remarks || '';
+      case 'visitId':     return body.visitId || '';
+      case 'synicReport': return body.synicReport ? 'true' : 'false';
+      case 'oicsJson':    return typeof body.oics === 'object' ? JSON.stringify(body.oics) : (body.oicsJson || '{}');
+      case 'isDeleted':   return 'false';
+      case 'createdAt':   return now;
+      case 'updatedAt':   return now;
+      default:            return '';
+    }
+  });
+  sheet.appendRow(newRow);
+  logAction('addEvent', body.actor || 'unknown', body.id || '');
+  return { added: body.id };
+}
+
+function deleteCalendarEvent(body) {
+  const sheet = _calSheet();
+  const rows  = sheet.getDataRange().getValues();
+  const h     = rows[0];
+  const idCol = h.indexOf('id');
+  const delCol = h.indexOf('isDeleted');
+  const updCol = h.indexOf('updatedAt');
+  for (let i = 1; i < rows.length; i++) {
+    if (String(rows[i][idCol]) !== String(body.id)) continue;
+    if (delCol >= 0) sheet.getRange(i + 1, delCol + 1).setValue('true');
+    if (updCol >= 0) sheet.getRange(i + 1, updCol + 1).setValue(new Date().toISOString());
+    logAction('deleteEvent', body.actor || 'unknown', body.id);
+    return { deleted: body.id };
+  }
+  return { error: 'Event not found: ' + body.id };
 }
 
 // ────────────────────────────────────────────────────────────
@@ -449,18 +630,39 @@ function readLearnings() {
   return readSheet(SHEETS.LEARNINGS).reverse(); // newest first
 }
 
+// Ensures visitId/visitTitle/syndicate columns exist on the Learnings sheet.
+// Safe to call on every write — only adds columns that are missing.
+function _ensureLearningsColumns(sheet) {
+  if (sheet.getLastRow() === 0) return;
+  const existing = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  ['visitId', 'visitTitle', 'syndicate'].forEach(col => {
+    if (!existing.includes(col)) {
+      const nextCol = sheet.getLastColumn() + 1;
+      sheet.getRange(1, nextCol).setValue(col);
+      existing.push(col);
+    }
+  });
+}
+
 function addLearning(data) {
   const sheet = getOrCreateSheet(SHEETS.LEARNINGS);
+  _ensureLearningsColumns(sheet);
+  // Build row from the actual header order (handles both old 7-col and new 10-col sheets)
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
   const id = 'L' + Date.now();
-  sheet.appendRow([
+  const vals = {
     id,
-    data.authorId || '',
-    data.authorName || '',
-    data.day || '',
-    data.content || '',
-    data.isAhha ? 'true' : 'false',
-    new Date().toISOString()
-  ]);
+    authorId:   data.authorId   || '',
+    authorName: data.authorName || '',
+    day:        data.day        || '',
+    content:    data.content    || '',
+    isAhha:     data.isAhha ? 'true' : 'false',
+    timestamp:  new Date().toISOString(),
+    visitId:    data.visitId    || '',
+    visitTitle: data.visitTitle || '',
+    syndicate:  data.syndicate  || ''
+  };
+  sheet.appendRow(headers.map(h => (vals[h] !== undefined ? vals[h] : '')));
   logAction('addLearning', data.authorId, (data.content || '').substring(0, 50));
   return { id };
 }
@@ -1759,17 +1961,22 @@ function syncFromGoogleCalendar() {
       const newSynic   = parsed.synicReport ? 'true' : 'false';
 
       // Any change?
+      // IMPORTANT: startTime/endTime in the Calendar sheet are stored as Date
+      // objects by Sheets (Excel epoch 1899-12-30THH:MM:00Z). String() on a
+      // Date object gives a verbose timestamp, not "HH:mm". Use _normalizeHHmm
+      // so the comparison is always "HH:mm" vs "HH:mm" — prevents the "all 59
+      // events always changed" re-write loop on every sync pass.
       const changed =
-        String(row[dayCol])    !== String(newDay) ||
-        String(row[startCol])  !== newStart ||
-        String(row[endCol])    !== newEnd ||
-        String(row[titleCol])  !== newTitle ||
-        String(row[locCol])    !== (newLoc || '') ||
-        String(row[catCol])    !== String(newCat) ||
-        String(row[attireCol]) !== String(newAttire) ||
-        String(row[remarksCol])!== String(newRemarks) ||
-        String(row[visitCol])  !== String(newVisit) ||
-        String(row[synicCol])  !== newSynic;
+        String(row[dayCol])          !== String(newDay) ||
+        _normalizeHHmm(row[startCol])!== newStart ||
+        _normalizeHHmm(row[endCol])  !== newEnd ||
+        String(row[titleCol])        !== newTitle ||
+        String(row[locCol])          !== (newLoc || '') ||
+        String(row[catCol])          !== String(newCat) ||
+        String(row[attireCol])       !== String(newAttire) ||
+        String(row[remarksCol])      !== String(newRemarks) ||
+        String(row[visitCol])        !== String(newVisit) ||
+        String(row[synicCol])        !== newSynic;
 
       if (!changed) { unchanged++; return; }
 
