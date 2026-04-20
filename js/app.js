@@ -1298,9 +1298,11 @@ function setupPullToRefresh() {
       resetIndicator();
       try {
         await withLoader('Refreshing…', async () => {
-          // Fire GCal sync first so any Google Calendar edits land before
-          // we re-read the Calendar sheet
-          try { await API.get('syncFromGoogleCalendar'); } catch {}
+          // Fire GCal sync in the background — don't block the main refresh.
+          // When it completes it triggers a second syncCalendar() pass so
+          // any Google Calendar edits (drag-to-reschedule etc) land within
+          // a few seconds without holding up the rest of the UI update.
+          API.get('syncFromGoogleCalendar').then(() => syncCalendar()).catch(() => {});
           await Promise.all([
             syncMembers(),
             syncStatuses(),
