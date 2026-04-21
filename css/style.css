@@ -786,15 +786,8 @@ body::after {
 }
 /* Members + editor sheets need a fixed tall height so the inner
    #members-list-container (flex:1 + overflow-y:auto) actually gets
-   scroll space — before, flex:1 of 0 collapsed and the list clipped.
-   Same applies to .buddy-sheet: without an explicit height, flex:1
-   on #buddy-list collapses and the bottom of the list clips. */
-.members-sheet, .editor-sheet, .buddy-sheet { height: 92vh; }
-/* On browsers that support dynamic viewport units, use 92dvh so the
-   iOS URL bar collapse/expand doesn't crop the bottom of the sheet. */
-@supports (height: 92dvh) {
-  .members-sheet, .editor-sheet, .buddy-sheet { height: 92dvh; max-height: 92dvh; }
-}
+   scroll space — before, flex:1 of 0 collapsed and the list clipped. */
+.members-sheet, .editor-sheet { height: 92vh; }
 
 /* Drag handle — only on buddy-sheet (still uses swipe-down).
    Other sheets now close via swipe-right-from-left-edge + X button. */
@@ -2755,14 +2748,12 @@ body::after {
   padding-bottom: 14px;
 }
 #buddy-list {
-  flex: 1 1 0;
-  min-height: 0;                /* critical: lets flex:1 child actually scroll */
-  overflow-y: auto;
+  flex: 1; overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   display: flex; flex-direction: column;
   gap: 6px;
+  max-height: 70vh;             /* was 55vh — give more room so 14-person groups aren't clipped */
   margin-bottom: 10px;
-  padding-bottom: 8px;          /* breathing room for the last group */
 }
 .buddy-group {
   border-radius: var(--r-md);
@@ -2795,13 +2786,6 @@ body::after {
   gap: 6px;
   padding: 8px;
   background: var(--n-50);
-  /* Each expanded syndicate gets its OWN scroll container so you can see
-     every member of a 14-person group (27E, 25E, Syn 3) without needing
-     to scroll the whole modal. */
-  max-height: 42vh;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
-  overscroll-behavior: contain;   /* prevent scroll-chaining to outer list */
 }
 @media (prefers-color-scheme: dark) {
   .buddy-group-items { background: rgba(15,23,42,.4); }
@@ -2846,16 +2830,8 @@ body::after {
   background: var(--n-0);
   box-shadow: 0 0 0 4px rgba(0,53,128,.08);
 }
-.buddy-actions {
-  display: flex; gap: 8px;
-  flex-shrink: 0;               /* keep footer buttons always visible */
-}
+.buddy-actions { display: flex; gap: 8px; }
 .buddy-actions .btn { flex: 1; }
-/* Header elements shouldn't shrink either — prevents h2 getting compressed
-   on small screens when the list grows. */
-.buddy-sheet > h2,
-.buddy-sheet > p,
-.buddy-sheet > #location-input-wrap { flex-shrink: 0; }
 
 /* ══════════════════════════════════════════════════════════
    MANAGE MEMBERS (ADMIN)
