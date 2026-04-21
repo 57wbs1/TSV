@@ -1669,7 +1669,7 @@ function _buildSitrepData(forceAllInGroups) {
       outCount: outMembers.length,
       outMembers: outMembers.map(m => ({
         name: m.shortName || m.name,
-        loc: (statusMap[m.id] && statusMap[m.id].locationText || '').toString().trim() || 'Vicinity of Hotel',
+        loc: (statusMap[m.id] && statusMap[m.id].locationText || '').toString().trim() || 'Out of Hotel',
         groupLabel: _formatGroup(gk)
       }))
     };

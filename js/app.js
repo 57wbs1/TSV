@@ -2588,7 +2588,7 @@ window.confirmLeaveHotel = async function() {
   const user = STATE.currentUser;
   if (!user) return;
   const rawLoc = el('location-text-input')?.value?.trim() || '';
-  const locText = rawLoc || 'Vicinity of Hotel';
+  const locText = rawLoc || 'Out of Hotel';
   const selectedItems = [...document.querySelectorAll('.buddy-item.selected')];
   const buddyObjs = selectedItems.map(x => getMemberById(x.dataset.id)).filter(Boolean);
   const myLabel = user.shortName || user.name;
@@ -5292,7 +5292,7 @@ window.bulkMarkAllIn = async function(groupKey) {
 };
 
 // Syn IC / Admin: mark another member in or out. For 'out' we send them
-// with a generic 'Vicinity of Hotel' label since the IC wouldn't know the
+// with a generic 'Out of Hotel' label since the IC wouldn't know the
 // member's exact location — they can update later via their own device.
 window.icMarkMember = async function(memberId, targetStatus) {
   const m = getMemberById(memberId);
@@ -5304,7 +5304,7 @@ window.icMarkMember = async function(memberId, targetStatus) {
   STATE.memberStatuses[memberId] = {
     ...cur,
     status: targetStatus === 'out' ? 'out' : 'in_hotel',
-    locationText: targetStatus === 'out' ? 'Vicinity of Hotel' : 'Hotel',
+    locationText: targetStatus === 'out' ? 'Out of Hotel' : 'Hotel',
     buddyWith: targetStatus === 'in' ? '' : cur.buddyWith,
     lastUpdated: now
   };
@@ -5314,7 +5314,7 @@ window.icMarkMember = async function(memberId, targetStatus) {
       memberId: m.id, name: m.name, shortName: m.shortName,
       role: m.role, syndicate: m.syndicate,
       status: targetStatus === 'out' ? 'out' : 'in_hotel',
-      locationText: targetStatus === 'out' ? 'Vicinity of Hotel' : 'Hotel',
+      locationText: targetStatus === 'out' ? 'Out of Hotel' : 'Hotel',
       lat: targetStatus === 'in' ? CONFIG.hotel.lat : (cur.lat || ''),
       lng: targetStatus === 'in' ? CONFIG.hotel.lng : (cur.lng || ''),
       buddyWith: targetStatus === 'in' ? '' : (cur.buddyWith || ''),
