@@ -244,68 +244,81 @@ function updateTransportState(body) {
   // op: 'board' | 'unboard' | 'boardBatch' | 'pushing' | 'dropped' | 'reset' | 'editDriver'
   // NOTE: field is `op` (not `action`) because `action` collides with the outer
   // doPost dispatcher key when the client spreads payloads.
-  const props = PropertiesService.getScriptProperties();
-  let state;
-  try { state = JSON.parse(props.getProperty(TRANSPORT_PROP_KEY) || '{}'); }
-  catch (e) { state = {}; }
 
   const vid = body.vehicleId || '';
   if (!vid) return { error: 'Missing vehicleId' };
 
-  if (!state[vid]) state[vid] = { status: 'idle', boardedSyns: [], driver: {} };
-  const v = state[vid];
-  if (!v.driver) v.driver = {};
-  const now = new Date().toISOString();
+  // Two officers tapping "Board Syn 3" on the same bus within the same second
+  // would each read the same JSON, push their syn, and one would clobber the
+  // other. A script-wide lock serialises the read-modify-write so every tap
+  // lands in the saved state.
+  const lock = LockService.getScriptLock();
+  try { lock.waitLock(15000); }
+  catch (e) { logAction('transport_lock_timeout', 'server', vid + ' proceeding without lock'); }
 
-  // Accept either `op` (new) or `action` (legacy) for backward compat
-  const op = body.op || body.action;
-  switch (op) {
-    case 'board':
-      if (body.synLabel && !v.boardedSyns.includes(body.synLabel))
-        v.boardedSyns.push(body.synLabel);
-      break;
-    case 'unboard':
-      v.boardedSyns = v.boardedSyns.filter(s => s !== body.synLabel);
-      break;
-    case 'boardBatch':
-      // Replace entire boardedSyns list with the provided array + optional remarks.
-      // Used both for "Save Progress" (partial) and "Send SITREP" (complete).
-      v.boardedSyns = Array.isArray(body.synLabels) ? body.synLabels : [];
-      if (body.remarks !== undefined) v.boardingRemarks = body.remarks || '';
-      v.boardingUpdatedBy = body.actorName || '';
-      v.boardingUpdatedAt = now;
-      break;
-    case 'pushing':
-      v.status    = 'pushing';
-      v.pushedBy  = body.actorName || '';
-      v.pushedAt  = now;
-      v.remarks   = body.remarks || '';
-      break;
-    case 'dropped':
-      // Bus is freed — clear boarded list + boarding notes, return to idle.
-      // Use this between rounds to reset for the next boarding cycle.
-      v.status    = 'idle';
-      v.boardedSyns = [];
-      v.lastDroppedBy = body.actorName || '';
-      v.lastDroppedAt = now;
-      delete v.pushedBy; delete v.pushedAt; delete v.remarks;
-      delete v.boardingRemarks; delete v.boardingUpdatedBy; delete v.boardingUpdatedAt;
-      break;
-    case 'reset':
-      v.status = 'idle';
-      v.boardedSyns = [];
-      delete v.pushedBy; delete v.pushedAt; delete v.remarks;
-      delete v.lastDroppedBy; delete v.lastDroppedAt;
-      break;
-    case 'editDriver':
-      v.driver = { name: body.driverName || '', phone: body.driverPhone || '' };
-      break;
+  try {
+    const props = PropertiesService.getScriptProperties();
+    let state;
+    try { state = JSON.parse(props.getProperty(TRANSPORT_PROP_KEY) || '{}'); }
+    catch (e) { state = {}; }
+
+    if (!state[vid]) state[vid] = { status: 'idle', boardedSyns: [], driver: {} };
+    const v = state[vid];
+    if (!v.driver) v.driver = {};
+    const now = new Date().toISOString();
+
+    // Accept either `op` (new) or `action` (legacy) for backward compat
+    const op = body.op || body.action;
+    switch (op) {
+      case 'board':
+        if (body.synLabel && !v.boardedSyns.includes(body.synLabel))
+          v.boardedSyns.push(body.synLabel);
+        break;
+      case 'unboard':
+        v.boardedSyns = v.boardedSyns.filter(s => s !== body.synLabel);
+        break;
+      case 'boardBatch':
+        // Replace entire boardedSyns list with the provided array + optional remarks.
+        // Used both for "Save Progress" (partial) and "Send SITREP" (complete).
+        v.boardedSyns = Array.isArray(body.synLabels) ? body.synLabels : [];
+        if (body.remarks !== undefined) v.boardingRemarks = body.remarks || '';
+        v.boardingUpdatedBy = body.actorName || '';
+        v.boardingUpdatedAt = now;
+        break;
+      case 'pushing':
+        v.status    = 'pushing';
+        v.pushedBy  = body.actorName || '';
+        v.pushedAt  = now;
+        v.remarks   = body.remarks || '';
+        break;
+      case 'dropped':
+        // Bus is freed — clear boarded list + boarding notes, return to idle.
+        // Use this between rounds to reset for the next boarding cycle.
+        v.status    = 'idle';
+        v.boardedSyns = [];
+        v.lastDroppedBy = body.actorName || '';
+        v.lastDroppedAt = now;
+        delete v.pushedBy; delete v.pushedAt; delete v.remarks;
+        delete v.boardingRemarks; delete v.boardingUpdatedBy; delete v.boardingUpdatedAt;
+        break;
+      case 'reset':
+        v.status = 'idle';
+        v.boardedSyns = [];
+        delete v.pushedBy; delete v.pushedAt; delete v.remarks;
+        delete v.lastDroppedBy; delete v.lastDroppedAt;
+        break;
+      case 'editDriver':
+        v.driver = { name: body.driverName || '', phone: body.driverPhone || '' };
+        break;
+    }
+
+    v.updatedAt = now;
+    props.setProperty(TRANSPORT_PROP_KEY, JSON.stringify(state));
+    logAction('transport_' + op, body.actorName || 'unknown', vid);
+    return state;
+  } finally {
+    try { lock.releaseLock(); } catch (e) {}
   }
-
-  v.updatedAt = now;
-  props.setProperty(TRANSPORT_PROP_KEY, JSON.stringify(state));
-  logAction('transport_' + op, body.actorName || 'unknown', vid);
-  return state;
 }
 
 
@@ -2628,23 +2641,37 @@ function updateParadeStatus(body) {
   const memberId = body.memberId || '';
   if (!memberId) return { ok: false, error: 'Missing memberId' };
   const status = String(body.status || 'Present').trim() || 'Present';
+  // Human-readable label for the updatedBy column; fall back to actor id only
+  // if no name was sent so the audit trail is never empty.
+  const actorName = String(body.actorName || body.actor || '').trim();
 
-  const sheet = getOrCreateSheet(SHEETS.PARADE_STATE);
-  const rows = sheet.getDataRange().getValues();
-  const headers = rows[0];
-  const idCol = headers.indexOf('memberId');
-  const now = new Date().toISOString();
+  // Concurrent edits on the same member row (admin + officer hitting Save
+  // within the same second) would race without a lock — both read the same
+  // values, both write, the last writer wins and the other update is lost.
+  const lock = LockService.getScriptLock();
+  try { lock.waitLock(15000); }
+  catch (e) { logAction('paradeState_lock_timeout', 'server', 'proceeding without lock'); }
 
-  let foundRow = -1;
-  for (let i = 1; i < rows.length; i++) {
-    if (rows[i][idCol] === memberId) { foundRow = i + 1; break; }
+  try {
+    const sheet = getOrCreateSheet(SHEETS.PARADE_STATE);
+    const rows = sheet.getDataRange().getValues();
+    const headers = rows[0];
+    const idCol = headers.indexOf('memberId');
+    const now = new Date().toISOString();
+
+    let foundRow = -1;
+    for (let i = 1; i < rows.length; i++) {
+      if (rows[i][idCol] === memberId) { foundRow = i + 1; break; }
+    }
+    const newRow = [memberId, status, actorName, now];
+    if (foundRow > 0) sheet.getRange(foundRow, 1, 1, headers.length).setValues([newRow]);
+    else               sheet.appendRow(newRow);
+
+    logAction('paradeState', body.actor || '', memberId + ' = ' + status.slice(0, 60));
+    return { ok: true, memberId, status };
+  } finally {
+    try { lock.releaseLock(); } catch (e) {}
   }
-  const newRow = [memberId, status, body.actor || body.actorName || '', now];
-  if (foundRow > 0) sheet.getRange(foundRow, 1, 1, headers.length).setValues([newRow]);
-  else               sheet.appendRow(newRow);
-
-  logAction('paradeState', body.actor || '', memberId + ' = ' + status.slice(0, 60));
-  return { ok: true, memberId, status };
 }
 
 // Build the Telegram parade-state message.

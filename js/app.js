@@ -3762,6 +3762,7 @@ window.postReflection = async function() {
   const impl     = (el('ref-impl')?.value     || '').trim();
   const ahha     = (el('ref-ahha')?.value     || '').trim();
   if (!obs && !patterns && !impl && !ahha) return toast('Fill in at least one field');
+
   // Preview content (for the app feed — separate sections visible on re-open)
   const parts = [];
   if (obs)      parts.push(`Key Observations:\n${obs}`);
@@ -3778,14 +3779,48 @@ window.postReflection = async function() {
     obs, patterns, impl, ahha,
     // Composed content for the internal feed (back-compat + legible display)
     content,
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    actor: user.id
   };
+
+  // CRITICAL: use postRaw so we can see actual server errors. API.post
+  // returns null on failure AND previously we were clearing fields + toasting
+  // "posted ✓" regardless — users lost multi-paragraph reflections silently
+  // when GAS cold-started or timed out.
+  const resp = await withLoader('Submitting to Debrief sheet…',
+    () => API.postRaw('addReflection', post));
+
+  if (!resp) {
+    const why = STATE.lastApiError || 'no response (retry in a few seconds)';
+    toast('❌ Not saved — ' + why);
+    // Fields still populated — user can retry without re-typing.
+    return;
+  }
+  if (resp.ok === false) {
+    toast('❌ Not saved — ' + (resp.error || 'server error'));
+    return;
+  }
+  const inner = resp.data;
+  if (!inner || !inner.id) {
+    toast('❌ Not saved — empty response');
+    return;
+  }
+
+  // Confirmed save — NOW stamp the id so the feed card gets a working 🗑 button,
+  // prepend to feed, and clear the form.
+  post.id = inner.id;
   STATE.reflections.unshift(post);
-  // Clear all fields
-  ['ref-obs','ref-patterns','ref-impl','ref-ahha'].forEach(id => { const el2 = el(id); if (el2) el2.value = ''; });
-  await withLoader('Submitting to Debrief sheet…', () => API.post('addReflection', post));
-  toast('✅ Reflection posted');
-  renderLearnings();
+  ['ref-obs','ref-patterns','ref-impl','ref-ahha'].forEach(id => {
+    const el2 = el(id); if (el2) el2.value = '';
+  });
+  toast('✅ Reflection posted' + (inner.matrixResult && inner.matrixResult.indexOf('ok') === 0 ? ' · Debrief sheet updated' : ''));
+  // Reflections live under Calendar now (not Learnings). Re-render whichever
+  // host is currently visible so the user sees their post immediately.
+  if (STATE.currentTab === 'calendar' && STATE.calendarSubTab === 'reflections') {
+    renderCalendar();
+  } else if (STATE.currentTab === 'learnings') {
+    renderLearnings();
+  }
 };
 
 // Safe "rank + name" builder — avoids "MAJ MAJ Caspar Ng" when member.name
@@ -4880,24 +4915,44 @@ window.setParadeSyn = function(gk) {
 window.editParadeStatus = async function(memberId) {
   const m = getMemberById(memberId);
   if (!m) return;
-  const ps = STATE.paradeState || {};
+  STATE.paradeState = STATE.paradeState || {};
+  const ps = STATE.paradeState;
   const current = ps[memberId]?.status || 'Present';
   const next = prompt(`Update status for ${m.shortName || m.name}:\n\nExamples:\n• Present\n• Sick in Hotel 26 Apr\n• Hospitalised\n• Absent from Trip UFN`, current);
   if (next === null) return;   // cancelled
   const clean = String(next).trim() || 'Present';
   if (clean === current) return;   // no change
+
+  // Snapshot the prior entry so we can revert cleanly if the server rejects.
+  const priorEntry = ps[memberId] ? JSON.parse(JSON.stringify(ps[memberId])) : null;
+
   // Optimistic update
-  STATE.paradeState = STATE.paradeState || {};
-  STATE.paradeState[memberId] = { status: clean, updatedBy: STATE.currentUser?.shortName || STATE.currentUser?.name || '', updatedAt: new Date().toISOString() };
+  ps[memberId] = {
+    status: clean,
+    updatedBy: STATE.currentUser?.shortName || STATE.currentUser?.name || '',
+    updatedAt: new Date().toISOString()
+  };
   renderParadeState();
+
   const resp = await API.postRaw('updateParadeStatus', {
     memberId, status: clean,
     actor: STATE.currentUser?.id,
     actorName: STATE.currentUser?.shortName || STATE.currentUser?.name
   });
-  if (!resp || resp.ok === false) {
-    toast('❌ Save failed — ' + (resp?.error || 'retry'));
-    _loadParadeState();  // reload real state
+
+  if (!resp) {
+    // Network failure — revert and tell the truth.
+    if (priorEntry) ps[memberId] = priorEntry; else delete ps[memberId];
+    renderParadeState();
+    toast('❌ Save failed — ' + (STATE.lastApiError || 'network error, status NOT saved'));
+    _loadParadeState({ force: true });
+    return;
+  }
+  if (resp.ok === false) {
+    if (priorEntry) ps[memberId] = priorEntry; else delete ps[memberId];
+    renderParadeState();
+    toast('❌ Save failed — ' + (resp.error || 'server error'));
+    _loadParadeState({ force: true });
     return;
   }
   toast('✅ Status updated');
