@@ -81,14 +81,35 @@ const API = {
         body: JSON.stringify(payload),
         headers: { 'Content-Type': 'text/plain' }
       });
-      const json = await res.json();
+      // Track HTTP-level errors (GAS auth redirects, quota hits) separately
+      // from JSON parse errors and network failures so callers can report
+      // accurately instead of showing a misleading "offline?".
+      if (!res.ok) {
+        STATE.lastApiError = `HTTP ${res.status} ${res.statusText || ''}`.trim();
+        console.warn('[API]', action, STATE.lastApiError);
+      }
+      const text = await res.text();
+      let json;
+      try { json = JSON.parse(text); }
+      catch (parseErr) {
+        // Apps Script returned HTML (usually a Google login/auth page) — happens
+        // when the deployment's access changes or the URL is slightly off.
+        STATE.lastApiError = text.length > 0 && text.trim().startsWith('<')
+          ? 'Apps Script returned HTML (auth/redirect — redeploy web app with "Anyone" access)'
+          : 'Invalid JSON response: ' + parseErr.message;
+        console.warn('[API]', action, STATE.lastApiError, text.slice(0, 200));
+        return null;
+      }
       STATE.apiState = 'online';
       STATE.offlineMode = false;
+      STATE.lastApiError = null;
       if (!json.ok && json.error) console.warn('[API]', action, json.error);
       return json;
     } catch (e) {
       STATE.apiState = navigator.onLine ? 'error' : 'offline';
       STATE.offlineMode = true;
+      STATE.lastApiError = e.message || 'network error';
+      console.warn('[API]', action, 'fetch failed:', e.message);
       // Queue non-idempotent writes for retry when back online.
       if (QUEUEABLE_ACTIONS.has(action)) enqueueWrite(action, payload);
       return null;
@@ -4624,14 +4645,23 @@ window.testTelegramChat = async function(key) {
   const input = el(`tgcfg-${key}`);
   const chatId = (input?.value || '').trim();
   if (!chatId) return toast('Chat ID is empty');
-  toast('📤 Firing actual message template…');
-  const resp = await API.post('testRouting', {
-    key, chatId,
-    actor: STATE.currentUser?.id || 'system'
-  });
-  if (!resp) return toast('❌ No response (offline?)');
-  if (resp.error || resp.ok === false) return toast('❌ ' + (resp.error || 'Send failed'));
-  toast('✅ ' + (resp.sent ? resp.sent + ' — QC in Telegram' : 'Sent — check Telegram'));
+  // Heavy templates (A3/A4 sitrep) can take 5–10s on Apps Script cold start,
+  // so show a proper loader instead of a fire-and-forget toast.
+  const resp = await withLoader(`📤 Sending ${key} template…`, () =>
+    API.postRaw('testRouting', { key, chatId, actor: STATE.currentUser?.id || 'system' })
+  );
+  // Diagnostic: tell the user *why* it failed, not a vague "offline?"
+  if (resp === null) {
+    if (!navigator.onLine)        return toast('❌ You are offline — check Wi-Fi/cell');
+    const reason = STATE.lastApiError || 'network error';
+    // GAS cold start or heavy A3/A4 sitrep can hit the 30s web-app timeout
+    return toast('❌ ' + reason + ' — retry in 5s');
+  }
+  if (resp.ok === false)          return toast('❌ Server error: ' + (resp.error || resp.description || 'unknown'));
+  const inner = resp.data;
+  if (!inner)                     return toast('❌ Empty response from server');
+  if (inner.ok === false)         return toast('❌ ' + (inner.error || 'Send rejected by server'));
+  toast('✅ ' + (inner.sent || 'Sent') + ' — QC in Telegram');
 };
 
 window.saveTelegramConfig = async function() {
