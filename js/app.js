@@ -3768,19 +3768,23 @@ function renderIR() {
 
 // If the IR sub-tab is currently shown inside SOP, copy #tab-ir's content
 // over to #tab-sop (with the SOP sub-tab header) so re-renders reach the
-// visible DOM. No-op when IR is viewed directly (not currently wired but
-// kept harmless).
+// visible DOM. CRITICAL: wipe #tab-ir afterwards — otherwise every ID in
+// the IR form (ir-nok-y, ir-desc, …) exists TWICE and document.getElementById
+// returns the hidden #tab-ir copy, breaking every onclick/.value read.
 function _hoistIRToSop() {
   if (STATE.currentTab !== 'sop' || STATE.sopSubTab !== 'ir') return;
-  const irHtml = el('tab-ir')?.innerHTML || '';
+  const irTab = el('tab-ir');
   const sopTab = el('tab-sop');
-  if (!sopTab) return;
+  if (!irTab || !sopTab) return;
+  const irHtml = irTab.innerHTML || '';
   sopTab.innerHTML = `
     <div class="subtab-row" id="sop-subtabs">
       <button class="subtab-btn" onclick="setSopSubTab('sops')">🛡️ SOPs</button>
       <button class="subtab-btn active" onclick="setSopSubTab('ir')">🚨 Incident Report for Syn IC</button>
     </div>
     ${irHtml}`;
+  // Dedupe — empty the hidden tab-ir so IDs live ONLY in the visible tab-sop
+  irTab.innerHTML = '';
 }
 
 // ── LIST view — default landing for the IR sub-tab ──────────
