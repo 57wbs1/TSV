@@ -3753,11 +3753,34 @@ window.postReflection = async function() {
 
 // ═══════════ IR TAB ══════════════════════════════════════════
 // Modes (STATE.irMode): 'list' (default) | 'new' | 'update:<incidentId>'
+//
+// Gotcha: IR markup lives in #tab-ir but when accessed via SOP → IR sub-tab,
+// renderSOP hoists #tab-ir's innerHTML into #tab-sop. Any subsequent
+// renderIR() call writes to #tab-ir (hidden), so the visible #tab-sop
+// never updates — clicks do nothing. Fix: always hoist after re-render.
 function renderIR() {
   const mode = STATE.irMode || 'list';
   if (mode === 'new')                       renderIRNew();
   else if (/^update:/.test(mode))           renderIRUpdate(mode.slice(7));
   else                                      renderIRList();
+  _hoistIRToSop();
+}
+
+// If the IR sub-tab is currently shown inside SOP, copy #tab-ir's content
+// over to #tab-sop (with the SOP sub-tab header) so re-renders reach the
+// visible DOM. No-op when IR is viewed directly (not currently wired but
+// kept harmless).
+function _hoistIRToSop() {
+  if (STATE.currentTab !== 'sop' || STATE.sopSubTab !== 'ir') return;
+  const irHtml = el('tab-ir')?.innerHTML || '';
+  const sopTab = el('tab-sop');
+  if (!sopTab) return;
+  sopTab.innerHTML = `
+    <div class="subtab-row" id="sop-subtabs">
+      <button class="subtab-btn" onclick="setSopSubTab('sops')">🛡️ SOPs</button>
+      <button class="subtab-btn active" onclick="setSopSubTab('ir')">🚨 Incident Report for Syn IC</button>
+    </div>
+    ${irHtml}`;
 }
 
 // ── LIST view — default landing for the IR sub-tab ──────────
@@ -3863,15 +3886,6 @@ function renderIRList() {
     <div style="margin:0 12px 24px">
       ${closedIncs.map(card).join('')}
     </div>` : ''}
-
-    <div class="card" style="margin:16px 12px 24px">
-      <div class="card-header"><span class="icon">📞</span><h3>Emergency Numbers</h3></div>
-      <div class="card-body">
-        <div class="contact-grid">
-          ${EMERGENCY_CONTACTS.map(c => `<a class="contact-card" href="tel:${c.dial || c.number}"><div class="c-flag">${c.flag}</div><div class="c-label">${c.label}</div><div class="c-number">${c.number}</div></a>`).join('')}
-        </div>
-      </div>
-    </div>
   `;
 }
 
@@ -4228,11 +4242,9 @@ function renderSOP() {
         </div>`;
       return;
     }
-    // IR form lives in #tab-ir in the DOM. Render it, then hoist the body
-    // under the SOP sub-tab header so the whole flow is inside SOP.
+    // renderIR writes to #tab-ir then auto-hoists into #tab-sop via
+    // _hoistIRToSop() — no manual copy needed here.
     renderIR();
-    const irHtml = el('tab-ir')?.innerHTML || '';
-    el('tab-sop').innerHTML = header + irHtml;
     return;
   }
 
