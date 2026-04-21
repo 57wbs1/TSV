@@ -3718,6 +3718,8 @@ window.draftForMe = function(visitId) {
 window.postReflection = async function() {
   const user = STATE.currentUser;
   if (!user) return toast('Sign in first');
+  const day = el('reflection-day-select')?.value || '';
+  if (!day) return toast('Pick a Day — each day has its own tab in the sheet');
   const obs      = (el('ref-obs')?.value      || '').trim();
   const patterns = (el('ref-patterns')?.value || '').trim();
   const impl     = (el('ref-impl')?.value     || '').trim();
@@ -3730,7 +3732,6 @@ window.postReflection = async function() {
   if (impl)     parts.push(`Implications for Singapore:\n${impl}`);
   if (ahha)     parts.push(`Ah-Ha Moments:\n${ahha}`);
   const content = parts.join('\n\n');
-  const day = el('reflection-day-select')?.value || '';
   const post = {
     authorId:   user.id,
     authorName: user.name,

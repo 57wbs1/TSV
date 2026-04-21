@@ -1073,10 +1073,24 @@ const MATRIX_PROMPT_LABELS = {
   5: 'Ah-ha moments\n\nAny significant points to share, cross-PMESII linkages observed, matters to escalate'
 };
 
-// Ensure the matrix scaffold exists: headers on row 1, prompts in column A rows 2-5.
-// Safe to call repeatedly — only writes what's missing.
+// Trip day → display date. Keep in sync with js/data.js DAYS[].
+const TRIP_DAY_DATES = {
+  '1': { label: '26 Apr', bkkDate: '2026-04-26' },   // Day 1 · Sun · SIN→BKK
+  '2': { label: '27 Apr', bkkDate: '2026-04-27' },
+  '3': { label: '28 Apr', bkkDate: '2026-04-28' },
+  '4': { label: '29 Apr', bkkDate: '2026-04-29' },
+  '5': { label: '30 Apr', bkkDate: '2026-04-30' }    // Day 5 · Thu · BKK→SIN
+};
+function _matrixTabNameForDay(day) {
+  const key = String(day || '').trim();
+  const meta = TRIP_DAY_DATES[key];
+  if (meta) return `Day ${key} · ${meta.label}`;
+  return 'General';     // unknown / missing day → collect-all tab
+}
+
+// Ensure the matrix scaffold exists in the given tab: headers on row 1,
+// prompts in column A rows 2-5. Safe to call repeatedly.
 function _ensureMatrixScaffold(tab) {
-  // Row 1 headers
   const headerRange = tab.getRange(1, 1, 1, MATRIX_HEADERS.length);
   const currentHeaders = headerRange.getValues()[0];
   const headersMissing = currentHeaders.every(c => !String(c || '').trim());
@@ -1088,7 +1102,6 @@ function _ensureMatrixScaffold(tab) {
     tab.setColumnWidth(1, 240);
     for (let c = 2; c <= MATRIX_HEADERS.length; c++) tab.setColumnWidth(c, 280);
   }
-  // Column A prompts (rows 2-5)
   [2, 3, 4, 5].forEach(row => {
     const cell = tab.getRange(row, 1);
     if (!String(cell.getValue() || '').trim()) {
@@ -1100,21 +1113,34 @@ function _ensureMatrixScaffold(tab) {
   });
 }
 
+// Get (or create) the tab for this trip day. Each day has its own matrix.
+function _ensureDayTab(ss, day) {
+  const tabName = _matrixTabNameForDay(day);
+  let tab = ss.getSheetByName(tabName);
+  if (!tab) {
+    tab = ss.insertSheet(tabName);
+    _ensureMatrixScaffold(tab);
+    // Drop the default 'Sheet1' if it's empty and we now have named tabs
+    try {
+      const s1 = ss.getSheetByName('Sheet1');
+      if (s1 && s1.getLastRow() <= 1 && s1.getSheetId() !== tab.getSheetId()) {
+        ss.deleteSheet(s1);
+      }
+    } catch (e) { /* ignore */ }
+  } else {
+    _ensureMatrixScaffold(tab);
+  }
+  return { tab, tabName };
+}
+
 function appendReflectionMatrix(data, timestampIso) {
   const ss = SpreadsheetApp.openById(REFLECTIONS_MATRIX_SHEET_ID);
-  // Prefer the specific gid we want; fall back to first tab
-  const tab = ss.getSheets().find(s => s.getSheetId() === REFLECTIONS_MATRIX_GID)
-           || ss.getSheets()[0];
-  if (!tab) throw new Error('Matrix tab not found in ' + REFLECTIONS_MATRIX_SHEET_ID);
-
-  // Auto-seed headers + prompts if the sheet is blank
-  _ensureMatrixScaffold(tab);
+  const { tab, tabName } = _ensureDayTab(ss, data.day);
 
   const col = _matrixSynColumn(data.syndicate);
   const bkkTs = Utilities.formatDate(new Date(timestampIso), 'Asia/Bangkok', 'd MMM · HH:mm');
   const author = (data.authorName || data.authorId || 'Anon').toString();
-  const dayLabel = data.day ? `Day ${data.day} · ` : '';
-  const header = `— ${dayLabel}${author} · ${bkkTs}H —`;
+  const header = `— ${author} · ${bkkTs}H —`;
 
   const fields = ['obs', 'patterns', 'impl', 'ahha'];
   let wrote = 0;
@@ -1131,7 +1157,7 @@ function appendReflectionMatrix(data, timestampIso) {
     cell.setVerticalAlignment('top');
     wrote++;
   });
-  return `ok · wrote ${wrote} fields to col ${col}`;
+  return `ok · tab "${tabName}" · wrote ${wrote} fields to col ${col}`;
 }
 
 // Tabs on the external workbook — one per syndicate for the Learning IC.
