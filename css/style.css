@@ -2795,6 +2795,13 @@ body::after {
   gap: 6px;
   padding: 8px;
   background: var(--n-50);
+  /* Each expanded syndicate gets its OWN scroll container so you can see
+     every member of a 14-person group (27E, 25E, Syn 3) without needing
+     to scroll the whole modal. */
+  max-height: 42vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;   /* prevent scroll-chaining to outer list */
 }
 @media (prefers-color-scheme: dark) {
   .buddy-group-items { background: rgba(15,23,42,.4); }
