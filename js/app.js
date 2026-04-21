@@ -296,6 +296,34 @@ const TELEGRAM = {
     return true;
   },
 
+  // Send by routing key (respects enable/disable + chat ID override configured
+  // in Settings → Admin-Tele). Falls back to CONFIG defaults only if the server
+  // config failed to load. If the key is disabled, returns false and toasts.
+  async sendRouted(routingKey, text, parseMode) {
+    const cfg = (STATE.telegramConfig || {})[routingKey];
+    if (cfg && cfg.enabled === false) {
+      toast(`⏸ ${routingKey} disabled in settings — not sent`);
+      console.warn('[telegram] routing disabled:', routingKey);
+      return false;
+    }
+    // Prefer the configured chatId; fall back to a reasonable CONFIG default
+    // so the app still works offline / before first config load.
+    const FALLBACK = {
+      A1_weather:      CONFIG.telegram.announceChatId || CONFIG.telegram.chatId,
+      A2_reminder:     CONFIG.telegram.announceChatId || CONFIG.telegram.chatId,
+      A3_evening:      CONFIG.telegram.opsChatId      || CONFIG.telegram.chatId,
+      A4_midnight:     CONFIG.telegram.opsChatId      || CONFIG.telegram.chatId,
+      M1_ir:           CONFIG.telegram.irChatId       || CONFIG.telegram.opsChatId,
+      M2_bus_boarding: CONFIG.telegram.opsChatId      || CONFIG.telegram.chatId,
+      M3_bus_pushing:  CONFIG.telegram.opsChatId      || CONFIG.telegram.chatId,
+      M4_flight_board: CONFIG.telegram.opsChatId      || CONFIG.telegram.chatId,
+      M5_sitrep:       CONFIG.telegram.opsChatId      || CONFIG.telegram.chatId,
+      M6_all_back_in:  CONFIG.telegram.syn1ChatId     || CONFIG.telegram.opsChatId
+    };
+    const chatId = cfg?.chatId || FALLBACK[routingKey] || CONFIG.telegram.chatId;
+    return this.send(text, chatId, parseMode);
+  },
+
   buildEveningReport() {
     const all = MEMBERS;
     const st = STATE.memberStatuses;
@@ -1960,7 +1988,7 @@ ${formatGroupDisplay(groupKey)}: <b>${n}/${total}</b> Present ${status}
 
 ${ev.startTime}H · ${dateLabel}`;
 
-  TELEGRAM.send(msg, CONFIG.telegram.chatId).then(ok => {
+  TELEGRAM.sendRouted('M5_sitrep', msg, 'HTML').then(ok => {
     if (ok) toast(`✅ Attendance sent: ${n}/${total}`);
     else toast('❌ Failed to send');
   });
@@ -3066,7 +3094,9 @@ window.sendTransportBoarding = async function() {
   if (remarks) msg += `\n⚠️ Remarks: ${escapeHtml(remarks)}`;
   msg += `\n🕐 ${new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}H`;
 
-  const ok = await TELEGRAM.send(msg, CONFIG.telegram.opsChatId, 'HTML');
+  // Flight → M4, Bus → M2 (separate routing keys — can be disabled independently)
+  const routingKey = m.isPlane ? 'M4_flight_board' : 'M2_bus_boarding';
+  const ok = await TELEGRAM.sendRouted(routingKey, msg, 'HTML');
   if (ok) toast('✅ Boarding sitrep sent');
 
   STATE.transportModal = null;
@@ -3109,9 +3139,9 @@ window.transportSendSitrep = async function(vehicleId) {
   if (v.driver?.name) msg += `\nDriver: ${escapeHtml(v.driver.name)}`;
   if (remarks)        msg += `\n⚠️ Remarks: ${escapeHtml(remarks)}`;
   msg += `\n🕐 ${new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}H`;
-  const ok = await TELEGRAM.send(msg, CONFIG.telegram.opsChatId, 'HTML');
+  const ok = await TELEGRAM.sendRouted('M3_bus_pushing', msg, 'HTML');
   if (ok) {
-    toast('✅ Sitrep sent to ops chat');
+    toast('✅ Pushing sitrep sent');
     if (remarksEl) remarksEl.value = '';
     const body = el('calendar-sub-content');
     if (body) _redrawTransport(body);
@@ -3772,7 +3802,7 @@ window.updateIRPreview = function() {
 
 window.sendIR = async function() {
   if (!window._irText) return toast('Fill in details first');
-  const ok = await withLoader('Sending Incident Report…', () => TELEGRAM.send(window._irText, CONFIG.telegram.irChatId, 'Markdown'));
+  const ok = await withLoader('Sending Incident Report…', () => TELEGRAM.sendRouted('M1_ir', window._irText, 'Markdown'));
   if (!ok) return toast('❌ Telegram send failed');
   toast('✅ IR sent!');
   await API.post('addIncident', {
@@ -3872,7 +3902,9 @@ window.copyReflectionTemplate = function() { navigator.clipboard.writeText(REFLE
 window.sendReport = async function(type) {
   const msg = type === 'evening' ? TELEGRAM.buildEveningReport() : TELEGRAM.buildMidnightReport();
   if (!confirm(`Send ${type === 'evening' ? '2300H SITREP' : '0200H All-In'}?\n\n${msg.replace(/<[^>]+>/g,'').slice(0,200)}…`)) return;
-  const ok = await withLoader('Sending SITREP…', () => TELEGRAM.send(msg));
+  // Legacy code path — evening/midnight sitreps are now server-side triggers.
+  // Route to M5_sitrep for backward compat if anyone still calls sendReport.
+  const ok = await withLoader('Sending SITREP…', () => TELEGRAM.sendRouted('M5_sitrep', msg, 'HTML'));
   if (ok) {
     STATE.reportSent[type] = true;
     toast(`✅ ${type} report sent!`);
@@ -4079,12 +4111,11 @@ function startApp() {
   setInterval(refreshFx, 60 * 60 * 1000);       // every hour (rate doesn't move fast)
   startPolling();
   seedIfEmpty();
-  // Prefetch Telegram config for super-admin so Settings loads instantly
-  if (STATE.currentUser?.id === CONFIG.superAdminId) {
-    API.get('getTelegramConfig').then(cfg => {
-      if (cfg) localStorage.setItem('tsv_tg_config', JSON.stringify(cfg));
-    }).catch(() => {});
-  }
+  // Load Telegram routing config — EVERY user needs this so M-series sends
+  // respect the super-admin's chat-ID + enable/disable settings. Before this
+  // fix, PWA Telegram sends went to hardcoded CONFIG defaults regardless of
+  // what was saved in Settings.
+  loadTelegramConfig();
   setupReportReminders();
   setupSyn1AutoReports();
   setupModalSwipes();
@@ -4334,8 +4365,7 @@ window.sendSyndicateSITREP = async function(groupKey, auto) {
   if (!auto) {
     if (!confirm(`Send this SITREP?\n\n${msg}`)) return;
   }
-  const chatId = groupKey === PRIORITY_GROUP ? CONFIG.telegram.syn1ChatId : CONFIG.telegram.chatId;
-  const send = () => TELEGRAM.send(msg.replace(/\n/g, '\n'), chatId);
+  const send = () => TELEGRAM.sendRouted('M5_sitrep', msg.replace(/\n/g, '\n'), 'HTML');
   const ok = auto ? await send() : await withLoader(`Sending ${formatGroupDisplay(groupKey)} SITREP…`, send);
   if (ok && !auto) toast(`✅ ${groupKey} SITREP sent`);
   return ok;
@@ -4364,23 +4394,31 @@ function renderSettings() {
   const pendingReqs = adminReqs.filter(r => r.status === 'pending');
   const pendingBadge = (isSuperAdmin && pendingReqs.length) ? ` <span style="display:inline-block;background:#ef4444;color:#fff;border-radius:10px;padding:0 6px;font-size:10px;font-weight:800;margin-left:4px">${pendingReqs.length}</span>` : '';
 
+  const showAdmin = hasAdminRights() || isSuperAdmin;
   const subtabBar = `
     <div class="subtab-bar" style="display:flex;gap:6px;padding:10px 12px 6px;overflow-x:auto">
-      <button class="subtab-btn ${sub === 'me'      ? 'active' : ''}" onclick="setSettingsSubTab('me')">👤 Me</button>
-      <button class="subtab-btn ${sub === 'display' ? 'active' : ''}" onclick="setSettingsSubTab('display')">🎨 Display</button>
-      <button class="subtab-btn ${sub === 'admin'   ? 'active' : ''}" onclick="setSettingsSubTab('admin')">🔐 Admin${pendingBadge}</button>
+      <button class="subtab-btn ${sub === 'me'          ? 'active' : ''}" onclick="setSettingsSubTab('me')">👤 Me</button>
+      <button class="subtab-btn ${sub === 'display'     ? 'active' : ''}" onclick="setSettingsSubTab('display')">🎨 Display</button>
+      ${showAdmin ? `<button class="subtab-btn ${sub === 'admin-tele'   ? 'active' : ''}" onclick="setSettingsSubTab('admin-tele')">📡 Admin · Tele</button>` : ''}
+      ${showAdmin ? `<button class="subtab-btn ${sub === 'admin-others' ? 'active' : ''}" onclick="setSettingsSubTab('admin-others')">🔐 Admin · Others${pendingBadge}</button>` : ''}
     </div>`;
 
+  // Guard: if saved sub-tab no longer valid (e.g. non-admin had 'admin-tele'), reset
+  if ((sub === 'admin-tele' || sub === 'admin-others') && !showAdmin) {
+    STATE.settingsSubTab = 'me';
+    return renderSettings();
+  }
+
   let body = '';
-  if (sub === 'me')           body = _renderSettingsMe(user, gk);
-  else if (sub === 'display') body = _renderSettingsDisplay();
-  else if (sub === 'admin')   body = _renderSettingsAdmin(user, isSuperAdmin, pendingReqs);
+  if (sub === 'me')                body = _renderSettingsMe(user, gk);
+  else if (sub === 'display')      body = _renderSettingsDisplay();
+  else if (sub === 'admin-tele')   body = _renderSettingsAdminTele(user, isSuperAdmin);
+  else if (sub === 'admin-others') body = _renderSettingsAdminOthers(user, isSuperAdmin, pendingReqs);
 
   container.innerHTML = subtabBar + `<div id="settings-sub-content">${body}</div>`;
 
-  // Post-render hooks (only run when admin sub-tab is active)
-  if (sub === 'admin' && isSuperAdmin) {
-    // Telegram Chat Routing
+  // Post-render hooks scoped to each admin sub-tab
+  if (sub === 'admin-tele' && isSuperAdmin) {
     const cachedTg = (() => { try { return JSON.parse(localStorage.getItem('tsv_tg_config') || 'null'); } catch { return null; } })();
     if (cachedTg) _renderTelegramConfig(cachedTg, true);
     API.get('getTelegramConfig').then(cfg => {
@@ -4392,10 +4430,11 @@ function renderSettings() {
         return;
       }
       localStorage.setItem('tsv_tg_config', JSON.stringify(cfg));
+      STATE.telegramConfig = cfg;
       _renderTelegramConfig(cfg, false);
     });
-
-    // 0130H Auto Force-In groups
+  }
+  if (sub === 'admin-others' && isSuperAdmin) {
     const cachedFi = (() => { try { return JSON.parse(localStorage.getItem('tsv_forcein_config') || 'null'); } catch { return null; } })();
     if (cachedFi) _renderForceInConfig(cachedFi, true);
     API.get('getForceInConfig').then(cfg => {
@@ -4564,7 +4603,29 @@ function _renderSettingsDisplay() {
 }
 
 // ── Settings: ADMIN sub-tab (Access + Telegram config + pending requests) ──
-function _renderSettingsAdmin(user, isSuperAdmin, pendingReqs) {
+// ── Admin · Tele (super admin only — Telegram routing config) ──
+function _renderSettingsAdminTele(user, isSuperAdmin) {
+  if (!isSuperAdmin) {
+    return `<div class="alert alert-orange" style="margin:12px">Super-admin only. Ask Caspar to grant access.</div>`;
+  }
+  return `
+    <div class="settings-section">
+      <div class="settings-section-header">📡 Telegram Chat Routing</div>
+      <div style="padding:8px 16px 0;font-size:12px;color:var(--text-3);line-height:1.5">
+        Each routing key controls a message type. Tick to <b>enable</b>, untick to <b>silence</b>.
+        Paste chat ID to override the default destination. 🧪 Test fires the actual template to verify.
+      </div>
+      <div id="tg-config-container">
+        <div style="padding:12px 16px;color:var(--text-3);font-size:12px">Loading…</div>
+      </div>
+      <div style="padding:8px 16px 14px">
+        <button class="btn btn-primary btn-sm" style="width:100%" onclick="saveTelegramConfig()">💾 Save Routing Config</button>
+      </div>
+    </div>`;
+}
+
+// ── Admin · Others (Access, Force-In, Pending requests) ──
+function _renderSettingsAdminOthers(user, isSuperAdmin, pendingReqs) {
   const access = hasAdminRights() ? `
       <div class="settings-row">
         <div class="sr-label">You have Admin rights
@@ -4611,17 +4672,6 @@ function _renderSettingsAdmin(user, isSuperAdmin, pendingReqs) {
           </div>`).join('')}
       </div>` : '';
 
-  const tgSection = isSuperAdmin ? `
-    <div class="settings-section">
-      <div class="settings-section-header">📡 Telegram Chat Routing</div>
-      <div id="tg-config-container">
-        <div style="padding:12px 16px;color:var(--text-3);font-size:12px">Loading…</div>
-      </div>
-      <div style="padding:0 16px 14px">
-        <button class="btn btn-primary btn-sm" style="width:100%" onclick="saveTelegramConfig()">💾 Save Chat IDs</button>
-      </div>
-    </div>` : '';
-
   const forceInSection = isSuperAdmin ? `
     <div class="settings-section">
       <div class="settings-section-header">🚨 0130H Auto Force-In</div>
@@ -4643,8 +4693,7 @@ function _renderSettingsAdmin(user, isSuperAdmin, pendingReqs) {
       ${access}
       ${pendingBlock}
     </div>
-    ${forceInSection}
-    ${tgSection}`;
+    ${forceInSection}`;
 }
 
 function _renderTelegramConfig(cfg, fromCache) {
@@ -4653,20 +4702,34 @@ function _renderTelegramConfig(cfg, fromCache) {
   const keys = Object.keys(cfg);
   STATE.telegramConfigKeys = keys;
   STATE.telegramConfigFresh = !fromCache;
+  // Also update the live routing state so saves take effect without a reload
+  STATE.telegramConfig = cfg;
   c.innerHTML = `
     ${fromCache ? `<div style="padding:4px 16px 8px;font-size:10px;color:var(--text-3)">Showing cached · refreshing from server…</div>` : ''}
-    ${keys.map(k => `
-      <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:4px">
-        <div class="sr-label">${escapeHtml(cfg[k].label)}</div>
+    ${keys.map(k => {
+      const entry = cfg[k];
+      const enabled = entry.enabled !== false;
+      const isCustom = entry.chatId !== entry.defaultId;
+      return `
+      <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:6px;${enabled ? '' : 'opacity:.55'}">
+        <div style="display:flex;gap:8px;align-items:center">
+          <label class="tg-toggle" style="display:inline-flex;align-items:center;cursor:pointer;user-select:none;flex-shrink:0">
+            <input type="checkbox" id="tgen-${k}" ${enabled ? 'checked' : ''} style="width:18px;height:18px;accent-color:var(--blue-600);margin-right:6px">
+            <span class="sr-label" style="font-weight:700">${escapeHtml(entry.label)}</span>
+          </label>
+          ${enabled ? '' : `<span style="font-size:10px;background:#fee2e2;color:#991b1b;padding:1px 7px;border-radius:10px;font-weight:700">OFF</span>`}
+        </div>
         <div style="display:flex;gap:6px;align-items:center">
-          <input id="tgcfg-${k}" type="text" value="${escapeHtml(cfg[k].chatId)}"
+          <input id="tgcfg-${k}" type="text" value="${escapeHtml(entry.chatId)}"
             style="flex:1;border:1px solid var(--border);border-radius:7px;padding:6px 10px;font-size:12px;font-family:monospace;background:var(--card);color:var(--text)">
           <button class="btn btn-sm btn-outline" style="font-size:11px;padding:5px 8px;white-space:nowrap" onclick="testTelegramChat('${k}')">🧪 Test</button>
         </div>
-        <div style="font-size:10px;color:var(--text-3)">Default: ${escapeHtml(cfg[k].defaultId)}${cfg[k].chatId !== cfg[k].defaultId ? ' · <b style="color:var(--blue-500)">custom</b>' : ''}</div>
-      </div>`).join('')}
+        <div style="font-size:10px;color:var(--text-3)">Default: ${escapeHtml(entry.defaultId)}${isCustom ? ' · <b style="color:var(--blue-500)">custom</b>' : ''}</div>
+      </div>`;
+    }).join('')}
     <div style="padding:8px 16px 0;font-size:11px;color:var(--text-3)">
-      💡 <b>QC testing:</b> Click <b>🧪 Test</b> to fire the <b>actual message template</b> for that routing key to the chat ID currently in the input (saved or not). Verify the format + destination before saving.
+      💡 Tick to <b>enable</b> a routing key. Untick to <b>silence</b> it (server skips sends for that key).
+      <br>🧪 Test fires the actual template to the current input value — verify before saving.
     </div>
   `;
 }
@@ -4699,10 +4762,15 @@ window.testTelegramChat = async function(key) {
 window.saveTelegramConfig = async function() {
   const keys = STATE.telegramConfigKeys || [];
   if (!keys.length) return toast('Config not loaded yet — wait a moment and retry');
+  // Send full { chatId, enabled } per key so the server persists both.
   const chats = {};
   keys.forEach(k => {
-    const v = (el(`tgcfg-${k}`)?.value || '').trim();
-    if (v) chats[k] = v;
+    const input = el(`tgcfg-${k}`);
+    const toggle = el(`tgen-${k}`);
+    chats[k] = {
+      chatId:  (input?.value || '').trim(),
+      enabled: toggle ? !!toggle.checked : true
+    };
   });
   toast('💾 Saving…');
   const resp = await API.postRaw('updateTelegramConfig', { chats, actor: STATE.currentUser?.id });
@@ -4710,12 +4778,30 @@ window.saveTelegramConfig = async function() {
   if (resp.ok === false)        return toast('❌ Save failed — ' + (resp.error || 'server error'));
   const result = resp.data;
   if (!result)                  return toast('❌ Save failed — empty response');
-  // Persist the fresh config immediately so it's instantly available next time
+  // Update live STATE so the very next send honours the new routing without reload
+  STATE.telegramConfig = result;
   localStorage.setItem('tsv_tg_config', JSON.stringify(result));
-  // Re-render with fresh data to confirm write stuck
   _renderTelegramConfig(result, false);
-  toast('✅ Saved — routing active immediately on next send');
+  const enabledCount = Object.values(result).filter(v => v.enabled).length;
+  toast(`✅ Saved · ${enabledCount}/${keys.length} routing keys enabled`);
 };
+
+// ── Telegram routing config: load into STATE on startup ──────
+// Used by TELEGRAM.sendRouted() — reads chat ID + enabled flag per key.
+function loadTelegramConfig() {
+  // 1) Hydrate from localStorage cache immediately so routing works even
+  //    before the server responds (offline-tolerant).
+  try {
+    const cached = JSON.parse(localStorage.getItem('tsv_tg_config') || 'null');
+    if (cached) STATE.telegramConfig = cached;
+  } catch {}
+  // 2) Refresh from server and update cache + STATE.
+  API.get('getTelegramConfig').then(cfg => {
+    if (!cfg) return;
+    STATE.telegramConfig = cfg;
+    localStorage.setItem('tsv_tg_config', JSON.stringify(cfg));
+  }).catch(() => {});
+}
 
 // ── Force-in config (0130H Auto-Force-IN groups) ──────────────
 function _renderForceInConfig(cfg, fromCache) {

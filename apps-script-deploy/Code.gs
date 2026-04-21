@@ -295,40 +295,89 @@ function updateTransportState(body) {
 // TG_CHAT_DEFAULTS is defined after MAIN_CHAT/SYN1_CHAT constants (see line ~994).
 // Functions below reference it after those constants are initialised.
 
+// Saved format (ScriptProperty 'tsvTelegramChats'):
+//   { "A1_weather": { "chatId": "-100...", "enabled": true }, ... }
+// Legacy format was plain string chatIds — we still accept and auto-upgrade.
+function _readTgSaved() {
+  try {
+    const raw = PropertiesService.getScriptProperties().getProperty('tsvTelegramChats') || '{}';
+    const parsed = JSON.parse(raw);
+    const clean = {};
+    Object.keys(parsed).forEach(k => {
+      const v = parsed[k];
+      if (typeof v === 'string') {
+        clean[k] = { chatId: v, enabled: true };       // legacy upgrade
+      } else if (v && typeof v === 'object') {
+        clean[k] = {
+          chatId:  v.chatId !== undefined ? String(v.chatId) : '',
+          enabled: v.enabled !== false                   // default true
+        };
+      }
+    });
+    return clean;
+  } catch(e) { return {}; }
+}
+
 function getTelegramConfig() {
-  const props = PropertiesService.getScriptProperties();
-  let saved = {};
-  try { saved = JSON.parse(props.getProperty('tsvTelegramChats') || '{}'); } catch(e) {}
+  const saved = _readTgSaved();
   const result = {};
   Object.keys(TG_CHAT_DEFAULTS).forEach(k => {
+    const def = TG_CHAT_DEFAULTS[k];
+    const s = saved[k] || {};
     result[k] = {
-      label:     TG_CHAT_DEFAULTS[k].label,
-      defaultId: TG_CHAT_DEFAULTS[k].defaultId,
-      chatId:    saved[k] || TG_CHAT_DEFAULTS[k].defaultId
+      label:     def.label,
+      defaultId: def.defaultId,
+      chatId:    (s.chatId && s.chatId.length) ? s.chatId : def.defaultId,
+      enabled:   s.enabled !== undefined ? s.enabled : def.enabled
     };
   });
   return result;
 }
 
 function updateTelegramConfig(body) {
-  if (body.actor !== SUPER_ADMIN_ID) return { ok: false, error: 'Unauthorized' };
+  if (body.actor !== SUPER_ADMIN_ID) return { ok: false, error: 'Unauthorized — super admin only' };
   const updates = body.chats || {};
-  const props = PropertiesService.getScriptProperties();
-  let saved = {};
-  try { saved = JSON.parse(props.getProperty('tsvTelegramChats') || '{}'); } catch(e) {}
+  const saved = _readTgSaved();
   Object.keys(updates).forEach(k => {
-    if (TG_CHAT_DEFAULTS[k] && updates[k]) saved[k] = String(updates[k]).trim();
+    if (!TG_CHAT_DEFAULTS[k]) return;
+    const upd = updates[k];
+    if (!saved[k]) saved[k] = {};
+    if (typeof upd === 'string') {
+      // legacy callers still sending just the chatId string
+      saved[k].chatId = upd.trim();
+    } else if (upd && typeof upd === 'object') {
+      if (upd.chatId !== undefined)  saved[k].chatId  = String(upd.chatId).trim();
+      if (upd.enabled !== undefined) saved[k].enabled = !!upd.enabled;
+    }
   });
-  props.setProperty('tsvTelegramChats', JSON.stringify(saved));
-  logAction('updateTelegramConfig', body.actor, 'updated ' + Object.keys(updates).length + ' chats');
+  PropertiesService.getScriptProperties().setProperty('tsvTelegramChats', JSON.stringify(saved));
+  logAction('updateTelegramConfig', body.actor, 'updated ' + Object.keys(updates).length + ' keys');
   return getTelegramConfig();
 }
 
+// Returns chat ID for a routing key, or null if the key is DISABLED.
+// Callers MUST check for null and skip the send.
 function _tgChatId(channel) {
-  try {
-    const saved = JSON.parse(PropertiesService.getScriptProperties().getProperty('tsvTelegramChats') || '{}');
-    return saved[channel] || TG_CHAT_DEFAULTS[channel]?.defaultId || SYN1_CHAT;
-  } catch(e) { return TG_CHAT_DEFAULTS[channel]?.defaultId || SYN1_CHAT; }
+  const saved = _readTgSaved();
+  const def = TG_CHAT_DEFAULTS[channel];
+  const s = saved[channel] || {};
+  const enabled = s.enabled !== undefined ? s.enabled : (def ? def.enabled : true);
+  if (!enabled) return null;
+  return (s.chatId && s.chatId.length) ? s.chatId : (def ? def.defaultId : SYN1_CHAT);
+}
+
+// Send a routed message. Respects enable/disable + chat-ID override.
+// If overrideChatId is set (test mode), always sends there regardless.
+// Returns 'sent' / 'disabled' / 'no-chat' so callers can log.
+function _tgSendRouted(msg, channel, overrideChatId) {
+  if (overrideChatId) { tgSend(msg, overrideChatId); return 'sent-override'; }
+  const chatId = _tgChatId(channel);
+  if (chatId === null) {
+    logAction('tg_disabled', 'server', channel);
+    return 'disabled';
+  }
+  tgSend(msg, chatId);
+  return 'sent';
 }
 
 // ── testRouting: fires the ACTUAL message template for a given routing key ──
@@ -1131,17 +1180,19 @@ const SYN1_CHAT   = '-5257572976';
 // ── Telegram chat routing defaults ──────────────────────────
 // A-series: server-scheduled broadcasts (0600H/1900H/2300H/0200H)
 // M-series: client-triggered ad-hoc messages from the PWA
+// Each key has { label, defaultId, enabled } — super admin can override
+// chatId (the actual destination) AND enabled (skip if false) in Settings.
 const TG_CHAT_DEFAULTS = {
-  A1_weather:       { label: 'A1 · 0600H Weather Briefing',         defaultId: MAIN_CHAT  },
-  A2_reminder:      { label: 'A2 · 1900H Pre-trip Reminder',        defaultId: MAIN_CHAT  },
-  A3_evening:       { label: 'A3 · 2300H Evening Sitrep',           defaultId: SYN1_CHAT  },
-  A4_midnight:      { label: 'A4 · 0200H Midnight Curfew Report',   defaultId: SYN1_CHAT  },
-  M1_ir:            { label: 'M1 · Incident Report (IR)',           defaultId: SYN1_CHAT  },
-  M2_bus_boarding:  { label: 'M2 · Bus Boarding Sitrep',            defaultId: SYN1_CHAT  },
-  M3_bus_pushing:   { label: 'M3 · Bus Pushing Sitrep',             defaultId: SYN1_CHAT  },
-  M4_flight_board:  { label: 'M4 · Flight Boarding Sitrep',         defaultId: SYN1_CHAT  },
-  M5_sitrep:        { label: 'M5 · Ad-hoc Sitrep / Parade State',   defaultId: SYN1_CHAT  },
-  M6_all_back_in:   { label: 'M6 · All-Back-In Confirmation',       defaultId: SYN1_CHAT  }
+  A1_weather:       { label: 'A1 · 0600H Weather Briefing',         defaultId: MAIN_CHAT,  enabled: true },
+  A2_reminder:      { label: 'A2 · 1900H Pre-trip Reminder',        defaultId: MAIN_CHAT,  enabled: true },
+  A3_evening:       { label: 'A3 · 2300H Evening Sitrep',           defaultId: SYN1_CHAT,  enabled: true },
+  A4_midnight:      { label: 'A4 · 0200H Midnight Curfew Report',   defaultId: SYN1_CHAT,  enabled: true },
+  M1_ir:            { label: 'M1 · Incident Report (IR)',           defaultId: SYN1_CHAT,  enabled: true },
+  M2_bus_boarding:  { label: 'M2 · Bus Boarding Sitrep',            defaultId: SYN1_CHAT,  enabled: true },
+  M3_bus_pushing:   { label: 'M3 · Bus Pushing Sitrep',             defaultId: SYN1_CHAT,  enabled: true },
+  M4_flight_board:  { label: 'M4 · Flight Boarding Sitrep',         defaultId: SYN1_CHAT,  enabled: true },
+  M5_sitrep:        { label: 'M5 · Ad-hoc Sitrep / Parade State',   defaultId: SYN1_CHAT,  enabled: true },
+  M6_all_back_in:   { label: 'M6 · All-Back-In Confirmation',       defaultId: SYN1_CHAT,  enabled: true }
 };
 
 function tgSend(text, chatId) {
@@ -1547,7 +1598,8 @@ function sendDailyReminder(forceDate, overrideChatId) {
     }
   }
 
-  tgSend(msg, overrideChatId || _tgChatId('A2_reminder'));
+  const sr2 = _tgSendRouted(msg, 'A2_reminder', overrideChatId);
+  if (sr2 === 'disabled') { logAction('reminder_disabled', 'server', tmrDate); return 'A2 disabled'; }
   logAction('reminder_sent', 'server', tmrDate);
   return 'Sent reminder for ' + tmrDate;
 }
@@ -1653,7 +1705,8 @@ function sendEveningSitrep(overrideChatId) {
   const dateLabel = Utilities.formatDate(bkk, 'Asia/Bangkok', 'd MMM EEE').toUpperCase();
   const data = _buildSitrepData([]);   // no forced all-in
   const msg = _buildSitrepMessage(data, '2300H SITREP', dateLabel);
-  tgSend(msg, overrideChatId || _tgChatId('A3_evening'));
+  const sr3 = _tgSendRouted(msg, 'A3_evening', overrideChatId);
+  if (sr3 === 'disabled') { logAction('sitrep_2300_disabled', 'server', ''); return 'A3 disabled'; }
   logAction('sitrep_2300', 'server', data.totals.inC + '/' + data.totals.total);
   return 'Sent 2300H';
 }
@@ -1666,7 +1719,8 @@ function sendMidnightSitrep(overrideChatId) {
   // Read from the same config the 0130H auto-force-in uses (super-admin configurable)
   const data = _buildSitrepData(_getForceInGroups());
   const msg = _buildSitrepMessage(data, '0200H SITREP', yLabel);
-  tgSend(msg, overrideChatId || _tgChatId('A4_midnight'));
+  const sr4 = _tgSendRouted(msg, 'A4_midnight', overrideChatId);
+  if (sr4 === 'disabled') { logAction('sitrep_0200_disabled', 'server', ''); return 'A4 disabled'; }
   logAction('sitrep_0200', 'server', data.totals.inC + '/' + data.totals.total);
   return 'Sent 0200H';
 }
@@ -1795,7 +1849,7 @@ function sendWeatherBriefing(overrideChatId) {
     }
   } catch (e) {
     logAction('weather_fail', 'server', e.message);
-    tgSend('<b>☀️ Weather briefing</b>\nCouldn\'t reach the weather service — defaulting: stay hydrated, wear light layers, bring rain cover.', overrideChatId || _tgChatId('A1_weather'));
+    _tgSendRouted('<b>☀️ Weather briefing</b>\nCouldn\'t reach the weather service — defaulting: stay hydrated, wear light layers, bring rain cover.', 'A1_weather', overrideChatId);
     return 'Weather fetch failed';
   }
 
@@ -1968,7 +2022,8 @@ function sendWeatherBriefing(overrideChatId) {
   msg += '\n<b>Today\'s tips</b>\n' + tips.map(t => '• ' + t).join('\n');
   msg += '\n\nStay sharp 🇹🇭';
 
-  tgSend(msg, overrideChatId || _tgChatId('A1_weather'));
+  const sr1 = _tgSendRouted(msg, 'A1_weather', overrideChatId);
+  if (sr1 === 'disabled') { logAction('weather_disabled', 'server', ''); return 'A1 disabled'; }
   const aqiTag = bkkAqi ? 'BKK' + bkkAqi.value : '';
   logAction('weather_0600', 'server', (tMax||'?') + '°C ' + wc[1] + (aqiTag ? ' · ' + aqiTag : ''));
   return 'Sent weather ' + today + (aqiTag ? ' (' + aqiTag + ')' : '');
