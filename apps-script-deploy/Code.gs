@@ -216,10 +216,10 @@ function getTransportState() {
 }
 
 function updateTransportState(body) {
-  // body: { vehicleId, action, synLabel, actorName, driverName, driverPhone, remarks }
-  // action: 'board' | 'unboard' | 'pushing' | 'dropped' | 'reset' | 'editDriver'
-  // No 'leg' concept — state is keyed flat by vehicleId.
-  // 'dropped' immediately resets boardedSyns → bus is free again.
+  // body: { vehicleId, op, synLabel, actorName, driverName, driverPhone, remarks }
+  // op: 'board' | 'unboard' | 'boardBatch' | 'pushing' | 'dropped' | 'reset' | 'editDriver'
+  // NOTE: field is `op` (not `action`) because `action` collides with the outer
+  // doPost dispatcher key when the client spreads payloads.
   const props = PropertiesService.getScriptProperties();
   let state;
   try { state = JSON.parse(props.getProperty(TRANSPORT_PROP_KEY) || '{}'); }
@@ -233,7 +233,9 @@ function updateTransportState(body) {
   if (!v.driver) v.driver = {};
   const now = new Date().toISOString();
 
-  switch (body.action) {
+  // Accept either `op` (new) or `action` (legacy) for backward compat
+  const op = body.op || body.action;
+  switch (op) {
     case 'board':
       if (body.synLabel && !v.boardedSyns.includes(body.synLabel))
         v.boardedSyns.push(body.synLabel);
@@ -278,7 +280,7 @@ function updateTransportState(body) {
 
   v.updatedAt = now;
   props.setProperty(TRANSPORT_PROP_KEY, JSON.stringify(state));
-  logAction('transport_' + body.action, body.actorName || 'unknown', vid);
+  logAction('transport_' + op, body.actorName || 'unknown', vid);
   return state;
 }
 
@@ -1033,7 +1035,7 @@ Time to tick off the big-ticket items:
 
 🏨 <b>Hotel:</b> Pullman Bangkok Hotel G
 ✈️ <b>Outbound:</b> SQ 708 · 0930H Sun 26 Apr
-📍 Check-in opens <b>0600H at Changi T2</b>
+📍 Changi T2 · Check-in 0630–0840H · Boarding 0900H · Gate closes 0920H
 
 —
 
@@ -1118,7 +1120,7 @@ Final-stretch checklist:
 
 ✈️ <b>Outbound:</b> SQ 708 · 0930H Sun 26 Apr
 
-📍 Check-in opens <b>0600H at Changi T2</b>
+📍 Changi T2 · Check-in 0630–0840H · Boarding 0900H · Gate closes 0920H
 
 —
 
@@ -1140,7 +1142,7 @@ Here we go! 🎉
 
 Bright-and-early start at Changi T2.
 
-Check-in from 0600H.
+Check-in counter 0630–<b>0840H</b> · Boarding 0900H · Gate closes 0920H.
 
 Cohort photo at Dreamscape by 0730H.
 
@@ -1668,7 +1670,7 @@ function sendWeatherBriefing() {
       if (daysOut >= 5) {
         programmeBlock += '✅ Passport valid ≥6 months?\n';
         programmeBlock += '✅ Air ticket printed / downloaded?\n';
-        programmeBlock += '✅ Check-in open for SQ708 (0930H, Changi T2)\n';
+        programmeBlock += '✅ SQ708 · departs <b>0930H</b> Changi T2 · check-in 0630–0840H · gate closes 0920H\n';
         programmeBlock += '✅ <b>No. 3 Uniform</b> serviceable — pressed + packed?\n';
         programmeBlock += '✅ Smart Casual packed (for non-uniform events)?\n';
         programmeBlock += '✅ Toiletries + medications packed?\n';
@@ -1678,7 +1680,7 @@ function sendWeatherBriefing() {
       } else if (daysOut === 4) {
         programmeBlock += '✅ Passport valid ≥6 months?\n';
         programmeBlock += '✅ Air ticket printed / downloaded?\n';
-        programmeBlock += '✅ Check-in open for SQ708 (0930H, Changi T2)\n';
+        programmeBlock += '✅ SQ708 · departs <b>0930H</b> Changi T2 · check-in 0630–0840H · gate closes 0920H\n';
         programmeBlock += '✅ <b>No. 3 Uniform</b> serviceable — pressed + packed?\n';
         programmeBlock += '✅ Smart Casual packed (for non-uniform events)?\n';
         programmeBlock += '✅ Toiletries + medications packed?\n';
@@ -1691,11 +1693,13 @@ function sendWeatherBriefing() {
         programmeBlock += '✅ Valuables: phone, wallet, powerbank, earphones?\n';
         programmeBlock += '✅ <b>No. 3 Uniform</b> + Smart Casual confirmed?\n';
       } else if (daysOut <= 2) {
-        programmeBlock += '✅ Departure day: SQ708 departs 0930H Changi T2\n';
-        programmeBlock += '✅ Check-in closes 0730H — aim to arrive by 0630H\n';
-        programmeBlock += '✅ Have boarding pass ready (app or printed)\n';
+        programmeBlock += '✅ SQ708 departs <b>0930H</b> Changi T2 (Sun 26 Apr)\n';
+        programmeBlock += '✅ Check-in counter: 0630–<b>0840H</b> (closes 50 min before)\n';
+        programmeBlock += '✅ Boarding 0900H · Gate closes <b>0920H</b>\n';
+        programmeBlock += '✅ Aim to reach airport by 0700H for buffer\n';
+        programmeBlock += '✅ Have boarding pass ready (SingaporeAir app or printed)\n';
         if (daysOut <= 1) {
-          programmeBlock += '✅ Set alarm! 0500H wake-up recommended\n';
+          programmeBlock += '✅ <b>Set alarm — 0500H wake-up recommended</b>\n';
           programmeBlock += '✅ Full charge phone + powerbank tonight\n';
         }
       }

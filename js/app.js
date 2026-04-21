@@ -2954,15 +2954,20 @@ window.saveTransportProgress = async function() {
   const user = STATE.currentUser;
   const actorName = user ? (user.shortName || user.name) : 'unknown';
   const remarks = (el('tmod-remarks')?.value || m.remarks || '').trim();
+  // Optimistic update so UI reflects save immediately even if server is slow
+  if (!STATE.transport) STATE.transport = {};
+  if (!STATE.transport[m.vehicleId]) STATE.transport[m.vehicleId] = { status:'idle', boardedSyns:[], driver:{} };
+  STATE.transport[m.vehicleId].boardedSyns = m.selected.slice();
+  STATE.transport[m.vehicleId].boardingRemarks = remarks;
   const result = await API.post('updateTransport', {
     vehicleId: m.vehicleId,
-    action: 'boardBatch',
+    op: 'boardBatch',           // renamed from 'action' (was shadowing outer action)
     synLabels: m.selected,
     remarks,
     actorName
   });
   if (result) STATE.transport = result;
-  toast('💾 Progress saved — returns when you reopen');
+  toast('💾 Progress saved');
   STATE.transportModal = null;
   const body = el('calendar-sub-content');
   if (body) _redrawTransport(body);
@@ -2977,10 +2982,15 @@ window.sendTransportBoarding = async function() {
   const veh = m.isPlane ? null : TRANSPORT_BUSES.find(b => b.id === m.vehicleId);
   const remarks = (el('tmod-remarks')?.value || m.remarks || '').trim();
 
+  // Optimistic update
+  if (!STATE.transport) STATE.transport = {};
+  if (!STATE.transport[m.vehicleId]) STATE.transport[m.vehicleId] = { status:'idle', boardedSyns:[], driver:{} };
+  STATE.transport[m.vehicleId].boardedSyns = m.selected.slice();
+  STATE.transport[m.vehicleId].boardingRemarks = remarks;
   // 1. Save to server (with remarks)
   const result = await API.post('updateTransport', {
     vehicleId: m.vehicleId,
-    action: 'boardBatch',
+    op: 'boardBatch',           // renamed from 'action' to avoid outer-action collision
     synLabels: m.selected,
     remarks,
     actorName
@@ -3022,7 +3032,7 @@ window.saveTransportDriver = async function(vehicleId) {
   const phoneEl = el(`tdr-phone-${vehicleId}`);
   const result  = await API.post('updateTransport', {
     vehicleId,
-    action: 'editDriver',
+    op: 'editDriver',            // renamed from 'action'
     driverName:  (nameEl?.value  || '').trim(),
     driverPhone: (phoneEl?.value || '').trim(),
     actorName: STATE.currentUser?.shortName || STATE.currentUser?.name || ''
@@ -3055,11 +3065,13 @@ window.transportSendSitrep = async function(vehicleId) {
   }
 };
 
-window.transportAction = async function(action, vehicleId) {
-  // Only used for pushing / dropped / reset (non-boarding actions)
+window.transportAction = async function(op, vehicleId) {
+  // Used for pushing / dropped / reset (non-boarding actions).
+  // Param is named `op` to match server-side key and avoid clashing with
+  // the outer `action: 'updateTransport'` dispatcher.
   const user = STATE.currentUser;
   const actorName = user ? (user.shortName || user.name) : 'unknown';
-  const result = await API.post('updateTransport', { action, vehicleId, actorName });
+  const result = await API.post('updateTransport', { op, vehicleId, actorName });
   if (result) STATE.transport = result;
   const body = el('calendar-sub-content');
   if (body) _redrawTransport(body);
@@ -3084,8 +3096,10 @@ function _redrawTransport(container) {
       : (veh?.label || modal.vehicleId);
     const pax     = isPlane ? 'All groups' : (veh?.pax || '');
     const pct     = syns.length ? Math.round(modal.selected.length / syns.length * 100) : 0;
-    const canSend = isPlane ? modal.selected.length >= 1 : pct >= 100;
-    const canSave = modal.selected.length >= 1 || (modal.remarks || '').length > 0;
+    // Send SITREP: any ≥1 selection OR remarks-only (bus may push with short pax).
+    // Save Progress: always enabled so you can save remarks even with 0 selected.
+    const canSend = modal.selected.length >= 1 || (modal.remarks || '').length > 0 || (el('tmod-remarks')?.value || '').length > 0;
+    const canSave = true;
 
     container.innerHTML = `
       <div style="padding:0 12px 32px">
@@ -3135,9 +3149,8 @@ function _redrawTransport(container) {
             onclick="sendTransportBoarding()">📤 Send SITREP</button>
         </div>
         <div style="font-size:11px;color:var(--text-3);text-align:center;margin-top:8px">
-          <b>Save</b>: keep selection, return later when more board.
-          ${!canSend && !isPlane ? `<br><b>Send SITREP</b> activates when all ${syns.length} are selected.` : ''}
-          ${!canSend && isPlane ? `<br><b>Send SITREP</b> activates after selecting ≥ 1.` : ''}
+          <b>💾 Save</b>: persist selection + remarks without sending Telegram (return later to continue).<br>
+          <b>📤 Send SITREP</b>: save and post to ops chat — can send with partial (e.g. bus pushing short of some pax).
         </div>
       </div>`;
     return;
@@ -3260,8 +3273,8 @@ function _redrawTransport(container) {
     <div style="padding:0 0 32px">
       <div class="section-title" style="margin:12px 12px 8px">✈️ Flights</div>
       <div style="display:flex;flex-direction:column;gap:10px;margin:0 12px">
-        ${flightCard('flight_sq708','SQ 708','SIN → BKK','Sun 26 Apr','0930H','1100H','Changi T2 · Economy G · 25 kg · Check-in from 0600H')}
-        ${flightCard('flight_sq709','SQ 709','BKK → SIN','Thu 30 Apr','1530H','1900H','Economy G · 25 kg · Report to airport by 1300H')}
+        ${flightCard('flight_sq708','SQ 708','SIN → BKK','Sun 26 Apr','0930H','1100H','Changi T2 · Economy G · 25 kg · Check-in 0630–0840H · Boarding 0900H · Gate closes 0920H')}
+        ${flightCard('flight_sq709','SQ 709','BKK → SIN','Thu 30 Apr','1530H','1900H','BKK Suvarnabhumi · Economy G · 25 kg · Check-in 1230–1440H · Boarding 1500H · Gate closes 1520H')}
       </div>
       <div class="section-title" style="margin:20px 12px 8px">🚌 Ground Transport</div>
       <div style="display:flex;flex-direction:column;gap:10px;margin:0 12px">
