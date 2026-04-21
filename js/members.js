@@ -135,7 +135,7 @@ function formatGroupDisplay(gk) {
   return gk;
 }
 
-function synColor(groupKey) {
+function groupColorFor(groupKey) {
   if (groupKey === 'Leadership') return '#C9A84C';
   if (groupKey === PRIORITY_GROUP) return '#003580';
   const palette = ['#2D6E4E', '#E07B39', '#7B2535', '#B5973A',
