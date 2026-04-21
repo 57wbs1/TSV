@@ -384,7 +384,34 @@ function toast(msg, ms = 3000) {
   toastTimer = setTimeout(() => t.classList.remove('show'), ms);
 }
 
-function bkkNow() { return new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Bangkok' })); }
+// Returns the current real instant (UTC-anchored). Display code MUST use
+// Intl/toLocaleString with { timeZone: 'Asia/Bangkok' } to render BKK time.
+// NOTE: the old implementation returned a Date whose .getHours() accidentally
+// matched BKK time when the user was in SGT — but it BROKE any format call
+// that ALSO specified timeZone:'Asia/Bangkok' (double-shift → 2h off).
+function bkkNow() { return new Date(); }
+
+// Decomposes the given instant into Bangkok-time components. Use this instead
+// of .getHours()/.getMinutes() on a Date — those read the user's local tz.
+// Returns { hour, minute, hhmm, dateStr (yyyy-mm-dd), weekdayShort }.
+function bkkParts(date = new Date()) {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Bangkok',
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+      hour12: false, weekday: 'short'
+    }).formatToParts(date).map(p => [p.type, p.value])
+  );
+  const hour = parts.hour === '24' ? 0 : parseInt(parts.hour);
+  const minute = parseInt(parts.minute);
+  return {
+    hour, minute,
+    hhmm: String(hour).padStart(2,'0') + String(minute).padStart(2,'0'),
+    dateStr: `${parts.year}-${parts.month}-${parts.day}`,
+    weekdayShort: parts.weekday
+  };
+}
 
 // ─── WEATHER ─────────────────────────────────────────────────
 function weatherIcon(code) {
@@ -504,7 +531,7 @@ function renderFxCard() {
     <span class="fx-ext">↗</span>
   </a>`;
 }
-function formatBKKTime(d = bkkNow()) { return d.toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit', hour12:false }); }
+function formatBKKTime(d = new Date()) { return d.toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit', hour12:false, timeZone:'Asia/Bangkok' }); }
 
 // Hero time block — BKK (K suffix, dominant) + SG (H suffix, secondary).
 // Uses a fresh Date each call and lets the runtime handle the timezone —
@@ -540,7 +567,7 @@ function formatTodayShort() {
 }
 
 function getCurrentDay() {
-  const dateStr = bkkNow().toISOString().split('T')[0];
+  const dateStr = bkkParts().dateStr;          // Bangkok-local yyyy-mm-dd
   return DAYS.find(d => d.date === dateStr) || null;
 }
 
@@ -1602,20 +1629,12 @@ window.showAdhocPicker = function() {
     .filter(g => g !== 'Leadership');
   const opts = allowed.map(g => ({ key: g, label: formatGroupDisplay(g), count: membersInGroup(g).length }));
 
-  if (opts.length === 1) {
-    const only = opts[0];
-    if (confirm(`Send Adhoc SITREP for ${only.label}?`)) {
-      sendSyndicateSITREP(only.key);
-    }
-    return;
-  }
-
-  // Multi-select rows — user can tap multiple syndicates and then hit
-  // 'Send selected'. Keeps the mass-send shortcut available too.
-  STATE._adhocSelected = new Set();
+  // Always show the multi-select picker now — even for 1 visible syn —
+  // so the user gets the Remarks field + preview regardless.
+  STATE._adhocSelected = opts.length === 1 ? new Set([opts[0].key]) : new Set();
   const rows = opts.map(o => `
-    <button class="adhoc-row adhoc-multi" data-key="${escapeHtml(o.key)}" onclick="toggleAdhocPick(this)">
-      <span class="ah-check">☐</span>
+    <button class="adhoc-row adhoc-multi ${STATE._adhocSelected.has(o.key) ? 'selected' : ''}" data-key="${escapeHtml(o.key)}" onclick="toggleAdhocPick(this)">
+      <span class="ah-check">${STATE._adhocSelected.has(o.key) ? '☑' : '☐'}</span>
       <span class="ah-label">${escapeHtml(o.label)}</span>
       <span class="ah-count">${o.count} ${o.count === 1 ? 'member' : 'members'}</span>
     </button>`).join('');
@@ -1626,14 +1645,24 @@ window.showAdhocPicker = function() {
   wrap.innerHTML = `
     <div class="adhoc-sheet">
       <h3>📤 Send Adhoc SITREP</h3>
-      <p class="ah-sub">Tap each syndicate to include. Send when ready.</p>
+      <p class="ah-sub">Tap each syndicate to include. Add remarks if needed.</p>
       ${rows}
+
+      <div style="margin:12px 0 4px">
+        <label style="font-size:12px;font-weight:700;color:var(--text-2);display:block;margin-bottom:4px">
+          Remarks <span style="font-weight:400;opacity:.7">(optional — appears at bottom of message)</span>
+        </label>
+        <textarea id="adhoc-remarks"
+          style="width:100%;box-sizing:border-box;border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-size:13px;font-family:inherit;min-height:56px;background:var(--card);color:var(--text);resize:vertical"
+          placeholder="e.g. All personnel accounted for · Syn 1 ETA 0130H"></textarea>
+      </div>
+
       <div class="adhoc-actions">
         <button class="adhoc-cancel" onclick="closeAdhocPicker()">Cancel</button>
-        <button id="adhoc-send-btn" class="adhoc-send" onclick="sendAdhocSelected()" disabled>Send selected (0)</button>
+        <button id="adhoc-send-btn" class="adhoc-send" onclick="sendAdhocSelected()" ${STATE._adhocSelected.size ? '' : 'disabled'}>Send selected (${STATE._adhocSelected.size})</button>
       </div>
-      ${canAll ? `<button class="adhoc-row mass" onclick="sendAllSITREPs(); closeAdhocPicker()">
-        📣 Mass send — all syndicates
+      ${canAll ? `<button class="adhoc-row mass" onclick="sendAllSITREPsWithRemarks()">
+        📣 Mass send — all syndicates (1 consolidated message)
       </button>` : ''}
     </div>`;
   document.body.appendChild(wrap);
@@ -1660,27 +1689,44 @@ window.toggleAdhocPick = function(btn) {
   }
 };
 
+// Send ONE consolidated message for all picked syndicates (multi-select).
+// If exactly 1 picked → message includes individual member locations.
+// If 2+ picked → message shows summary rows + "Refer to TSV App".
+// Remarks textarea value is appended at the bottom when non-empty.
 window.sendAdhocSelected = async function() {
   const picks = [...(STATE._adhocSelected || [])];
   if (!picks.length) return;
+  const remarks = (el('adhoc-remarks')?.value || '').trim();
   closeAdhocPicker();
-  await withLoader(`Sending ${picks.length} SITREP${picks.length > 1 ? 's' : ''}…`, async () => {
-    for (const gk of picks) {
-      await sendSyndicateSITREP(gk, true);   // auto=true skips confirm
-    }
-  });
-  toast(`✅ Sent ${picks.length} SITREP${picks.length > 1 ? 's' : ''}`);
+  const msg = buildConsolidatedSITREP(picks, { remarks });
+  const label = picks.length === 1
+    ? formatGroupDisplay(picks[0])
+    : `${picks.length} syndicates`;
+  const ok = await withLoader(`Sending consolidated SITREP (${label})…`,
+    () => TELEGRAM.sendRouted('M5_sitrep', msg, 'HTML'));
+  if (ok) toast(`✅ SITREP sent · ${label}${remarks ? ' · with remarks' : ''}`);
 };
 window.closeAdhocPicker = function() { el('adhoc-picker')?.remove(); };
 
-window.sendAllSITREPs = async function() {
-  toast('📡 Sending all syndicates...');
+// Mass Send: every non-Leadership syndicate, ONE consolidated message.
+// Two entry points:
+//   - sendAllSITREPsWithRemarks: called from the picker (includes remarks field)
+//   - sendAllSITREPs: called elsewhere without remarks (back-compat)
+window.sendAllSITREPsWithRemarks = async function() {
+  const remarks = (el('adhoc-remarks')?.value || '').trim();
+  closeAdhocPicker();
   const groups = groupOrder().filter(g => g !== 'Leadership');
-  for (const g of groups) {
-    await sendSyndicateSITREP(g, true);
-    await new Promise(r => setTimeout(r, 400));
-  }
-  toast('✅ All SITREPs sent');
+  const msg = buildConsolidatedSITREP(groups, { remarks });
+  const ok = await withLoader(`Sending mass SITREP (${groups.length} syndicates, 1 message)…`,
+    () => TELEGRAM.sendRouted('M5_sitrep', msg, 'HTML'));
+  if (ok) toast(`✅ Mass SITREP sent · all ${groups.length} syndicates in one message${remarks ? ' · with remarks' : ''}`);
+};
+window.sendAllSITREPs = async function() {
+  const groups = groupOrder().filter(g => g !== 'Leadership');
+  const msg = buildConsolidatedSITREP(groups);
+  const ok = await withLoader(`Sending mass SITREP (${groups.length} syndicates, 1 message)…`,
+    () => TELEGRAM.sendRouted('M5_sitrep', msg, 'HTML'));
+  if (ok) toast(`✅ Mass SITREP sent · all ${groups.length} syndicates in one message`);
 };
 
 function getNextEvent(day, now) {
@@ -1742,8 +1788,9 @@ function renderCalendar() {
     </button>`;
   }).join('');
 
-  const nowMins = bkkNow().getHours() * 60 + bkkNow().getMinutes();
-  const isToday = bkkNow().toISOString().split('T')[0] === day.date;
+  const _bp = bkkParts();
+  const nowMins = _bp.hour * 60 + _bp.minute;
+  const isToday = _bp.dateStr === day.date;
 
   const eventHtml = events.map(ev => {
     const cat = EVENT_CATEGORIES[ev.category] || EVENT_CATEGORIES.event;
@@ -1977,8 +2024,7 @@ window.promptAttendanceCount = function(groupKey, eventId) {
   const n = parseInt(input);
   if (isNaN(n) || n < 0 || n > total) { toast('Invalid — enter 0 to ' + total); return; }
 
-  const bkk = bkkNow();
-  const dateLabel = bkk.toLocaleDateString('en-GB', {weekday:'short', day:'numeric', month:'short'});
+  const dateLabel = new Date().toLocaleDateString('en-GB', {weekday:'short', day:'numeric', month:'short', timeZone:'Asia/Bangkok'});
   const status = n === total ? '✅' : '⚠️';
   // Spec: "[Event] Attendance Check" as header, blank line between sections,
   // "Present" capitalised. Blank lines in Telegram need literal \n\n.
@@ -3951,7 +3997,7 @@ window.sendReport = async function(type) {
 
 function setupReportReminders() {
   setInterval(() => {
-    const bkk = bkkNow(), h = bkk.getHours(), m = bkk.getMinutes();
+    const { hour: h, minute: m } = bkkParts();
     if (h === CONFIG.reports.eveningHour && m === 0 && !STATE.reportSent.evening)
       showNotification('TSV — 2300H SITREP', 'Time to send parade state.');
     if (h === CONFIG.reports.midnightHour && m === 0 && !STATE.reportSent.midnight)
@@ -4368,43 +4414,81 @@ window.saveMyRoom = async function() {
   toast(val ? `🛏 Room ${val} saved` : '🛏 Room cleared');
 };
 
-// ═══════════ PER-SYNDICATE SITREP ════════════════════════════
-function buildSyndicateSITREP(groupKey, options = {}) {
-  const forceAllIn = options.forceAllIn;
-  const members = membersInGroup(groupKey);
-  const total = members.length;
+// ═══════════ SITREP BUILDER (single or multi-syndicate) ══════
+// Takes an array of group keys. Always returns ONE consolidated message.
+// Single syndicate → inlines each "out" member's location so recipients
+//   know exactly where everyone is.
+// Multiple syndicates → summary rows + "Refer to TSV App for Location
+//   Details" (keeps the Telegram message concise for mass sends).
+function buildConsolidatedSITREP(groupKeys, options = {}) {
+  const forceAllInGroups = new Set(options.forceAllInGroups || []);
+  const hhmm = options.timeLabel || bkkParts().hhmm;   // BKK time, HHMM
   const st = STATE.memberStatuses;
-  const out = forceAllIn ? [] : members.filter(m => st[m.id]?.status === 'out');
-  const inC = total - out.length;
-  const pct = total ? Math.round(inC / total * 100) : 0;
-  const tick = pct === 100 ? '✅' : '⚠️';
 
-  // Simplified format per spec:
-  //   ADHOC SITREP (bold)
-  //   HHMMH
-  //
-  //   In Hotel
-  //   57 SYN 1: 10/11 (91%) ⚠️
-  //
-  //   Refer to TSV App for Details
-  const bkk = bkkNow();
-  const hhmm = options.timeLabel || bkk.toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit', hour12:false, timeZone:'Asia/Bangkok' }).replace(':','');
+  const rows = groupKeys.map(gk => {
+    const members = membersInGroup(gk);
+    const total = members.length;
+    const forceIn = forceAllInGroups.has(gk);
+    const out = forceIn ? [] : members.filter(m => st[m.id]?.status === 'out');
+    const inC = total - out.length;
+    const pct = total ? Math.round(inC / total * 100) : 0;
+    const tick = pct === 100 ? '✅' : '⚠️';
+    return { gk, label: formatGroupDisplay(gk), total, out, inC, pct, tick };
+  });
 
-  let msg = `<b>ADHOC SITREP</b>\n${hhmm}H\n\n`;
-  msg += `In Hotel\n`;
-  msg += `${formatGroupDisplay(groupKey)}: ${inC}/${total} (${pct}%) ${tick}\n\n`;
-  msg += `Refer to TSV App for Details`;
+  let msg = `<b>ADHOC SITREP</b>\n${hhmm}H\n\nIn Hotel\n`;
+  rows.forEach(r => {
+    msg += `${r.label}: ${r.inC}/${r.total} (${r.pct}%) ${r.tick}\n`;
+  });
+  msg += '\n';
+
+  // Single-syndicate → inline locations of out members.
+  // Multi-syndicate → link to app.
+  if (rows.length === 1) {
+    const r = rows[0];
+    if (!r.out.length) {
+      msg += 'All members in hotel. ✅';
+    } else {
+      msg += `<b>Out of Hotel (${r.out.length}):</b>\n`;
+      r.out.forEach(m => {
+        const s = st[m.id] || {};
+        const loc = (s.locationText || 'Out of Hotel').toString().trim() || 'Out of Hotel';
+        msg += `• ${escapeHtml(m.shortName || m.name)} — ${escapeHtml(loc)}\n`;
+      });
+    }
+  } else {
+    msg += 'Refer to TSV App for Location Details';
+  }
+
+  // Append optional remarks (e.g. "All personnel accounted for")
+  const remarks = (options.remarks || '').toString().trim();
+  if (remarks) {
+    msg += `\n\n<b>Remarks:</b> ${escapeHtml(remarks)}`;
+  }
+
   return msg;
 }
 
+// Back-compat: some callers still pass a single groupKey string.
+// Just delegates to the consolidated builder with a 1-element array.
+function buildSyndicateSITREP(groupKey, options = {}) {
+  const opts = { ...options };
+  if (options.forceAllIn) opts.forceAllInGroups = [groupKey];
+  return buildConsolidatedSITREP([groupKey], opts);
+}
+
+// Send a SITREP for a SINGLE syndicate (from per-group SITREP button).
+// The consolidated builder will include individual member locations.
 window.sendSyndicateSITREP = async function(groupKey, auto) {
-  const msg = buildSyndicateSITREP(groupKey);
+  const msg = buildConsolidatedSITREP([groupKey]);
   if (!auto) {
-    if (!confirm(`Send this SITREP?\n\n${msg}`)) return;
+    // Strip HTML tags for the native confirm() dialog
+    const preview = msg.replace(/<[^>]+>/g, '');
+    if (!confirm(`Send this SITREP?\n\n${preview}`)) return;
   }
-  const send = () => TELEGRAM.sendRouted('M5_sitrep', msg.replace(/\n/g, '\n'), 'HTML');
+  const send = () => TELEGRAM.sendRouted('M5_sitrep', msg, 'HTML');
   const ok = auto ? await send() : await withLoader(`Sending ${formatGroupDisplay(groupKey)} SITREP…`, send);
-  if (ok && !auto) toast(`✅ ${groupKey} SITREP sent`);
+  if (ok && !auto) toast(`✅ ${formatGroupDisplay(groupKey)} SITREP sent`);
   return ok;
 };
 
@@ -5062,7 +5146,7 @@ window.submitErrorReport = async function() {
     return;
   }
   const u = STATE.currentUser;
-  const when = bkkNow().toLocaleString('en-GB', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit', timeZone:'Asia/Bangkok' });
+  const when = new Date().toLocaleString('en-GB', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit', timeZone:'Asia/Bangkok' });
   const groupLabel = u ? formatGroupDisplay(memberGroupKey(u)) : '—';
   const userLabel  = u ? `${u.name}${u.role ? ' · ' + u.role : ''} · ${groupLabel}` : 'Not signed in';
   const device = navigator.userAgent.replace(/ Mozilla\/.+?\) /, ' ').slice(0, 140);
