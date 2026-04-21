@@ -2221,6 +2221,9 @@ See everyone at the gate! 👋`
 
 // Pass `forceDate` (e.g. '2026-04-26') to test any day regardless of today's date.
 function sendDailyReminder(forceDate, overrideChatId) {
+  // When Apps Script fires this as a trigger, forceDate is the event object.
+  if (typeof forceDate === 'object' && forceDate !== null) forceDate = null;
+  overrideChatId = _coerceChatId(overrideChatId);
   return _safeCron('reminder_1900', () => {
     const bkk = bkkNow();
     const tmr = forceDate
@@ -2359,8 +2362,24 @@ function _safeCron(name, fn) {
   }
 }
 
+// When Apps Script fires a time-based trigger it calls the handler with ONE
+// argument: a TimeBasedEvent object ({year, month, day, hour, …}). Our
+// handlers are declared as fn(overrideChatId) for manual QC — so without this
+// coercion, the event object would be passed into Telegram's sendMessage as
+// chat_id, producing 400 "chat not found (chat=[object Object])" and silently
+// killing every scheduled broadcast. Accept only strings/numbers as real
+// override chat IDs; anything else (object = trigger event, undefined =
+// manual no-arg call) is treated as "no override".
+function _coerceChatId(v) {
+  if (v == null) return undefined;
+  if (typeof v === 'string') return v.trim() || undefined;
+  if (typeof v === 'number') return String(v);
+  return undefined;
+}
+
 // ── 2300H SITREP: all syndicates, actual status ──
 function sendEveningSitrep(overrideChatId) {
+  overrideChatId = _coerceChatId(overrideChatId);
   return _safeCron('sitrep_2300', () => {
     const bkk = bkkNow();
     const dateLabel = Utilities.formatDate(bkk, 'Asia/Bangkok', 'd MMM EEE').toUpperCase();
@@ -2380,6 +2399,7 @@ function sendEveningSitrep(overrideChatId) {
 
 // ── 0200H SITREP: all syndicates, forced groups reported as all-in ──
 function sendMidnightSitrep(overrideChatId) {
+  overrideChatId = _coerceChatId(overrideChatId);
   return _safeCron('sitrep_0200', () => {
     const bkk = bkkNow();
     const yesterday = new Date(bkk.getTime() - 24*60*60*1000);
@@ -2478,6 +2498,7 @@ function _psiBand(v, label) {
 // Pulls the day's forecast from Open-Meteo (free, no key) and builds a
 // briefing with tailored advice based on max temp + humidity + rain.
 function sendWeatherBriefing(overrideChatId) {
+  overrideChatId = _coerceChatId(overrideChatId);
   return _safeCron('weather_0600', () => _sendWeatherBriefingImpl(overrideChatId));
 }
 function _sendWeatherBriefingImpl(overrideChatId) {
@@ -2886,6 +2907,7 @@ function _buildParadeStateMessage(options) {
 
 // Server-scheduled 0830H daily broadcast (A5_parade)
 function sendParadeStateBroadcast(overrideChatId) {
+  overrideChatId = _coerceChatId(overrideChatId);
   return _safeCron('parade_0830', () => {
     const msg = _buildParadeStateMessage();
     const sr = _tgSendRouted(msg, 'A5_parade', overrideChatId);
