@@ -4013,6 +4013,12 @@ function startApp() {
   setInterval(refreshFx, 60 * 60 * 1000);       // every hour (rate doesn't move fast)
   startPolling();
   seedIfEmpty();
+  // Prefetch Telegram config for super-admin so Settings loads instantly
+  if (STATE.currentUser?.id === CONFIG.superAdminId) {
+    API.get('getTelegramConfig').then(cfg => {
+      if (cfg) localStorage.setItem('tsv_tg_config', JSON.stringify(cfg));
+    }).catch(() => {});
+  }
   setupReportReminders();
   setupSyn1AutoReports();
   setupModalSwipes();
@@ -4495,33 +4501,88 @@ function renderSettings() {
   `;
 
   if (isSuperAdmin) {
+    // Stale-while-revalidate: render cached immediately, then refresh in background.
+    const cached = (() => { try { return JSON.parse(localStorage.getItem('tsv_tg_config') || 'null'); } catch { return null; } })();
+    if (cached) _renderTelegramConfig(cached, true);
+
     API.get('getTelegramConfig').then(cfg => {
-      const c = el('tg-config-container');
-      if (!c || !cfg) return;
-      const keys = Object.keys(cfg);
-      c.innerHTML = keys.map(k => `
-        <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:4px">
-          <div class="sr-label">${escapeHtml(cfg[k].label)}</div>
-          <input id="tgcfg-${k}" type="text" value="${escapeHtml(cfg[k].chatId)}"
-            style="border:1px solid var(--border);border-radius:7px;padding:6px 10px;font-size:12px;font-family:monospace;background:var(--card);color:var(--text)">
-          <div style="font-size:10px;color:var(--text-3)">Default: ${escapeHtml(cfg[k].defaultId)}</div>
-        </div>`).join('');
-      STATE.telegramConfigKeys = keys;
+      if (!cfg) {
+        if (!cached) {
+          const c = el('tg-config-container');
+          if (c) c.innerHTML = `<div style="padding:12px 16px;color:#b91c1c;font-size:12px">⚠️ Could not load Telegram config — check connection and reload.</div>`;
+        }
+        return;
+      }
+      localStorage.setItem('tsv_tg_config', JSON.stringify(cfg));
+      _renderTelegramConfig(cfg, false);
     });
   }
 }
 
+function _renderTelegramConfig(cfg, fromCache) {
+  const c = el('tg-config-container');
+  if (!c) return;
+  const keys = Object.keys(cfg);
+  STATE.telegramConfigKeys = keys;
+  STATE.telegramConfigFresh = !fromCache;
+  c.innerHTML = `
+    ${fromCache ? `<div style="padding:4px 16px 8px;font-size:10px;color:var(--text-3)">Showing cached · refreshing from server…</div>` : ''}
+    ${keys.map(k => `
+      <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:4px">
+        <div class="sr-label">${escapeHtml(cfg[k].label)}</div>
+        <div style="display:flex;gap:6px;align-items:center">
+          <input id="tgcfg-${k}" type="text" value="${escapeHtml(cfg[k].chatId)}"
+            style="flex:1;border:1px solid var(--border);border-radius:7px;padding:6px 10px;font-size:12px;font-family:monospace;background:var(--card);color:var(--text)">
+          <button class="btn btn-sm btn-outline" style="font-size:11px;padding:5px 8px;white-space:nowrap" onclick="testTelegramChat('${k}')">🧪 Test</button>
+        </div>
+        <div style="font-size:10px;color:var(--text-3)">Default: ${escapeHtml(cfg[k].defaultId)}${cfg[k].chatId !== cfg[k].defaultId ? ' · <b style="color:var(--blue-500)">custom</b>' : ''}</div>
+      </div>`).join('')}
+    <div style="padding:8px 16px 0;font-size:11px;color:var(--text-3)">
+      💡 <b>Ad-hoc testing:</b> Click <b>🧪 Test</b> to send a test message to the chat using the current (unsaved) value. Use this to verify a chat ID before saving.
+    </div>
+  `;
+}
+
+// Send a test message to a chat ID (using the current input value, NOT saved value)
+window.testTelegramChat = async function(key) {
+  const input = el(`tgcfg-${key}`);
+  const chatId = (input?.value || '').trim();
+  if (!chatId) return toast('Chat ID is empty');
+  const user = STATE.currentUser;
+  const who = user?.shortName || user?.name || 'unknown';
+  const now = new Date().toLocaleString('en-GB', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' });
+  const text = `🧪 <b>Test ping</b>\nSent from TSV PWA · routing key <code>${key}</code>\nBy: ${who} · ${now}\n\nIf you see this, this chat is wired up correctly. ✅`;
+  toast('📤 Sending test…');
+  const resp = await API.post('sendTelegram', {
+    chatId: String(chatId),
+    text,
+    parseMode: 'HTML',
+    actor: user?.id || 'system'
+  });
+  if (!resp) return toast('❌ No response (offline?)');
+  if (resp.ok === false) return toast('❌ ' + (resp.description || resp.error || 'Send failed'));
+  toast('✅ Test sent — check the Telegram chat');
+};
+
 window.saveTelegramConfig = async function() {
   const keys = STATE.telegramConfigKeys || [];
-  if (!keys.length) return toast('Config not loaded yet');
+  if (!keys.length) return toast('Config not loaded yet — wait a moment and retry');
   const chats = {};
   keys.forEach(k => {
     const v = (el(`tgcfg-${k}`)?.value || '').trim();
     if (v) chats[k] = v;
   });
+  toast('💾 Saving…');
   const result = await API.post('updateTelegramConfig', { chats, actor: STATE.currentUser?.id });
-  if (result) { toast('✅ Telegram chat IDs saved'); }
-  else toast('❌ Save failed');
+  if (!result || result.error) {
+    toast('❌ Save failed — ' + (result?.error || 'no response'));
+    return;
+  }
+  // Persist the fresh config immediately so it's instantly available next time
+  localStorage.setItem('tsv_tg_config', JSON.stringify(result));
+  // Re-render with fresh data to confirm write stuck
+  _renderTelegramConfig(result, false);
+  toast('✅ Saved — routing active immediately on next send');
 };
 
 window.setAdminView = function(mode) {

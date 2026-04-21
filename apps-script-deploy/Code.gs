@@ -1669,9 +1669,9 @@ function sendWeatherBriefing() {
         programmeBlock += '✅ Passport valid ≥6 months?\n';
         programmeBlock += '✅ Air ticket printed / downloaded?\n';
         programmeBlock += '✅ Check-in open for SQ708 (0930H, Changi T2)\n';
-        programmeBlock += '✅ Uniform serviceable? Pressed and ready?\n';
-        programmeBlock += '✅ No-4 / smart casual packed?\n';
-        programmeBlock += '✅ Toiletries, medications packed?\n';
+        programmeBlock += '✅ <b>No. 3 Uniform</b> serviceable — pressed + packed?\n';
+        programmeBlock += '✅ Smart Casual packed (for non-uniform events)?\n';
+        programmeBlock += '✅ Toiletries + medications packed?\n';
         programmeBlock += '✅ Running shoes + workout gear?\n';
         programmeBlock += '✅ International data roaming activated?\n';
         programmeBlock += '✅ SGD/THB exchanged?\n';
@@ -1679,17 +1679,17 @@ function sendWeatherBriefing() {
         programmeBlock += '✅ Passport valid ≥6 months?\n';
         programmeBlock += '✅ Air ticket printed / downloaded?\n';
         programmeBlock += '✅ Check-in open for SQ708 (0930H, Changi T2)\n';
-        programmeBlock += '✅ Uniform serviceable? Pressed and ready?\n';
-        programmeBlock += '✅ No-4 / smart casual packed?\n';
-        programmeBlock += '✅ Toiletries, medications packed?\n';
+        programmeBlock += '✅ <b>No. 3 Uniform</b> serviceable — pressed + packed?\n';
+        programmeBlock += '✅ Smart Casual packed (for non-uniform events)?\n';
+        programmeBlock += '✅ Toiletries + medications packed?\n';
         programmeBlock += '✅ Running shoes + workout gear?\n';
         programmeBlock += '✅ International data roaming activated?\n';
         programmeBlock += '✅ SGD/THB exchanged?\n';
         programmeBlock += '✅ Bags packed and under 25kg?\n';
       } else if (daysOut === 3) {
-        programmeBlock += '✅ DO a final bag weight check (25kg limit)\n';
+        programmeBlock += '✅ Final bag weight check (25kg limit)\n';
         programmeBlock += '✅ Valuables: phone, wallet, powerbank, earphones?\n';
-        programmeBlock += '✅ Formal uniform + No4 checked?\n';
+        programmeBlock += '✅ <b>No. 3 Uniform</b> + Smart Casual confirmed?\n';
       } else if (daysOut <= 2) {
         programmeBlock += '✅ Departure day: SQ708 departs 0930H Changi T2\n';
         programmeBlock += '✅ Check-in closes 0730H — aim to arrive by 0630H\n';
