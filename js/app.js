@@ -3752,95 +3752,100 @@ window.postReflection = async function() {
 };
 
 // ═══════════ IR TAB ══════════════════════════════════════════
+// Modes (STATE.irMode): 'list' (default) | 'new' | 'update:<incidentId>'
 function renderIR() {
-  const me = STATE.currentUser;
-  const myGroup = me ? formatGroupDisplay(memberGroupKey(me)) : '';
-  const myName = me ? `${me.rank ? me.rank + ' ' : ''}${me.name}` : '';
+  const mode = STATE.irMode || 'list';
+  if (mode === 'new')                       renderIRNew();
+  else if (/^update:/.test(mode))           renderIRUpdate(mode.slice(7));
+  else                                      renderIRList();
+}
+
+// ── LIST view — default landing for the IR sub-tab ──────────
+function renderIRList() {
+  const incidents = STATE.incidents || null;
+  // Stale-while-revalidate: render what we have, then refresh in background
+  if (incidents === null) {
+    el('tab-ir').innerHTML = `
+      <div class="ir-header-banner"><h2>🚨 Incident Reports</h2><p>Loading…</p></div>`;
+    _loadIncidents();
+    return;
+  }
+
+  const openIncs = incidents.filter(i => i.status === 'OPEN');
+  const closedIncs = incidents.filter(i => i.status === 'CLOSED');
+
+  const card = (inc) => {
+    const statusChip = inc.status === 'OPEN'
+      ? `<span style="font-size:11px;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;padding:2px 8px;border-radius:10px;font-weight:800">⚠️ OPEN</span>`
+      : `<span style="font-size:11px;background:#dcfce7;color:#166534;border:1px solid #bbf7d0;padding:2px 8px;border-radius:10px;font-weight:800">✅ CLOSED</span>`;
+    const natureBadge = inc.nature ? `<span style="font-size:10px;background:#1e40af;color:#fff;padding:2px 7px;border-radius:10px;font-weight:800;margin-left:6px">${escapeHtml(inc.nature)}</span>` : '';
+    const updateBadge = inc.updateCount > 0
+      ? `<span style="font-size:10px;background:#6366f1;color:#fff;padding:2px 7px;border-radius:10px;font-weight:800;margin-left:4px">${inc.updateCount} update${inc.updateCount>1?'s':''}</span>`
+      : '';
+    const eventsList = inc.events.map(ev => {
+      const iconMap = { NEW: '🆕', UPDATE: '📝', CLOSED: '✅' };
+      const colourMap = { NEW: '#1e40af', UPDATE: '#6366f1', CLOSED: '#166534' };
+      const body = ev.eventType === 'NEW'
+        ? escapeHtml(ev.description || '—')
+        : escapeHtml(ev.updateText || '—');
+      return `
+        <div style="padding:8px 0;border-top:1px solid var(--border-2)">
+          <div style="font-size:11px;font-weight:800;color:${colourMap[ev.eventType]||'#64748b'}">
+            ${iconMap[ev.eventType]||'•'} ${escapeHtml(ev.eventType)} #${ev.eventNum}
+            <span style="font-weight:400;color:var(--text-3);margin-left:6px">${escapeHtml(ev.timestamp || '')}H</span>
+            <span style="font-weight:400;color:var(--text-3);margin-left:6px">· ${escapeHtml(ev.reportedByName || ev.reportedBy || '')}</span>
+          </div>
+          <div style="font-size:13px;margin-top:3px;white-space:pre-wrap">${body}</div>
+        </div>`;
+    }).join('');
+    const actions = inc.status === 'OPEN' ? `
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:10px">
+        <button class="btn btn-primary btn-sm" onclick="openIRUpdate('${escapeHtml(inc.id)}')">➕ Add Update</button>
+        <button class="btn btn-red btn-sm" onclick="closeIRIncident('${escapeHtml(inc.id)}')">✅ Close Out</button>
+      </div>` : '';
+    return `
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px 14px;margin-bottom:10px">
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:4px">
+          ${statusChip}${natureBadge}${updateBadge}
+        </div>
+        <div style="font-weight:800;font-size:14px">${escapeHtml(inc.nature || 'Incident')} · ${escapeHtml(inc.id)}</div>
+        <div style="font-size:12px;color:var(--text-3);margin-top:2px">
+          📍 ${escapeHtml(inc.incidentWhere || '—')} ·
+          🕐 ${escapeHtml(inc.incidentWhen || '—')} ·
+          👥 ${escapeHtml(inc.groupInvolved || '—')}
+        </div>
+        <div style="margin-top:10px">${eventsList}</div>
+        ${actions}
+      </div>`;
+  };
+
   el('tab-ir').innerHTML = `
     <div class="ir-header-banner">
-      <h2>🚨 Incident Report</h2>
-      <p>Send to IR chat via Telegram</p>
-    </div>
-    <div class="ir-form">
-      <div class="form-group">
-        <label>Report Type</label>
-        <div class="size-chooser">
-          <button id="ir-type-new"    class="active" onclick="setIRType('NEW')">🆕 New</button>
-          <button id="ir-type-update"            onclick="setIRType('UPDATE')">🔄 Update</button>
-        </div>
-      </div>
-
-      <div class="form-group">
-        <label>1) Nature of Incident</label>
-        <select id="ir-nature" onchange="updateIRPreview()">
-          <option value="">— Select —</option>
-          <option>Security</option>
-          <option>Safety</option>
-          <option>Medical</option>
-          <option>Administrative</option>
-          <option>Other</option>
-        </select>
-      </div>
-
-      <div class="form-group">
-        <label>2) Brief Description</label>
-        <textarea id="ir-desc" placeholder="E.g. On 270426 0900hrs, MAJ Tan reported sick at…" oninput="updateIRPreview()"></textarea>
-      </div>
-
-      <div class="form-group">
-        <label>3) Status Update</label>
-        <input id="ir-status-time" type="text" placeholder="Timestamp — DDMMYY / HHHHRS" oninput="updateIRPreview()">
-        <textarea id="ir-status-text" placeholder="E.g. On 270426 0900hrs, MAJ Tan was diagnosed with…" style="margin-top:6px" oninput="updateIRPreview()"></textarea>
-      </div>
-
-      <div class="form-group">
-        <label>4) Date/Time of Incident</label>
-        <input id="ir-when" type="text" placeholder="DDMMYY / HHHHRS — e.g. 270426 / 0900HRS" oninput="updateIRPreview()">
-      </div>
-
-      <div class="form-group">
-        <label>5) Location of Incident</label>
-        <input id="ir-where" type="text" placeholder="Name of place &amp; full address" oninput="updateIRPreview()">
-      </div>
-
-      <div class="form-group">
-        <label>6) Course / Syn Involved</label>
-        <input id="ir-group" type="text" placeholder="E.g. 57th CSC, Syn 1" value="${escapeHtml(myGroup ? (myGroup.includes('SYN') ? '57th CSC, ' + myGroup.replace('57 ','Syn ') : myGroup) : '')}" oninput="updateIRPreview()">
-      </div>
-
-      <div class="form-group">
-        <label>7) Follow-up Action — Informed NOK?</label>
-        <div class="size-chooser">
-          <button id="ir-nok-y" onclick="setIRNOK('Y')">✅ Yes</button>
-          <button id="ir-nok-n" onclick="setIRNOK('N')">❌ No</button>
-          <button id="ir-nok-na" class="active" onclick="setIRNOK('N/A')">— N/A</button>
-        </div>
-        <input id="ir-followup" type="text" placeholder="Additional follow-up notes" style="margin-top:6px" oninput="updateIRPreview()">
-      </div>
-
-      <div class="form-group">
-        <label>8) Date/Time of Report to TSV Main Committee</label>
-        <input id="ir-reportedTime" type="text" placeholder="DDMMYY / HHHHRS" oninput="updateIRPreview()">
-      </div>
-
-      <div class="form-group">
-        <label>10) Reported By</label>
-        <input id="ir-by" type="text" placeholder="Rank / Name" value="${escapeHtml(myName)}" oninput="updateIRPreview()">
-      </div>
+      <h2>🚨 Incident Reports</h2>
+      <p>Lifecycle tracker — NEW → Updates → CLOSED. Auto-logs to Google Sheets.</p>
     </div>
 
-    <div class="card">
-      <div class="card-header"><span class="icon">📋</span><h3>Telegram Preview</h3></div>
-      <div class="card-body">
-        <div class="ir-preview" id="ir-preview">Fill in fields above…</div>
-        <div class="ir-actions">
-          <button class="btn btn-red" style="flex:1" onclick="sendIR()">📤 Send to IR Chat</button>
-          <button class="btn btn-outline btn-sm" onclick="copyIR()">📋 Copy</button>
-        </div>
-      </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 12px">
+      <button class="btn btn-red" style="font-size:14px;padding:12px" onclick="openIRNew()">🆕 New Incident Report</button>
+      <button class="btn btn-outline" style="font-size:14px;padding:12px" onclick="_loadIncidents()">↻ Refresh</button>
     </div>
 
-    <div class="card">
+    <div style="margin:16px 12px 6px;font-size:13px;font-weight:800;color:var(--text-2)">
+      ⚠️ Open (${openIncs.length})
+    </div>
+    <div style="margin:0 12px">
+      ${openIncs.length ? openIncs.map(card).join('') : '<div style="padding:14px;color:var(--text-3);font-size:13px;text-align:center;background:var(--n-50);border-radius:10px">No open incidents — all clear ✅</div>'}
+    </div>
+
+    ${closedIncs.length ? `
+    <div style="margin:18px 12px 6px;font-size:13px;font-weight:800;color:var(--text-2)">
+      ✅ Closed (${closedIncs.length})
+    </div>
+    <div style="margin:0 12px 24px">
+      ${closedIncs.map(card).join('')}
+    </div>` : ''}
+
+    <div class="card" style="margin:16px 12px 24px">
       <div class="card-header"><span class="icon">📞</span><h3>Emergency Numbers</h3></div>
       <div class="card-body">
         <div class="contact-grid">
@@ -3849,97 +3854,257 @@ function renderIR() {
       </div>
     </div>
   `;
-  STATE.irType = STATE.irType || 'NEW';
-  STATE.irNOK = STATE.irNOK || 'N/A';
-  updateIRPreview();
 }
 
-window.setIRType = function(t) {
-  STATE.irType = t;
-  el('ir-type-new').classList.toggle('active', t === 'NEW');
-  el('ir-type-update').classList.toggle('active', t === 'UPDATE');
-  updateIRPreview();
+// ── NEW incident form ───────────────────────────────────────
+function renderIRNew() {
+  const me = STATE.currentUser;
+  const myGroup = me ? formatGroupDisplay(memberGroupKey(me)) : '';
+  const myName = me ? `${me.rank ? me.rank + ' ' : ''}${me.name}` : '';
+  el('tab-ir').innerHTML = `
+    <div class="ir-header-banner">
+      <div style="display:flex;align-items:center;gap:10px">
+        <button class="btn btn-outline btn-sm" onclick="closeIRForm()">← Back</button>
+        <h2 style="margin:0">🆕 New Incident Report</h2>
+      </div>
+      <p>Fill in. Auto-logs to IR sheet + optional Telegram.</p>
+    </div>
+    <div class="ir-form">
+      <div class="form-group">
+        <label>1) Nature of Incident</label>
+        <select id="ir-nature">
+          <option value="">— Select —</option>
+          <option>Security</option>
+          <option>Safety</option>
+          <option>Medical</option>
+          <option>Administrative</option>
+          <option>Other</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>2) Brief Description</label>
+        <textarea id="ir-desc" placeholder="E.g. At 0900H, MAJ Tan reported chest pains at Pullman Hotel lobby. Conscious + breathing, buddy stayed with him."></textarea>
+      </div>
+      <div class="form-group">
+        <label>3) Date/Time of Incident</label>
+        <input id="ir-when" type="text" placeholder="DDMMYY / HHHHRS — e.g. 270426 / 0900HRS">
+      </div>
+      <div class="form-group">
+        <label>4) Location</label>
+        <input id="ir-where" type="text" placeholder="Name + address — e.g. Pullman Bangkok Hotel G, Silom">
+      </div>
+      <div class="form-group">
+        <label>5) Course / Syn Involved</label>
+        <input id="ir-group" type="text" placeholder="E.g. 57 CSC Syn 1" value="${escapeHtml(myGroup)}">
+      </div>
+      <div class="form-group">
+        <label>6) Informed NOK?</label>
+        <div class="size-chooser">
+          <button id="ir-nok-y" onclick="setIRNOK('Y')">✅ Yes</button>
+          <button id="ir-nok-n" onclick="setIRNOK('N')">❌ No</button>
+          <button id="ir-nok-na" class="active" onclick="setIRNOK('N/A')">— N/A</button>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>7) Reported By</label>
+        <input id="ir-by" type="text" placeholder="Rank / Name" value="${escapeHtml(myName)}">
+      </div>
+      <div class="form-group" style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:#fef3c7;border-radius:10px">
+        <input id="ir-send-tg" type="checkbox" checked style="width:20px;height:20px;accent-color:#dc2626">
+        <label for="ir-send-tg" style="cursor:pointer;font-weight:600">📤 Also send to Telegram IR chat</label>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:14px 0 24px">
+        <button class="btn btn-outline" onclick="closeIRForm()">Cancel</button>
+        <button class="btn btn-red" onclick="submitNewIR()">🚨 Submit IR</button>
+      </div>
+    </div>
+  `;
+  STATE.irNOK = STATE.irNOK || 'N/A';
+}
+
+// ── UPDATE form ─────────────────────────────────────────────
+function renderIRUpdate(incidentId) {
+  const inc = (STATE.incidents || []).find(i => i.id === incidentId);
+  if (!inc) { STATE.irMode = 'list'; return renderIR(); }
+  const ctxRows = inc.events.slice(-3).map(ev => {
+    const body = ev.eventType === 'NEW' ? ev.description : ev.updateText;
+    return `<div style="padding:4px 0"><b>${escapeHtml(ev.eventType)} #${ev.eventNum}</b> · ${escapeHtml(ev.timestamp)}H — ${escapeHtml((body || '').slice(0, 120))}</div>`;
+  }).join('');
+  el('tab-ir').innerHTML = `
+    <div class="ir-header-banner">
+      <div style="display:flex;align-items:center;gap:10px">
+        <button class="btn btn-outline btn-sm" onclick="closeIRForm()">← Back</button>
+        <h2 style="margin:0">➕ Add Update</h2>
+      </div>
+      <p>${escapeHtml(inc.nature || 'Incident')} · ${escapeHtml(inc.id)}</p>
+    </div>
+    <div style="margin:8px 12px 14px;padding:10px 12px;background:var(--n-50);border:1px solid var(--border);border-radius:10px;font-size:12px">
+      <div style="font-weight:700;margin-bottom:4px">📋 Context (last 3 events):</div>
+      ${ctxRows}
+    </div>
+    <div class="ir-form">
+      <div class="form-group">
+        <label>What changed? / Current status</label>
+        <textarea id="iru-text" rows="4" placeholder="E.g. At 1030H, doctor diagnosed with heat exhaustion. Admitted overnight for observation. Family notified at 1045H."></textarea>
+      </div>
+      <div class="form-group" style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:#fef3c7;border-radius:10px">
+        <input id="iru-send-tg" type="checkbox" checked style="width:20px;height:20px;accent-color:#dc2626">
+        <label for="iru-send-tg" style="cursor:pointer;font-weight:600">📤 Send this update to Telegram</label>
+      </div>
+      <div class="form-group" style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:#dcfce7;border-radius:10px">
+        <input id="iru-close" type="checkbox" style="width:20px;height:20px;accent-color:#16a34a">
+        <label for="iru-close" style="cursor:pointer;font-weight:600">✅ Close out this incident (final update)</label>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:14px 0 24px">
+        <button class="btn btn-outline" onclick="closeIRForm()">Cancel</button>
+        <button class="btn btn-red" onclick="submitIRUpdate('${escapeHtml(incidentId)}')">➕ Submit Update</button>
+      </div>
+    </div>
+  `;
+}
+
+// Actions
+window.openIRNew    = function() { STATE.irMode = 'new'; renderIR(); };
+window.openIRUpdate = function(id) { STATE.irMode = 'update:' + id; renderIR(); };
+window.closeIRForm  = function() { STATE.irMode = 'list'; renderIR(); };
+
+window.closeIRIncident = function(id) {
+  STATE.irMode = 'update:' + id;
+  renderIR();
+  // Pre-tick the close-out checkbox once the form renders
+  setTimeout(() => {
+    const cb = el('iru-close'); if (cb) cb.checked = true;
+  }, 100);
 };
+
+async function _loadIncidents() {
+  const data = await API.get('getIncidents');
+  STATE.incidents = Array.isArray(data) ? data : [];
+  if (STATE.currentTab === 'ir' && (STATE.irMode || 'list') === 'list') renderIR();
+}
+
+// Build the NEW-IR telegram text
+function _buildIRNewTG(payload) {
+  return `🚨 *INCIDENT REPORT — NEW*
+*${payload.id}*
+
+*Nature:* ${payload.nature || '—'}
+*Description:* ${payload.description || '—'}
+*When:* ${payload.incidentWhen || '—'}
+*Where:* ${payload.incidentWhere || '—'}
+*Course/Syn:* ${payload.groupInvolved || '—'}
+*NOK Informed:* ${payload.nokInformed || 'N/A'}
+
+_Reported by ${payload.reportedByName || '—'} · ${payload.timestamp || ''}H_`;
+}
+function _buildIRUpdateTG(payload, incident) {
+  const head = payload.closeOut
+    ? `✅ *INCIDENT CLOSED*`
+    : `🔄 *INCIDENT UPDATE #${payload.eventNum}*`;
+  return `${head}
+*${payload.id}* — ${incident?.nature || 'Incident'} @ ${incident?.incidentWhere || '—'}
+
+${payload.updateText || '—'}
+
+_${payload.closeOut ? 'Closed' : 'Updated'} by ${payload.reportedByName || '—'} · ${payload.timestamp || ''}H_`;
+}
+
 window.setIRNOK = function(v) {
   STATE.irNOK = v;
-  el('ir-nok-y').classList.toggle('active', v === 'Y');
-  el('ir-nok-n').classList.toggle('active', v === 'N');
-  el('ir-nok-na').classList.toggle('active', v === 'N/A');
-  updateIRPreview();
+  ['ir-nok-y','ir-nok-n','ir-nok-na'].forEach(id => el(id)?.classList.remove('active'));
+  if (v === 'Y')      el('ir-nok-y')?.classList.add('active');
+  else if (v === 'N') el('ir-nok-n')?.classList.add('active');
+  else                el('ir-nok-na')?.classList.add('active');
 };
 
-window.updateIRPreview = function() {
-  const v = id => el(id)?.value?.trim() || '';
-  const type = STATE.irType || 'NEW';
-  const nok = STATE.irNOK || 'N/A';
+window.submitNewIR = async function() {
+  const me = STATE.currentUser;
+  if (!me) return toast('Sign in first');
+  const nature      = el('ir-nature')?.value || '';
+  const description = (el('ir-desc')?.value || '').trim();
+  const incidentWhen  = (el('ir-when')?.value || '').trim();
+  const incidentWhere = (el('ir-where')?.value || '').trim();
+  const groupInvolved = (el('ir-group')?.value || '').trim();
+  const nokInformed   = STATE.irNOK || 'N/A';
+  const reportedByName = (el('ir-by')?.value || '').trim() || me.name;
+  const sendTG = !!el('ir-send-tg')?.checked;
 
-  const parts = [];
-  parts.push(`*${type}*`);
-  parts.push('');
-  parts.push(`*Nature Of Incident:*`);
-  parts.push(v('ir-nature') || '—');
-  parts.push('');
-  parts.push(`*2) Brief Description:*`);
-  parts.push(v('ir-desc') || '—');
-  parts.push('');
-  parts.push(`*3) Status Updates:*`);
-  const stTime = v('ir-status-time');
-  const stText = v('ir-status-text');
-  if (stTime) parts.push(stTime);
-  if (stText) parts.push(stText);
-  if (!stTime && !stText) parts.push('—');
-  parts.push('');
-  parts.push(`*4) Date/Time Of Incident*`);
-  parts.push(v('ir-when') || '—');
-  parts.push('');
-  parts.push(`*5) Location Of Incident:*`);
-  parts.push(v('ir-where') || '—');
-  parts.push('');
-  parts.push(`*6) Course/Syn Involved:*`);
-  parts.push(v('ir-group') || '—');
-  parts.push('');
-  parts.push(`*7) Follow-up Action:*`);
-  parts.push(`Informed NOK? ${nok}${v('ir-followup') ? ' · ' + v('ir-followup') : ''}`);
-  parts.push('');
-  parts.push(`*8) Date/Time of report to TSV Main Committee:*`);
-  parts.push(v('ir-reportedTime') || '—');
-  parts.push('');
-  parts.push(`*10) Reported By:*`);
-  parts.push(v('ir-by') || '—');
+  if (!nature || !description) return toast('Nature and description are required');
 
-  const text = parts.join('\n');
-  const p = el('ir-preview');
-  if (p) p.textContent = text;
-  window._irText = text;
+  const resp = await withLoader('Logging incident…', () =>
+    API.postRaw('createIncident', {
+      reportedBy: me.id,
+      reportedByName,
+      nature, description,
+      incidentWhen, incidentWhere,
+      groupInvolved, nokInformed,
+      telegramSent: sendTG,
+      actor: me.id
+    })
+  );
+  if (!resp || resp.ok === false) return toast('❌ ' + (resp?.error || 'Save failed'));
+  const inner = resp.data;
+  if (!inner || inner.ok === false) return toast('❌ ' + (inner?.error || 'Save failed'));
+
+  if (sendTG) {
+    const msg = _buildIRNewTG({
+      id: inner.id,
+      nature, description, incidentWhen, incidentWhere, groupInvolved, nokInformed,
+      reportedByName, timestamp: inner.timestamp
+    });
+    const ok = await TELEGRAM.sendRouted('M1_ir', msg, 'Markdown');
+    if (!ok) toast('⚠️ Logged but Telegram failed — resend later');
+  }
+  toast('✅ IR ' + inner.id + ' created');
+  STATE.incidents = null;    // force reload
+  STATE.irMode = 'list';
+  renderIR();
+  _loadIncidents();
 };
 
-window.sendIR = async function() {
-  if (!window._irText) return toast('Fill in details first');
-  const ok = await withLoader('Sending Incident Report…', () => TELEGRAM.sendRouted('M1_ir', window._irText, 'Markdown'));
-  if (!ok) return toast('❌ Telegram send failed');
-  toast('✅ IR sent!');
-  await API.post('addIncident', {
-    reportedBy: STATE.currentUser?.id || 'unknown',
-    actor: STATE.currentUser?.id || '',
-    type: STATE.irType || 'NEW',
-    nature: el('ir-nature')?.value || '',
-    description: el('ir-desc')?.value || '',
-    statusTime: el('ir-status-time')?.value || '',
-    statusText: el('ir-status-text')?.value || '',
-    when: el('ir-when')?.value || '',
-    where: el('ir-where')?.value || '',
-    group: el('ir-group')?.value || '',
-    nokInformed: STATE.irNOK || 'N/A',
-    followup: el('ir-followup')?.value || '',
-    reportedTime: el('ir-reportedTime')?.value || '',
-    reportedByName: el('ir-by')?.value || ''
-  });
+window.submitIRUpdate = async function(incidentId) {
+  const me = STATE.currentUser;
+  if (!me) return toast('Sign in first');
+  const updateText = (el('iru-text')?.value || '').trim();
+  if (!updateText) return toast('Write the update text');
+  const closeOut = !!el('iru-close')?.checked;
+  const sendTG   = !!el('iru-send-tg')?.checked;
+
+  const resp = await withLoader(closeOut ? 'Closing incident…' : 'Adding update…', () =>
+    API.postRaw('addIncidentUpdate', {
+      incidentId, updateText, closeOut,
+      reportedBy: me.id,
+      reportedByName: `${me.rank ? me.rank + ' ' : ''}${me.name}`,
+      telegramSent: sendTG,
+      actor: me.id
+    })
+  );
+  if (!resp || resp.ok === false) return toast('❌ ' + (resp?.error || 'Save failed'));
+  const inner = resp.data;
+  if (!inner || inner.ok === false) return toast('❌ ' + (inner?.error || 'Save failed'));
+
+  if (sendTG) {
+    const incident = (STATE.incidents || []).find(i => i.id === incidentId);
+    const msg = _buildIRUpdateTG({
+      id: incidentId,
+      eventNum: inner.eventNum,
+      updateText, closeOut,
+      reportedByName: `${me.rank ? me.rank + ' ' : ''}${me.name}`,
+      timestamp: inner.timestamp
+    }, incident);
+    const ok = await TELEGRAM.sendRouted('M1_ir', msg, 'Markdown');
+    if (!ok) toast('⚠️ Saved but Telegram failed');
+  }
+  toast(closeOut ? '✅ Incident closed' : '✅ Update posted');
+  STATE.incidents = null;
+  STATE.irMode = 'list';
+  renderIR();
+  _loadIncidents();
 };
 
-window.copyIR = function() {
-  if (!window._irText) return;
-  navigator.clipboard.writeText(window._irText).then(() => toast('📋 Copied'));
-};
+// Legacy setIRType / updateIRPreview / sendIR / copyIR removed —
+// superseded by the IR lifecycle flow above (list + create + update).
 
 // ═══════════ SOP TAB ═════════════════════════════════════════
 function renderSOP() {

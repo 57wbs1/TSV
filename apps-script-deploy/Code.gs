@@ -109,6 +109,7 @@ function doGet(e) {
       case 'getTransport':    data = getTransportState(); break;
       case 'getForceInConfig': data = getForceInConfig(); break;
       case 'getParadeState':   data = readParadeState(); break;
+      case 'getIncidents':     data = getIncidents(); break;
       case 'getTelegramConfig': data = getTelegramConfig(); break;
       case 'getCalendar':
         // Returns Calendar sheet rows with times normalised and oicsJson → oics
@@ -145,6 +146,7 @@ function doGet(e) {
 // blocks everything short of someone pulling a real member ID from git.
 const ACTOR_REQUIRED = new Set([
   'updateStatus','addLearning','addReflection','addIncident',
+  'createIncident','addIncidentUpdate',
   'addMember','updateMember','deleteMember','seedMembers','bulkSyncMembers',
   'sendPing','addAdminRequest','resolveAdminRequest','postHotwash',
   'sendTelegram','updateParadeStatus','sendAdhocParadeState'
@@ -183,6 +185,8 @@ function doPost(e) {
       case 'addLearning':  data = addLearning(body); break;
       case 'addReflection':data = addReflection(body); break;
       case 'addIncident':  data = addIncident(body); break;
+      case 'createIncident':     data = createIncident(body); break;
+      case 'addIncidentUpdate':  data = addIncidentUpdate(body); break;
       case 'addMember':    data = addMember(body); break;
       case 'updateMember': data = updateMember(body); break;
       case 'deleteMember': data = deleteMember(body); break;
@@ -1294,6 +1298,9 @@ function setupReflectionsSheet() {
   return { tabs: created };
 }
 
+// LEGACY — kept for back-compat. New flow uses createIncident /
+// addIncidentUpdate below, which write to the EXTERNAL IR sheet with a proper
+// event log (NEW → UPDATE × N → CLOSED).
 function addIncident(data) {
   const sheet = getOrCreateSheet(SHEETS.INCIDENTS);
   const id = 'IR' + Date.now();
@@ -1315,6 +1322,179 @@ function addIncident(data) {
   ]);
   logAction('addIncident', data.reportedBy, data.type);
   return { id };
+}
+
+// ════════════════════════════════════════════════════════════
+// INCIDENT REPORTS — external append-only event log
+// Each row = one event (NEW / UPDATE / CLOSED). Incidents are the group of
+// events sharing the same incidentId. Supports unbounded updates + final
+// close-out. Every event can be re-sent to Telegram from the app.
+// Sheet: https://docs.google.com/spreadsheets/d/1SsLJGclxSiT7dPh4ayJtFwxQoIztm6EXYotrmuDKzSM
+// ════════════════════════════════════════════════════════════
+const IR_EXTERNAL_SHEET_ID = '1SsLJGclxSiT7dPh4ayJtFwxQoIztm6EXYotrmuDKzSM';
+const IR_EXTERNAL_GID = 0;
+const IR_HEADERS = [
+  'incidentId',       // IR<timestamp> — stays the same across all events
+  'eventNum',         // 1 = NEW, 2+ = UPDATE, last = CLOSED
+  'eventType',        // NEW | UPDATE | CLOSED
+  'timestamp',        // BKK yyyy-mm-dd HH:mm
+  'reportedBy',       // member id
+  'reportedByName',   // display name
+  // NEW-only fields (describe the incident)
+  'nature',
+  'description',
+  'incidentWhen',     // free-text time of incident (e.g. 270426 / 0900HRS)
+  'incidentWhere',
+  'groupInvolved',
+  'nokInformed',      // Y | N | N/A
+  // UPDATE/CLOSED-only field
+  'updateText',
+  // audit
+  'telegramSent'
+];
+
+function _irExternalTab() {
+  const ss = SpreadsheetApp.openById(IR_EXTERNAL_SHEET_ID);
+  let tab = ss.getSheets().find(s => s.getSheetId() === IR_EXTERNAL_GID)
+         || ss.getSheets()[0];
+  // Seed header row if blank
+  const firstRow = tab.getRange(1, 1, 1, IR_HEADERS.length).getValues()[0];
+  if (firstRow.every(c => !String(c || '').trim())) {
+    tab.getRange(1, 1, 1, IR_HEADERS.length).setValues([IR_HEADERS])
+       .setFontWeight('bold').setBackground('#7f1d1d').setFontColor('#ffffff');
+    tab.setFrozenRows(1);
+    tab.setColumnWidth(1, 130); // incidentId
+    tab.setColumnWidth(2,  60); // eventNum
+    tab.setColumnWidth(3,  90); // eventType
+    tab.setColumnWidth(4, 130); // timestamp
+    tab.setColumnWidth(7, 160); // nature
+    tab.setColumnWidth(8, 320); // description
+    tab.setColumnWidth(13,360); // updateText
+  }
+  // Force the timestamp column (col D = 4) to TEXT format so Sheets doesn't
+  // auto-parse "yyyy-MM-dd HH:mm" into a Date in the spreadsheet's timezone
+  // and mangle our BKK-local time on re-read.
+  tab.getRange(1, 4, tab.getMaxRows(), 1).setNumberFormat('@');
+  return tab;
+}
+
+// NEW incident — always event #1.
+function createIncident(body) {
+  const lock = LockService.getScriptLock();
+  try { lock.waitLock(15000); } catch (e) { /* proceed */ }
+  try {
+    const id = body.id && /^IR\d+$/.test(body.id) ? body.id : ('IR' + Date.now());
+    const tab = _irExternalTab();
+    const bkkTs = Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy-MM-dd HH:mm');
+    tab.appendRow([
+      id, 1, 'NEW', bkkTs,
+      body.reportedBy || '', body.reportedByName || '',
+      body.nature || '', body.description || '',
+      body.incidentWhen || '', body.incidentWhere || '',
+      body.groupInvolved || '', body.nokInformed || '',
+      '',                                       // updateText n/a
+      body.telegramSent ? 'true' : 'false'
+    ]);
+    SpreadsheetApp.flush();
+    logAction('ir_create', body.reportedBy || '', id);
+    return { ok: true, id, eventNum: 1, timestamp: bkkTs };
+  } finally {
+    try { if (lock.hasLock()) lock.releaseLock(); } catch(e) {}
+  }
+}
+
+// Add an UPDATE or CLOSED event to an existing incident.
+// body: { incidentId, updateText, closeOut (bool), reportedBy, reportedByName, telegramSent }
+function addIncidentUpdate(body) {
+  const id = String(body.incidentId || '').trim();
+  if (!id) return { ok: false, error: 'Missing incidentId' };
+
+  const lock = LockService.getScriptLock();
+  try { lock.waitLock(15000); } catch (e) {}
+  try {
+    const tab = _irExternalTab();
+    const rows = tab.getDataRange().getValues();
+    const h = rows[0];
+    const idCol    = h.indexOf('incidentId');
+    const numCol   = h.indexOf('eventNum');
+    const typeCol  = h.indexOf('eventType');
+
+    let maxNum = 0, foundAny = false, alreadyClosed = false;
+    for (let i = 1; i < rows.length; i++) {
+      if (rows[i][idCol] === id) {
+        foundAny = true;
+        maxNum = Math.max(maxNum, parseInt(rows[i][numCol]) || 0);
+        if (rows[i][typeCol] === 'CLOSED') alreadyClosed = true;
+      }
+    }
+    if (!foundAny)     return { ok: false, error: 'Incident not found: ' + id };
+    if (alreadyClosed) return { ok: false, error: 'Incident already closed — re-open manually in sheet if needed' };
+
+    const isClose = body.closeOut === true || body.closeOut === 'true';
+    const type = isClose ? 'CLOSED' : 'UPDATE';
+    const bkkTs = Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy-MM-dd HH:mm');
+    tab.appendRow([
+      id, maxNum + 1, type, bkkTs,
+      body.reportedBy || '', body.reportedByName || '',
+      '', '', '', '', '', '',                   // NEW-only fields blank
+      body.updateText || '',
+      body.telegramSent ? 'true' : 'false'
+    ]);
+    SpreadsheetApp.flush();
+    logAction('ir_' + (isClose ? 'close' : 'update'), body.reportedBy || '', id + ' #' + (maxNum + 1));
+    return { ok: true, id, eventNum: maxNum + 1, type, timestamp: bkkTs };
+  } finally {
+    try { if (lock.hasLock()) lock.releaseLock(); } catch(e) {}
+  }
+}
+
+// Read all incidents grouped by id, newest-first, with denormalised top-level
+// fields from the NEW event + status (OPEN/CLOSED) + updateCount.
+function getIncidents() {
+  const tab = _irExternalTab();
+  const rows = tab.getDataRange().getValues();
+  if (rows.length < 2) return [];
+  const h = rows[0];
+  // Sheets auto-parses "yyyy-MM-dd HH:mm" strings into Date objects on read.
+  // Convert any Date back to the display string in BKK tz before returning.
+  function coerce(v) {
+    if (v instanceof Date) return Utilities.formatDate(v, 'Asia/Bangkok', 'yyyy-MM-dd HH:mm');
+    return v;
+  }
+  const events = rows.slice(1).map(r => {
+    const obj = {};
+    h.forEach((col, i) => { obj[col] = coerce(r[i]); });
+    return obj;
+  }).filter(e => e.incidentId);
+
+  const byId = {};
+  events.forEach(ev => {
+    const id = ev.incidentId;
+    if (!byId[id]) byId[id] = { id, events: [] };
+    byId[id].events.push(ev);
+  });
+  const list = Object.values(byId).map(inc => {
+    inc.events.sort((a, b) => (+a.eventNum) - (+b.eventNum));
+    const newEv = inc.events.find(e => e.eventType === 'NEW') || inc.events[0];
+    const lastEv = inc.events[inc.events.length - 1];
+    return {
+      id: inc.id,
+      nature:        newEv.nature || '',
+      description:   newEv.description || '',
+      incidentWhen:  newEv.incidentWhen || '',
+      incidentWhere: newEv.incidentWhere || '',
+      groupInvolved: newEv.groupInvolved || '',
+      nokInformed:   newEv.nokInformed || '',
+      createdAt:     newEv.timestamp || '',
+      createdBy:     newEv.reportedByName || newEv.reportedBy || '',
+      status:        inc.events.some(e => e.eventType === 'CLOSED') ? 'CLOSED' : 'OPEN',
+      updateCount:   inc.events.filter(e => e.eventType === 'UPDATE').length,
+      latestAt:      lastEv.timestamp || '',
+      events:        inc.events
+    };
+  });
+  list.sort((a, b) => String(b.latestAt).localeCompare(String(a.latestAt)));
+  return list;
 }
 
 // ────────────────────────────────────────────────────────────
