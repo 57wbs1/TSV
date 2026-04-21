@@ -1660,6 +1660,9 @@ function addIncidentUpdate(body) {
 function deleteIncident(body) {
   const id = String(body.incidentId || '').trim();
   if (!id) return { ok: false, error: 'Missing incidentId' };
+  // UI hides the button for non-admins, but the endpoint was reachable by any
+  // authenticated member via direct POST. Admin-gate it here.
+  if (!_isAdminActor(body.actor)) return { ok: false, error: 'Unauthorized — admin only' };
   const lock = LockService.getScriptLock();
   try { lock.waitLock(15000); } catch (e) {}
   try {
