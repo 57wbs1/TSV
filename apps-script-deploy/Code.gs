@@ -59,6 +59,10 @@ function doGet(e) {
       case 'testMidnightSitrep': data = sendMidnightSitrep(); break;
       case 'testForceSyn1AllIn': data = forceSyn1AllIn(); break;
       case 'testParadeState':    data = sendParadeStateBroadcast(); break;
+      case 'resetIRCounter':
+        if (e.parameter.actor !== SUPER_ADMIN_ID) { data = { error: 'Unauthorized' }; break; }
+        data = resetIRCounter(parseInt(e.parameter.startAt) || 0);
+        break;
       case 'installTriggers': data = setupAllTriggers(); break;
       case 'diagnose':     data = diagnose(); break;
       case 'resetGcal':
@@ -1379,12 +1383,26 @@ function _irExternalTab() {
   return tab;
 }
 
+// Sequential IR id counter — atomic via ScriptProperties inside the lock.
+// Produces IR01, IR02, …, IR99, IR100, … Never reused.
+const IR_COUNTER_KEY = 'tsvIRCounter';
+
+function _nextIRId() {
+  const props = PropertiesService.getScriptProperties();
+  const cur = parseInt(props.getProperty(IR_COUNTER_KEY) || '0') || 0;
+  const next = cur + 1;
+  props.setProperty(IR_COUNTER_KEY, String(next));
+  return 'IR' + String(next).padStart(2, '0');
+}
+
 // NEW incident — always event #1.
 function createIncident(body) {
   const lock = LockService.getScriptLock();
   try { lock.waitLock(15000); } catch (e) { /* proceed */ }
   try {
-    const id = body.id && /^IR\d+$/.test(body.id) ? body.id : ('IR' + Date.now());
+    // Client-provided id is ignored — server owns the counter to keep IDs
+    // short + sequential + unique across concurrent creates.
+    const id = _nextIRId();
     const tab = _irExternalTab();
     const bkkTs = Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy-MM-dd HH:mm');
     tab.appendRow([
@@ -1402,6 +1420,14 @@ function createIncident(body) {
   } finally {
     try { if (lock.hasLock()) lock.releaseLock(); } catch(e) {}
   }
+}
+
+// One-time util to reset the counter (super-admin, from Apps Script editor).
+// Useful if the test IRs got deleted and you want IR01 to be the first real one.
+function resetIRCounter(startAt) {
+  const n = parseInt(startAt) || 0;
+  PropertiesService.getScriptProperties().setProperty(IR_COUNTER_KEY, String(n));
+  return 'IR counter reset — next id will be IR' + String(n + 1).padStart(2, '0');
 }
 
 // Add an UPDATE or CLOSED event to an existing incident.

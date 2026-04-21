@@ -3949,7 +3949,18 @@ function renderIRNew() {
       </div>
       <div class="form-group">
         <label>5) Course / Syn Involved</label>
-        <input id="ir-group" type="text" placeholder="E.g. 57 CSC Syn 1" value="${escapeHtml(myGroup)}">
+        <select id="ir-group">
+          ${(() => {
+            // Build options from the live group order (PSO → 57 Syn 1 → 3 → 4 → 25E → 26E → 27E)
+            const allGroups = groupOrder();
+            const options = allGroups.map(gk => {
+              const label = formatGroupDisplay(gk);
+              const selected = label === myGroup ? ' selected' : '';
+              return `<option value="${escapeHtml(label)}"${selected}>${escapeHtml(label)}</option>`;
+            }).join('');
+            return `<option value="">— Select —</option>${options}<option value="Multiple / Cross-syn">Multiple / Cross-syn</option><option value="N/A">N/A</option>`;
+          })()}
+        </select>
       </div>
       <div class="form-group">
         <label>6) Informed NOK?</label>
