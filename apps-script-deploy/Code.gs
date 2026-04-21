@@ -103,6 +103,7 @@ function doGet(e) {
         break;
       case 'getAdminRequests': data = readSheet(SHEETS.ADMINREQ); break;
       case 'getTransport':    data = getTransportState(); break;
+      case 'getForceInConfig': data = getForceInConfig(); break;
       case 'getTelegramConfig': data = getTelegramConfig(); break;
       case 'getCalendar':
         // Returns Calendar sheet rows with times normalised and oicsJson → oics
@@ -193,6 +194,7 @@ function doPost(e) {
       case 'updateTransport':  data = updateTransportState(body); break;
       case 'seedCalendar':     data = seedCalendarFromServer(); break;
       case 'updateTelegramConfig':  data = updateTelegramConfig(body); break;
+      case 'updateForceInConfig':   data = updateForceInConfig(body); break;
       case 'testRouting':           data = testRouting(body); break;
       default: return json({ ok: false, error: 'Unknown action: ' + action });
     }
@@ -1572,12 +1574,13 @@ function sendEveningSitrep(overrideChatId) {
   return 'Sent 2300H';
 }
 
-// ── 0200H SITREP: all syndicates, but Syn 1 forced all-in per curfew spec ──
+// ── 0200H SITREP: all syndicates, forced groups reported as all-in ──
 function sendMidnightSitrep(overrideChatId) {
   const bkk = bkkNow();
   const yesterday = new Date(bkk.getTime() - 24*60*60*1000);
   const yLabel = Utilities.formatDate(yesterday, 'Asia/Bangkok', 'd MMM EEE').toUpperCase();
-  const data = _buildSitrepData(['57 CSC Syn 1']);   // force Syn 1 all-in only
+  // Read from the same config the 0130H auto-force-in uses (super-admin configurable)
+  const data = _buildSitrepData(_getForceInGroups());
   const msg = _buildSitrepMessage(data, '0200H SITREP', yLabel);
   tgSend(msg, overrideChatId || _tgChatId('A4_midnight'));
   logAction('sitrep_0200', 'server', data.totals.inC + '/' + data.totals.total);
@@ -1912,19 +1915,35 @@ function setupAllTriggers() {
   return '✓ 6 triggers: 0600H weather · 1900H reminder · 2300H SITREP · 0130H Syn1-force-in · 0200H Curfew · every 15min GCal pull';
 }
 
-// ── 0130H BKK: force ALL Syn 1 members to IN status ──
-// Runs nightly BEFORE the 0200H curfew sitrep. Overrides whatever status
-// Syn 1 members last set — they're considered in-hotel no matter what.
-// Rationale: Syn 1 has a 0200H hard curfew and must always report as IN
-// regardless of individual member activity. Status updates are logged.
+// ── 0130H BKK: force selected groups to IN status ──
+// Runs nightly BEFORE the 0200H curfew sitrep. Overrides status for any
+// syndicate configured via ScriptProperties (super-admin toggles in the PWA).
+// Default: only 57 CSC Syn 1 (hard 0200H curfew).
+const FORCE_IN_PROP_KEY  = 'tsvForceInGroups';
+const FORCE_IN_META_KEY  = 'tsvForceInMeta';   // last-run metadata for UI display
+
+function _getForceInGroups() {
+  try {
+    const saved = PropertiesService.getScriptProperties().getProperty(FORCE_IN_PROP_KEY);
+    if (saved) return JSON.parse(saved);
+  } catch (e) { /* fall through */ }
+  return ['57 CSC Syn 1'];   // default: only Syn 1
+}
+
 function forceSyn1AllIn() {
+  const targetGroups = _getForceInGroups();
+  if (!targetGroups.length) {
+    logAction('force_syn_skip', 'server', 'no groups configured');
+    return 'No groups configured for auto force-in';
+  }
+
   const members = readSheet(SHEETS.MEMBERS).filter(m =>
     m.isDeleted !== 'true' && m.isDeleted !== true
   );
-  const syn1Members = members.filter(m => _memberGroupKey(m) === '57 CSC Syn 1');
-  if (!syn1Members.length) {
-    logAction('force_syn1_skip', 'server', 'no Syn 1 members found');
-    return 'No Syn 1 members found';
+  const targetMembers = members.filter(m => targetGroups.indexOf(_memberGroupKey(m)) >= 0);
+  if (!targetMembers.length) {
+    logAction('force_syn_skip', 'server', 'no members in configured groups');
+    return 'No members in configured groups: ' + targetGroups.join(', ');
   }
 
   const sheet = getOrCreateSheet(SHEETS.STATUS);
@@ -1935,27 +1954,18 @@ function forceSyn1AllIn() {
   const logSheet = getOrCreateSheet(SHEETS.STATUSLOG);
 
   let forcedCount = 0;
-  syn1Members.forEach(m => {
-    // Find existing row for this member
+  targetMembers.forEach(m => {
     let foundRow = -1;
-    let existingLoc = '', existingLat = '', existingLng = '';
     for (let i = 1; i < rows.length; i++) {
-      if (rows[i][idCol] === m.id) {
-        foundRow = i + 1;
-        // Preserve existing GPS/location info — just flip status to 'in'
-        existingLoc = rows[i][headers.indexOf('locationText')] || '';
-        existingLat = rows[i][headers.indexOf('lat')] || '';
-        existingLng = rows[i][headers.indexOf('lng')] || '';
-        break;
-      }
+      if (rows[i][idCol] === m.id) { foundRow = i + 1; break; }
     }
-    const roomNum = (syn1Members.length && foundRow > 0) ? rows[foundRow - 1][headers.indexOf('roomNumber')] : '';
+    const roomNum = foundRow > 0 ? rows[foundRow - 1][headers.indexOf('roomNumber')] : '';
     const newRow = [
       m.id,
       'in',                 // Force status to IN
       'Hotel (curfew)',     // Override location to hotel
-      '', '',               // Clear GPS (they're in-hotel)
-      '',                   // Clear buddyWith (no longer out with buddies)
+      '', '',               // Clear GPS
+      '',                   // Clear buddyWith
       roomNum || '',
       now
     ];
@@ -1964,15 +1974,60 @@ function forceSyn1AllIn() {
     } else {
       sheet.appendRow(newRow);
     }
-    // Audit trail
     try {
       logSheet.appendRow([now, m.id, 'in', 'Hotel (curfew)', '', '', '', 'system_0130H_force']);
     } catch (e) { /* non-blocking */ }
     forcedCount++;
   });
 
-  logAction('force_syn1_in', 'system', forcedCount + ' members forced IN');
-  return 'Forced ' + forcedCount + ' Syn 1 members to IN at 0130H';
+  // Persist run metadata so the settings UI can show "last enforced"
+  try {
+    PropertiesService.getScriptProperties().setProperty(FORCE_IN_META_KEY, JSON.stringify({
+      lastRunAt: now,
+      groups: targetGroups,
+      count: forcedCount
+    }));
+  } catch (e) { /* non-blocking */ }
+
+  logAction('force_syn_in', 'system', forcedCount + ' members · groups=' + targetGroups.join(','));
+  return 'Forced ' + forcedCount + ' members in [' + targetGroups.join(', ') + '] to IN at 0130H';
+}
+
+// ── getForceInConfig / updateForceInConfig (super-admin PWA controls) ──
+function getForceInConfig() {
+  const members = readSheet(SHEETS.MEMBERS).filter(m =>
+    m.isDeleted !== 'true' && m.isDeleted !== true
+  );
+  const groupCounts = {};
+  members.forEach(m => {
+    const gk = _memberGroupKey(m);
+    groupCounts[gk] = (groupCounts[gk] || 0) + 1;
+  });
+  const groups = Object.keys(groupCounts).sort((a, b) => _groupPriority(a) - _groupPriority(b));
+  const selected = _getForceInGroups();
+  let meta = null;
+  try {
+    const raw = PropertiesService.getScriptProperties().getProperty(FORCE_IN_META_KEY);
+    if (raw) meta = JSON.parse(raw);
+  } catch (e) { /* ignore */ }
+  return {
+    groups: groups.map(gk => ({
+      gk,
+      label: _formatGroup(gk),
+      count: groupCounts[gk],
+      selected: selected.indexOf(gk) >= 0
+    })),
+    selected,
+    lastRun: meta
+  };
+}
+
+function updateForceInConfig(body) {
+  if (body.actor !== SUPER_ADMIN_ID) return { ok: false, error: 'Unauthorized — super admin only' };
+  const groups = Array.isArray(body.groups) ? body.groups.filter(g => typeof g === 'string' && g.length > 0) : [];
+  PropertiesService.getScriptProperties().setProperty(FORCE_IN_PROP_KEY, JSON.stringify(groups));
+  logAction('updateForceInConfig', body.actor, 'groups=' + groups.join(','));
+  return getForceInConfig();
 }
 
 // Server-side mirror of CALENDAR_SEED from js/data.js. Used to populate

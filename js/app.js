@@ -4380,11 +4380,12 @@ function renderSettings() {
 
   // Post-render hooks (only run when admin sub-tab is active)
   if (sub === 'admin' && isSuperAdmin) {
-    const cached = (() => { try { return JSON.parse(localStorage.getItem('tsv_tg_config') || 'null'); } catch { return null; } })();
-    if (cached) _renderTelegramConfig(cached, true);
+    // Telegram Chat Routing
+    const cachedTg = (() => { try { return JSON.parse(localStorage.getItem('tsv_tg_config') || 'null'); } catch { return null; } })();
+    if (cachedTg) _renderTelegramConfig(cachedTg, true);
     API.get('getTelegramConfig').then(cfg => {
       if (!cfg) {
-        if (!cached) {
+        if (!cachedTg) {
           const c = el('tg-config-container');
           if (c) c.innerHTML = `<div style="padding:12px 16px;color:#b91c1c;font-size:12px">⚠️ Could not load Telegram config — check connection and reload.</div>`;
         }
@@ -4392,6 +4393,21 @@ function renderSettings() {
       }
       localStorage.setItem('tsv_tg_config', JSON.stringify(cfg));
       _renderTelegramConfig(cfg, false);
+    });
+
+    // 0130H Auto Force-In groups
+    const cachedFi = (() => { try { return JSON.parse(localStorage.getItem('tsv_forcein_config') || 'null'); } catch { return null; } })();
+    if (cachedFi) _renderForceInConfig(cachedFi, true);
+    API.get('getForceInConfig').then(cfg => {
+      if (!cfg) {
+        if (!cachedFi) {
+          const c = el('force-in-container');
+          if (c) c.innerHTML = `<div style="padding:12px 16px;color:#b91c1c;font-size:12px">⚠️ Could not load force-in config — check connection.</div>`;
+        }
+        return;
+      }
+      localStorage.setItem('tsv_forcein_config', JSON.stringify(cfg));
+      _renderForceInConfig(cfg, false);
     });
   }
 }
@@ -4606,12 +4622,28 @@ function _renderSettingsAdmin(user, isSuperAdmin, pendingReqs) {
       </div>
     </div>` : '';
 
+  const forceInSection = isSuperAdmin ? `
+    <div class="settings-section">
+      <div class="settings-section-header">🚨 0130H Auto Force-In</div>
+      <div style="padding:8px 16px 0;font-size:12px;color:var(--text-3);line-height:1.5">
+        Selected groups are <b>automatically marked IN at 0130H BKK</b> every night (30 min before the 0200H curfew sitrep). Other groups retain their real status.
+      </div>
+      <div id="force-in-container">
+        <div style="padding:12px 16px;color:var(--text-3);font-size:12px">Loading…</div>
+      </div>
+      <div style="padding:0 16px 14px;display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <button class="btn btn-outline btn-sm" onclick="testForceInNow()">⚡ Run Now (QC)</button>
+        <button class="btn btn-primary btn-sm" onclick="saveForceInConfig()">💾 Save Selection</button>
+      </div>
+    </div>` : '';
+
   return `
     <div class="settings-section">
       <div class="settings-section-header">🔐 Access</div>
       ${access}
       ${pendingBlock}
     </div>
+    ${forceInSection}
     ${tgSection}`;
 }
 
@@ -4683,6 +4715,81 @@ window.saveTelegramConfig = async function() {
   // Re-render with fresh data to confirm write stuck
   _renderTelegramConfig(result, false);
   toast('✅ Saved — routing active immediately on next send');
+};
+
+// ── Force-in config (0130H Auto-Force-IN groups) ──────────────
+function _renderForceInConfig(cfg, fromCache) {
+  const c = el('force-in-container');
+  if (!c) return;
+  STATE.forceInConfig = cfg;
+  const last = cfg.lastRun;
+  const lastLine = last ? `
+    <div style="padding:6px 16px 10px;font-size:11px;color:var(--text-3)">
+      🕐 Last enforced: <b>${new Date(last.lastRunAt).toLocaleString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})}H</b>
+      · ${last.count} members · [${(last.groups||[]).join(', ') || 'none'}]
+    </div>` : '';
+  const rows = (cfg.groups || []).map(g => {
+    const checked = g.selected ? 'checked' : '';
+    return `
+      <label class="settings-row" style="gap:10px;cursor:pointer;user-select:none">
+        <input type="checkbox" id="fi-${g.gk.replace(/[^a-z0-9]/gi,'_')}" ${checked}
+          data-gk="${escapeHtml(g.gk)}"
+          style="width:20px;height:20px;accent-color:var(--blue-600);flex-shrink:0">
+        <div class="sr-label" style="flex:1">
+          ${escapeHtml(g.label)}
+          <div class="sr-value">${g.count} ${g.count === 1 ? 'member' : 'members'} · <span style="font-family:monospace;font-size:10px;opacity:.7">${escapeHtml(g.gk)}</span></div>
+        </div>
+        ${g.selected ? `<span style="font-size:11px;background:#fee2e2;color:#991b1b;border:1px solid #fca5a5;padding:2px 7px;border-radius:10px;font-weight:700;white-space:nowrap">🚨 LIVE</span>` : ''}
+      </label>`;
+  }).join('');
+  c.innerHTML = `
+    ${fromCache ? `<div style="padding:4px 16px 0;font-size:10px;color:var(--text-3)">Showing cached · refreshing…</div>` : ''}
+    ${rows}
+    ${lastLine}
+  `;
+}
+
+window.saveForceInConfig = async function() {
+  const cfg = STATE.forceInConfig;
+  if (!cfg) return toast('Config not loaded yet');
+  const selected = [];
+  (cfg.groups || []).forEach(g => {
+    const cbId = `fi-${g.gk.replace(/[^a-z0-9]/gi,'_')}`;
+    const cb = el(cbId);
+    if (cb && cb.checked) selected.push(g.gk);
+  });
+  toast('💾 Saving…');
+  const resp = await API.postRaw('updateForceInConfig', { groups: selected, actor: STATE.currentUser?.id });
+  if (!resp)                return toast('❌ Save failed — no response');
+  if (resp.ok === false)    return toast('❌ ' + (resp.error || 'Save rejected'));
+  const result = resp.data;
+  if (!result)              return toast('❌ Empty response');
+  localStorage.setItem('tsv_forcein_config', JSON.stringify(result));
+  _renderForceInConfig(result, false);
+  const label = selected.length ? selected.join(', ') : 'none (auto-force-in disabled)';
+  toast('✅ Saved: ' + label);
+};
+
+// Manually fire the 0130H force-in now (useful for QC / demo)
+window.testForceInNow = async function() {
+  const cfg = STATE.forceInConfig;
+  const groups = cfg?.selected || [];
+  const groupLabel = groups.length ? groups.join(', ') : 'DEFAULT (Syn 1)';
+  if (!confirm(`Force groups to IN right now?\n\n[${groupLabel}]\n\nThis overrides any current "out" status for members in these groups. Use for QC / between curfew windows only.`)) return;
+  const result = await withLoader('⚡ Forcing groups IN…',
+    () => API.get('testForceSyn1AllIn')
+  );
+  if (!result) return toast('❌ No response — ' + (STATE.lastApiError || 'retry'));
+  toast('✅ ' + result);
+  // Refresh the config to update the "last enforced" badge
+  API.get('getForceInConfig').then(fresh => {
+    if (fresh) {
+      localStorage.setItem('tsv_forcein_config', JSON.stringify(fresh));
+      _renderForceInConfig(fresh, false);
+    }
+  });
+  // Also refresh statuses so the Tracker tab shows the new state
+  syncStatuses().catch(() => {});
 };
 
 window.setAdminView = function(mode) {
