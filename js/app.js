@@ -4812,8 +4812,7 @@ function renderParadeState() {
       Showing <b>${escapeHtml(formatGroupDisplay(selectedGk))}</b> (your syndicate)
     </div>`;
 
-  // Member rows
-  const myGk = memberGroupKey(user);
+  // Member rows — reuses the myGk declared above at the top of this function
   const memberRows = members.map(m => {
     const state = ps[m.id] || { status: 'Present' };
     const status = state.status || 'Present';
