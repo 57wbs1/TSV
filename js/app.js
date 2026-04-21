@@ -3808,11 +3808,21 @@ function renderIRList() {
           <div style="font-size:13px;margin-top:3px;white-space:pre-wrap">${body}</div>
         </div>`;
     }).join('');
-    const actions = inc.status === 'OPEN' ? `
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:10px">
-        <button class="btn btn-primary btn-sm" onclick="openIRUpdate('${escapeHtml(inc.id)}')">➕ Add Update</button>
-        <button class="btn btn-red btn-sm" onclick="closeIRIncident('${escapeHtml(inc.id)}')">✅ Close Out</button>
-      </div>` : '';
+    const canDelete = isAdmin();
+    let actions = '';
+    if (inc.status === 'OPEN') {
+      actions = `
+        <div style="display:grid;grid-template-columns:${canDelete ? '1fr 1fr 36px' : '1fr 1fr'};gap:6px;margin-top:10px">
+          <button class="btn btn-primary btn-sm" onclick="openIRUpdate('${escapeHtml(inc.id)}')">➕ Add Update</button>
+          <button class="btn btn-red btn-sm" onclick="closeIRIncident('${escapeHtml(inc.id)}')">✅ Close Out</button>
+          ${canDelete ? `<button class="btn btn-outline btn-sm" title="Delete permanently (admin)" style="padding:6px" onclick="deleteIRIncident('${escapeHtml(inc.id)}')">🗑</button>` : ''}
+        </div>`;
+    } else if (canDelete) {
+      actions = `
+        <div style="margin-top:10px">
+          <button class="btn btn-outline btn-sm" style="width:100%;font-size:12px" onclick="deleteIRIncident('${escapeHtml(inc.id)}')">🗑 Delete this closed IR</button>
+        </div>`;
+    }
     return `
       <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px 14px;margin-bottom:10px">
         <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:4px">
@@ -3835,9 +3845,8 @@ function renderIRList() {
       <p>Lifecycle tracker — NEW → Updates → CLOSED. Auto-logs to Google Sheets.</p>
     </div>
 
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 12px">
-      <button class="btn btn-red" style="font-size:14px;padding:12px" onclick="openIRNew()">🆕 New Incident Report</button>
-      <button class="btn btn-outline" style="font-size:14px;padding:12px" onclick="_loadIncidents()">↻ Refresh</button>
+    <div style="margin:10px 12px">
+      <button class="btn btn-red" style="width:100%;font-size:14px;padding:12px" onclick="openIRNew()">🆕 New Incident Report</button>
     </div>
 
     <div style="margin:16px 12px 6px;font-size:13px;font-weight:800;color:var(--text-2)">
@@ -3974,7 +3983,7 @@ function renderIRUpdate(incidentId) {
   `;
 }
 
-// Actions
+// Actions — all on window so onclick="…" works
 window.openIRNew    = function() { STATE.irMode = 'new'; renderIR(); };
 window.openIRUpdate = function(id) { STATE.irMode = 'update:' + id; renderIR(); };
 window.closeIRForm  = function() { STATE.irMode = 'list'; renderIR(); };
@@ -3986,6 +3995,33 @@ window.closeIRIncident = function(id) {
   setTimeout(() => {
     const cb = el('iru-close'); if (cb) cb.checked = true;
   }, 100);
+};
+
+// Window-exposed refresh so the Refresh button's onclick can reach it
+window.refreshIncidents = function() {
+  toast('↻ Refreshing…');
+  _loadIncidents({ force: true });
+};
+
+// Delete an incident (admin-only)
+window.deleteIRIncident = async function(id) {
+  if (!isAdmin()) return toast('Admin only');
+  const inc = (STATE.incidents || []).find(i => i.id === id);
+  const label = inc ? `${inc.nature || 'Incident'} · ${id}` : id;
+  if (!confirm(`Delete this incident permanently?\n\n${label}\n\nThis removes ALL events (NEW + updates + close-out) from the sheet. Cannot be undone.`)) return;
+  const resp = await withLoader('Deleting…', () =>
+    API.postRaw('deleteIncident', { incidentId: id, actor: STATE.currentUser?.id })
+  );
+  if (!resp)             return toast('❌ No response — retry');
+  if (resp.ok === false) return toast('❌ ' + (resp.error || 'Delete failed'));
+  const inner = resp.data;
+  if (inner && inner.ok === false) return toast('❌ ' + inner.error);
+  // Optimistic: remove locally
+  STATE.incidents = (STATE.incidents || []).filter(i => i.id !== id);
+  try { localStorage.setItem('tsv_incidents', JSON.stringify(STATE.incidents)); } catch {}
+  toast('🗑 Deleted ' + id);
+  renderIR();
+  _loadIncidents({ force: true });
 };
 
 // Debounced background refresh — callers can fire freely; we dedupe

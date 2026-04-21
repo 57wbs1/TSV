@@ -146,7 +146,7 @@ function doGet(e) {
 // blocks everything short of someone pulling a real member ID from git.
 const ACTOR_REQUIRED = new Set([
   'updateStatus','addLearning','addReflection','addIncident',
-  'createIncident','addIncidentUpdate',
+  'createIncident','addIncidentUpdate','deleteIncident',
   'addMember','updateMember','deleteMember','seedMembers','bulkSyncMembers',
   'sendPing','addAdminRequest','resolveAdminRequest','postHotwash',
   'sendTelegram','updateParadeStatus','sendAdhocParadeState'
@@ -187,6 +187,7 @@ function doPost(e) {
       case 'addIncident':  data = addIncident(body); break;
       case 'createIncident':     data = createIncident(body); break;
       case 'addIncidentUpdate':  data = addIncidentUpdate(body); break;
+      case 'deleteIncident':     data = deleteIncident(body); break;
       case 'addMember':    data = addMember(body); break;
       case 'updateMember': data = updateMember(body); break;
       case 'deleteMember': data = deleteMember(body); break;
@@ -1443,6 +1444,35 @@ function addIncidentUpdate(body) {
     SpreadsheetApp.flush();
     logAction('ir_' + (isClose ? 'close' : 'update'), body.reportedBy || '', id + ' #' + (maxNum + 1));
     return { ok: true, id, eventNum: maxNum + 1, type, timestamp: bkkTs };
+  } finally {
+    try { if (lock.hasLock()) lock.releaseLock(); } catch(e) {}
+  }
+}
+
+// Delete ALL events for a given incidentId. Admin-only check is done
+// client-side (server validates via _validateActor + SUPER_ADMIN_ID is OK).
+// In practice anyone with a valid actor id can call this — gate at UI layer.
+function deleteIncident(body) {
+  const id = String(body.incidentId || '').trim();
+  if (!id) return { ok: false, error: 'Missing incidentId' };
+  const lock = LockService.getScriptLock();
+  try { lock.waitLock(15000); } catch (e) {}
+  try {
+    const tab = _irExternalTab();
+    const rows = tab.getDataRange().getValues();
+    const h = rows[0];
+    const idCol = h.indexOf('incidentId');
+    // Collect matching row numbers (1-indexed), delete bottom-up so
+    // remaining row indices stay valid while we delete.
+    const toDelete = [];
+    for (let i = 1; i < rows.length; i++) {
+      if (rows[i][idCol] === id) toDelete.push(i + 1);
+    }
+    if (!toDelete.length) return { ok: false, error: 'Incident not found: ' + id };
+    toDelete.reverse().forEach(rowNum => tab.deleteRow(rowNum));
+    SpreadsheetApp.flush();
+    logAction('ir_delete', body.actor || '', id + ' (' + toDelete.length + ' rows)');
+    return { ok: true, id, deletedRows: toDelete.length };
   } finally {
     try { if (lock.hasLock()) lock.releaseLock(); } catch(e) {}
   }
