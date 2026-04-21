@@ -64,6 +64,11 @@ function doGet(e) {
         if (e.parameter.actor !== SUPER_ADMIN_ID) { data = { error: 'Unauthorized' }; break; }
         data = resetIRCounter(parseInt(e.parameter.startAt) || 0);
         break;
+      case 'getBroadcastsLive': data = getBroadcastsLive(); break;
+      case 'setBroadcastsLive':
+        if (e.parameter.actor !== SUPER_ADMIN_ID) { data = { error: 'Unauthorized' }; break; }
+        data = setBroadcastsLive(e.parameter.on);
+        break;
       case 'installTriggers': data = setupAllTriggers(); break;
       case 'diagnose':     data = diagnose(); break;
       case 'resetGcal':
@@ -165,6 +170,22 @@ function _validateActor(actor) {
     const rows = readSheet(SHEETS.MEMBERS);
     return rows.some(r => String(r.id) === String(actor) && r.isDeleted !== 'true' && r.isDeleted !== true);
   } catch (e) { return true; /* fail open if sheet read fails */ }
+}
+
+// True for super-admin OR any member with isAdmin === 'true'. Used for
+// server-side gating on destructive operations (deleteIncident, etc.) so a
+// malicious POST cannot bypass client-side UI checks.
+function _isAdminActor(actor) {
+  if (!actor) return false;
+  if (actor === SUPER_ADMIN_ID || actor === 'system' || actor === 'migration_v2') return true;
+  try {
+    const rows = readSheet(SHEETS.MEMBERS);
+    return rows.some(r =>
+      String(r.id) === String(actor) &&
+      r.isDeleted !== 'true' && r.isDeleted !== true &&
+      (r.isAdmin === 'true' || r.isAdmin === true)
+    );
+  } catch (e) { return false; /* fail CLOSED — admin checks must be strict */ }
 }
 
 function doPost(e) {
@@ -400,14 +421,53 @@ function _tgChatId(channel) {
 // Send a routed message. Respects enable/disable + chat-ID override.
 // If overrideChatId is set (test mode), always sends there regardless.
 // Returns 'sent' / 'disabled' / 'no-chat' so callers can log.
+// Master kill-switch for server-scheduled broadcasts (A1-A5). When OFF
+// (default until trip day), every A-cron fires its build logic but the
+// Telegram send is blocked — so triggers stay warm, logs still show cadence,
+// and officers don't get pre-trip noise. Flip with setBroadcastsLive(true).
+// M-series (user-tap from the app) is NEVER gated — those are officer clicks.
+const BROADCAST_LIVE_KEY = 'tsvBroadcastsLive';
+
+function _broadcastsLive() {
+  try {
+    return PropertiesService.getScriptProperties().getProperty(BROADCAST_LIVE_KEY) === 'true';
+  } catch (e) { return false; }
+}
+
+function setBroadcastsLive(on) {
+  const v = (on === true || on === 'true' || on === 1 || on === '1') ? 'true' : 'false';
+  PropertiesService.getScriptProperties().setProperty(BROADCAST_LIVE_KEY, v);
+  logAction('broadcasts_live', 'server', v);
+  return { ok: true, live: v === 'true' };
+}
+
+function getBroadcastsLive() {
+  return { ok: true, live: _broadcastsLive() };
+}
+
 function _tgSendRouted(msg, channel, overrideChatId) {
-  if (overrideChatId) { tgSend(msg, overrideChatId); return 'sent-override'; }
+  if (overrideChatId) {
+    const r = tgSend(msg, overrideChatId);
+    if (!r.ok) logAction('tg_route_fail', 'server', channel + ' override: ' + (r.error || '').slice(0, 180));
+    return r.ok ? 'sent-override' : 'fail:' + (r.error || '');
+  }
+  // Kill-switch: if this is an A-series broadcast and live mode is OFF, skip.
+  // Keeps the cron cadence intact (logs + build logic still run) but nothing
+  // hits the group chat until the super-admin arms it.
+  if (/^A[0-9]/.test(String(channel || '')) && !_broadcastsLive()) {
+    logAction('tg_killswitch', 'server', channel);
+    return 'killswitch-off';
+  }
   const chatId = _tgChatId(channel);
   if (chatId === null) {
     logAction('tg_disabled', 'server', channel);
     return 'disabled';
   }
-  tgSend(msg, chatId);
+  const r = tgSend(msg, chatId);
+  if (!r.ok) {
+    logAction('tg_route_fail', 'server', channel + ': ' + (r.error || '').slice(0, 180));
+    return 'fail:' + (r.error || '');
+  }
   return 'sent';
 }
 
@@ -1742,15 +1802,36 @@ const TG_CHAT_DEFAULTS = {
   M7_parade:        { label: 'M7 · Ad-hoc Parade State',            defaultId: SYN1_CHAT,  enabled: true }
 };
 
+// Send to Telegram and return { ok, error, chatId, httpCode }.
+// Before this function was fire-and-forget: `muteHttpExceptions:true` swallowed
+// every rejection (bad chat id, bot kicked, 429 rate limit, HTML parse error)
+// so the server log said "sent" even when Telegram replied with 400. We now
+// read the response body, log the real failure, and return the result so
+// callers (cron jobs, IR sends) can surface it.
 function tgSend(text, chatId) {
+  var httpCode = 0;
   try {
-    UrlFetchApp.fetch('https://api.telegram.org/bot' + BOT_TOKEN + '/sendMessage', {
+    var res = UrlFetchApp.fetch('https://api.telegram.org/bot' + BOT_TOKEN + '/sendMessage', {
       method: 'post',
       contentType: 'application/json',
       payload: JSON.stringify({ chat_id: chatId, text: text, parse_mode: 'HTML' }),
       muteHttpExceptions: true
     });
-  } catch (e) { logAction('tg_fail', 'server', e.message); }
+    httpCode = res.getResponseCode();
+    var body = {};
+    try { body = JSON.parse(res.getContentText() || '{}'); } catch (e) { body = { ok: false, description: 'non-JSON response' }; }
+    if (httpCode !== 200 || body.ok === false) {
+      var why = 'HTTP ' + httpCode + ': ' + (body.description || body.error || 'unknown') +
+                ' (chat=' + chatId + ')';
+      logAction('tg_fail', 'server', why.slice(0, 200));
+      return { ok: false, error: why, chatId: chatId, httpCode: httpCode };
+    }
+    return { ok: true, chatId: chatId, httpCode: httpCode };
+  } catch (e) {
+    var msg = (e && e.message ? e.message : String(e)) + ' (chat=' + chatId + ')';
+    logAction('tg_fail', 'server', msg.slice(0, 200));
+    return { ok: false, error: msg, chatId: chatId, httpCode: httpCode };
+  }
 }
 
 function bkkNow() {
@@ -2147,6 +2228,8 @@ function sendDailyReminder(forceDate, overrideChatId) {
 
   const sr2 = _tgSendRouted(msg, 'A2_reminder', overrideChatId);
   if (sr2 === 'disabled') { logAction('reminder_disabled', 'server', tmrDate); return 'A2 disabled'; }
+  if (sr2 === 'killswitch-off') return 'A2 killswitch-off (' + tmrDate + ')';
+  if (String(sr2).indexOf('fail:') === 0) { logAction('reminder_fail', 'server', sr2.slice(0, 180)); return sr2; }
   logAction('reminder_sent', 'server', tmrDate);
   return 'Sent reminder for ' + tmrDate;
 }
@@ -2254,6 +2337,11 @@ function sendEveningSitrep(overrideChatId) {
   const msg = _buildSitrepMessage(data, '2300H SITREP', dateLabel);
   const sr3 = _tgSendRouted(msg, 'A3_evening', overrideChatId);
   if (sr3 === 'disabled') { logAction('sitrep_2300_disabled', 'server', ''); return 'A3 disabled'; }
+  if (sr3 === 'killswitch-off') return 'A3 killswitch-off';
+  if (String(sr3).indexOf('fail:') === 0) {
+    logAction('sitrep_2300_fail', 'server', sr3.slice(0, 180));
+    return sr3;
+  }
   logAction('sitrep_2300', 'server', data.totals.inC + '/' + data.totals.total);
   return 'Sent 2300H';
 }
@@ -2268,6 +2356,11 @@ function sendMidnightSitrep(overrideChatId) {
   const msg = _buildSitrepMessage(data, '0200H SITREP', yLabel);
   const sr4 = _tgSendRouted(msg, 'A4_midnight', overrideChatId);
   if (sr4 === 'disabled') { logAction('sitrep_0200_disabled', 'server', ''); return 'A4 disabled'; }
+  if (sr4 === 'killswitch-off') return 'A4 killswitch-off';
+  if (String(sr4).indexOf('fail:') === 0) {
+    logAction('sitrep_0200_fail', 'server', sr4.slice(0, 180));
+    return sr4;
+  }
   logAction('sitrep_0200', 'server', data.totals.inC + '/' + data.totals.total);
   return 'Sent 0200H';
 }
@@ -2571,6 +2664,8 @@ function sendWeatherBriefing(overrideChatId) {
 
   const sr1 = _tgSendRouted(msg, 'A1_weather', overrideChatId);
   if (sr1 === 'disabled') { logAction('weather_disabled', 'server', ''); return 'A1 disabled'; }
+  if (sr1 === 'killswitch-off') return 'A1 killswitch-off';
+  if (String(sr1).indexOf('fail:') === 0) { logAction('weather_fail', 'server', sr1.slice(0, 180)); return sr1; }
   const aqiTag = bkkAqi ? 'BKK' + bkkAqi.value : '';
   logAction('weather_0600', 'server', (tMax||'?') + '°C ' + wc[1] + (aqiTag ? ' · ' + aqiTag : ''));
   return 'Sent weather ' + today + (aqiTag ? ' (' + aqiTag + ')' : '');
@@ -2746,6 +2841,8 @@ function sendParadeStateBroadcast(overrideChatId) {
   const msg = _buildParadeStateMessage();
   const sr = _tgSendRouted(msg, 'A5_parade', overrideChatId);
   if (sr === 'disabled') { logAction('parade_disabled', 'server', ''); return 'A5 disabled'; }
+  if (sr === 'killswitch-off') return 'A5 killswitch-off';
+  if (String(sr).indexOf('fail:') === 0) { logAction('parade_0830_fail', 'server', sr.slice(0, 180)); return sr; }
   logAction('parade_0830', 'server', 'sent');
   return 'Parade State 0830H sent';
 }
@@ -2761,6 +2858,10 @@ function sendAdhocParadeState(body) {
   });
   const sr = _tgSendRouted(msg, 'M7_parade');
   if (sr === 'disabled') return { ok: false, error: 'M7_parade disabled in settings' };
+  if (String(sr).indexOf('fail:') === 0) {
+    logAction('parade_adhoc_fail', body ? (body.actor || '') : '', sr.slice(0, 180));
+    return { ok: false, error: sr.replace('fail:', '') };
+  }
   const label = groupKeys.length === 0 ? 'mass (all syns)'
               : groupKeys.length === 1 ? _formatGroup(groupKeys[0])
               : groupKeys.length + ' syns';
