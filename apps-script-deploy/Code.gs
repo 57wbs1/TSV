@@ -2319,6 +2319,7 @@ function _buildSitrepData(forceAllInGroups) {
       outCount: outMembers.length,
       outMembers: outMembers.map(m => ({
         name: m.shortName || m.name,
+        rank: m.rank || '',
         loc: (statusMap[m.id] && statusMap[m.id].locationText || '').toString().trim() || 'Out of Hotel',
         groupLabel: _formatGroup(gk)
       }))
@@ -2344,8 +2345,19 @@ function _buildSitrepMessage(data, header, dateLabel) {
   });
   const outTick = data.totals.outC === 0 ? ' ✅' : '';
   msg += '\n<b>Out: ' + data.totals.outC + '/' + data.totals.total + outTick + '</b>\n';
-  msg += '<b>Location: Refer to TSV App for Details</b>\n\n';
-  msg += 'End of SITREP';
+  // Per-officer breakdown under Out: "SYN1: MAJ XXX — Location" (escaped so
+  // free-text locations with < or & don't trip Telegram's HTML parser).
+  if (data.totals.outC > 0) {
+    data.groups.forEach(g => {
+      g.outMembers.forEach(om => {
+        const rankName = om.rank ? (_escTg(om.rank) + ' ' + _escTg(om.name)) : _escTg(om.name);
+        msg += _escTg(om.groupLabel) + ': ' + rankName + ' — ' + _escTg(om.loc) + '\n';
+      });
+    });
+  } else {
+    msg += 'Nil — all personnel in hotel ✅\n';
+  }
+  msg += '\nEnd of SITREP';
   return msg;
 }
 
