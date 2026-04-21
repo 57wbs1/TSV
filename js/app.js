@@ -3762,14 +3762,24 @@ function renderIR() {
 
 // ── LIST view — default landing for the IR sub-tab ──────────
 function renderIRList() {
-  const incidents = STATE.incidents || null;
-  // Stale-while-revalidate: render what we have, then refresh in background
-  if (incidents === null) {
+  // Stale-while-revalidate: hydrate from localStorage on first hit so the
+  // list paints instantly (even on cold GAS). Background fetch refreshes.
+  if (STATE.incidents == null) {
+    try {
+      const cached = JSON.parse(localStorage.getItem('tsv_incidents') || 'null');
+      if (Array.isArray(cached)) STATE.incidents = cached;
+    } catch {}
+  }
+  const incidents = STATE.incidents;
+  if (!Array.isArray(incidents)) {
+    // No cache + no fetch yet — show a minimal placeholder and kick off load
     el('tab-ir').innerHTML = `
       <div class="ir-header-banner"><h2>🚨 Incident Reports</h2><p>Loading…</p></div>`;
     _loadIncidents();
     return;
   }
+  // Always fire a background refresh when the list is rendered
+  _loadIncidents();
 
   const openIncs = incidents.filter(i => i.status === 'OPEN');
   const closedIncs = incidents.filter(i => i.status === 'CLOSED');
@@ -3978,10 +3988,25 @@ window.closeIRIncident = function(id) {
   }, 100);
 };
 
-async function _loadIncidents() {
-  const data = await API.get('getIncidents');
-  STATE.incidents = Array.isArray(data) ? data : [];
-  if (STATE.currentTab === 'ir' && (STATE.irMode || 'list') === 'list') renderIR();
+// Debounced background refresh — callers can fire freely; we dedupe
+// requests within 30s so a flurry of renders hits the server once.
+async function _loadIncidents(opts) {
+  const force = !!(opts && opts.force);
+  const now = Date.now();
+  if (!force && STATE._incidentsFetchedAt && (now - STATE._incidentsFetchedAt) < 30000) return;
+  if (STATE._incidentsFetchInflight) return;
+  STATE._incidentsFetchInflight = true;
+  try {
+    const data = await API.get('getIncidents');
+    if (Array.isArray(data)) {
+      STATE.incidents = data;
+      STATE._incidentsFetchedAt = Date.now();
+      try { localStorage.setItem('tsv_incidents', JSON.stringify(data)); } catch {}
+      if (STATE.currentTab === 'ir' && (STATE.irMode || 'list') === 'list') renderIR();
+    }
+  } finally {
+    STATE._incidentsFetchInflight = false;
+  }
 }
 
 // Build the NEW-IR telegram text
@@ -4057,10 +4082,26 @@ window.submitNewIR = async function() {
     if (!ok) toast('⚠️ Logged but Telegram failed — resend later');
   }
   toast('✅ IR ' + inner.id + ' created');
-  STATE.incidents = null;    // force reload
+  // Optimistic: prepend the new incident so it shows immediately in the list
+  const nowBkk = new Date().toLocaleString('en-GB', { timeZone: 'Asia/Bangkok', year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' }).replace(/,\s*/, ' ').replace(/\//g,'-');
+  const localEvent = {
+    incidentId: inner.id, eventNum: 1, eventType: 'NEW',
+    timestamp: inner.timestamp || nowBkk,
+    reportedBy: me.id, reportedByName,
+    nature, description, incidentWhen, incidentWhere, groupInvolved, nokInformed,
+    updateText: '', telegramSent: sendTG ? 'true' : 'false'
+  };
+  const newInc = {
+    id: inner.id, nature, description, incidentWhen, incidentWhere, groupInvolved, nokInformed,
+    createdAt: inner.timestamp, createdBy: reportedByName,
+    status: 'OPEN', updateCount: 0, latestAt: inner.timestamp,
+    events: [localEvent]
+  };
+  STATE.incidents = [newInc, ...(STATE.incidents || [])];
+  try { localStorage.setItem('tsv_incidents', JSON.stringify(STATE.incidents)); } catch {}
   STATE.irMode = 'list';
   renderIR();
-  _loadIncidents();
+  _loadIncidents({ force: true });
 };
 
 window.submitIRUpdate = async function(incidentId) {
@@ -4097,10 +4138,28 @@ window.submitIRUpdate = async function(incidentId) {
     if (!ok) toast('⚠️ Saved but Telegram failed');
   }
   toast(closeOut ? '✅ Incident closed' : '✅ Update posted');
-  STATE.incidents = null;
+  // Optimistic: append the new event to the incident locally
+  const list = STATE.incidents || [];
+  const inc = list.find(i => i.id === incidentId);
+  if (inc) {
+    inc.events.push({
+      incidentId, eventNum: inner.eventNum,
+      eventType: closeOut ? 'CLOSED' : 'UPDATE',
+      timestamp: inner.timestamp,
+      reportedBy: me.id,
+      reportedByName: `${me.rank ? me.rank + ' ' : ''}${me.name}`,
+      updateText, telegramSent: sendTG ? 'true' : 'false'
+    });
+    inc.latestAt = inner.timestamp;
+    if (closeOut) inc.status = 'CLOSED';
+    else inc.updateCount = (inc.updateCount || 0) + 1;
+    // Re-order so latest touched surfaces to top
+    STATE.incidents = [inc, ...list.filter(i => i.id !== incidentId)];
+    try { localStorage.setItem('tsv_incidents', JSON.stringify(STATE.incidents)); } catch {}
+  }
   STATE.irMode = 'list';
   renderIR();
-  _loadIncidents();
+  _loadIncidents({ force: true });
 };
 
 // Legacy setIRType / updateIRPreview / sendIR / copyIR removed —
@@ -4394,6 +4453,13 @@ function startApp() {
   // fix, PWA Telegram sends went to hardcoded CONFIG defaults regardless of
   // what was saved in Settings.
   loadTelegramConfig();
+  // Pre-warm the incidents list so the IR tab opens instantly (was ~10s cold).
+  // Hydrates from localStorage cache first, fetches in background.
+  try {
+    const cached = JSON.parse(localStorage.getItem('tsv_incidents') || 'null');
+    if (Array.isArray(cached)) STATE.incidents = cached;
+  } catch {}
+  setTimeout(() => { _loadIncidents({ force: true }); }, 800);
   setupReportReminders();
   setupSyn1AutoReports();
   setupModalSwipes();
