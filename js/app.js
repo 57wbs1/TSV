@@ -1928,18 +1928,11 @@ function attachHSwipe(container, onSwipe) {
   }, { passive: true });
 }
 
-// Tracker sub-tabs: List ↔ Map ↔ Rooms (Calendar day-nav uses a separate
-// swipe handler on the day-tabs-wrap)
-function setupTrackerSwipe() {
-  const order = ['list', 'map', 'rooms'];
-  attachHSwipe(el('tab-location'), dir => {
-    const current = STATE.trackerView || 'list';
-    const i = order.indexOf(current);
-    if (i < 0) return;
-    const next = order[Math.min(order.length - 1, Math.max(0, i + dir))];
-    if (next !== current) setTrackerView(next);
-  });
-}
+// Tracker sub-tabs: swipe-between-tabs DISABLED per user request.
+// The Parade sub-tab contains lots of scrollable member rows and edit taps —
+// horizontal swipes were triggering unintended tab changes. Kept as a no-op
+// function so the call site in startApp() doesn't need to change.
+function setupTrackerSwipe() { /* no-op — tabs are button-only now */ }
 
 // Calendar sub-tabs: schedule ↔ visits ↔ reflections.
 // Within the schedule sub-tab, horizontal swipe instead changes the day.
@@ -2257,10 +2250,10 @@ function _renderLocationImpl() {
 
   el('tab-location').innerHTML = `
     <div class="subtab-row" id="tracker-subtabs">
-      <button class="subtab-btn ${trackerView === 'list'   ? 'active' : ''}" onclick="setTrackerView('list')">📋 List</button>
+      <button class="subtab-btn ${trackerView === 'list'   ? 'active' : ''}" onclick="setTrackerView('list')">📡 MOCON</button>
+      <button class="subtab-btn ${trackerView === 'parade' ? 'active' : ''}" onclick="setTrackerView('parade')">📝 Parade</button>
       <button class="subtab-btn ${trackerView === 'map'    ? 'active' : ''}" onclick="setTrackerView('map')">🗺️ Map</button>
       <button class="subtab-btn ${trackerView === 'rooms'  ? 'active' : ''}" onclick="setTrackerView('rooms')">🛏️ Rooms</button>
-      <button class="subtab-btn ${trackerView === 'parade' ? 'active' : ''}" onclick="setTrackerView('parade')">📝 Parade</button>
     </div>
     <div id="tracker-parade-wrap" style="${trackerView === 'parade' ? '' : 'display:none'}"></div>
     <div id="tracker-rooms-wrap" style="${trackerView === 'rooms' ? '' : 'display:none'}"></div>
@@ -2346,7 +2339,7 @@ function _renderLocationImpl() {
     <div class="filter-bar">${filterChips}</div>
     <div class="section-title">Team Status</div>
     ${synGroups}
-    <div class="mini-hint">↓ Pull to refresh · swipe ← for Map</div>
+    <div class="mini-hint">↓ Pull to refresh · tap tabs to switch view</div>
     </div>
   `;
 
