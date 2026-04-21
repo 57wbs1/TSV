@@ -3913,12 +3913,18 @@ function renderIRList() {
       const body = ev.eventType === 'NEW'
         ? escapeHtml(ev.description || '—')
         : escapeHtml(ev.updateText || '—');
+      // Admin-only resend — covers the case where Telegram silently dropped the
+      // original send (the log-based recovery Wave 2 #2 detects).
+      const resendBtn = isAdmin()
+        ? `<button class="btn btn-outline btn-sm" title="Resend this event to Telegram" style="padding:2px 8px;font-size:11px;margin-left:6px" onclick="resendIREventTG('${escapeHtml(inc.id)}', ${ev.eventNum})">📤 Resend</button>`
+        : '';
       return `
         <div style="padding:8px 0;border-top:1px solid var(--border-2)">
-          <div style="font-size:11px;font-weight:800;color:${colourMap[ev.eventType]||'#64748b'}">
-            ${iconMap[ev.eventType]||'•'} ${escapeHtml(ev.eventType)} #${ev.eventNum}
+          <div style="font-size:11px;font-weight:800;color:${colourMap[ev.eventType]||'#64748b'};display:flex;align-items:center;flex-wrap:wrap">
+            <span>${iconMap[ev.eventType]||'•'} ${escapeHtml(ev.eventType)} #${ev.eventNum}</span>
             <span style="font-weight:400;color:var(--text-3);margin-left:6px">${escapeHtml(ev.timestamp || '')}H</span>
             <span style="font-weight:400;color:var(--text-3);margin-left:6px">· ${escapeHtml(ev.reportedByName || ev.reportedBy || '')}</span>
+            ${resendBtn}
           </div>
           <div style="font-size:13px;margin-top:3px;white-space:pre-wrap">${body}</div>
         </div>`;
@@ -4140,6 +4146,41 @@ window.deleteIRIncident = async function(id) {
   toast('🗑 Deleted ' + id);
   renderIR();
   _loadIncidents({ force: true });
+};
+
+// Rebuild + re-send a specific IR event to M1_ir. Recovery path for when the
+// original send got silently dropped (Wave 2 #2 now logs that, but historical
+// events need a way to replay). Admin-only in the UI.
+window.resendIREventTG = async function(incidentId, eventNum) {
+  if (!isAdmin()) return toast('Admin only');
+  const inc = (STATE.incidents || []).find(i => i.id === incidentId);
+  if (!inc) return toast('Incident not found locally — refresh');
+  const ev = (inc.events || []).find(e => +e.eventNum === +eventNum);
+  if (!ev) return toast('Event not found');
+  if (!confirm(`Resend ${ev.eventType} #${ev.eventNum} of ${incidentId} to Telegram?`)) return;
+
+  let msg;
+  if (ev.eventType === 'NEW') {
+    msg = _buildIRNewTG({
+      id: inc.id,
+      nature: inc.nature, description: inc.description,
+      incidentWhen: inc.incidentWhen, incidentWhere: inc.incidentWhere,
+      groupInvolved: inc.groupInvolved, nokInformed: inc.nokInformed,
+      reportedByName: ev.reportedByName || ev.reportedBy || '',
+      timestamp: ev.timestamp || ''
+    });
+  } else {
+    msg = _buildIRUpdateTG({
+      id: inc.id, eventNum: ev.eventNum,
+      updateText: ev.updateText || '',
+      closeOut: ev.eventType === 'CLOSED',
+      reportedByName: ev.reportedByName || ev.reportedBy || '',
+      timestamp: ev.timestamp || ''
+    }, inc);
+  }
+  const ok = await withLoader('Resending…', () => TELEGRAM.sendRouted('M1_ir', msg, 'Markdown'));
+  if (ok) toast('📤 Resent ' + ev.eventType + ' #' + ev.eventNum);
+  // TELEGRAM.sendRouted already toasts the specific failure reason on fail.
 };
 
 // Debounced background refresh — callers can fire freely; we dedupe
@@ -5290,6 +5331,16 @@ function renderSettings() {
 
   // Post-render hooks scoped to each admin sub-tab
   if (sub === 'admin-tele' && isSuperAdmin) {
+    // Killswitch card — show cached state instantly, refresh from server
+    const cachedLive = localStorage.getItem('tsv_broadcasts_live');
+    if (cachedLive !== null) _renderKillswitch(cachedLive === 'true');
+    fetch(`${CONFIG.apiUrl}?action=getBroadcastsLive`).then(r => r.json()).then(resp => {
+      if (resp && resp.ok && resp.data) {
+        const live = !!resp.data.live;
+        localStorage.setItem('tsv_broadcasts_live', String(live));
+        _renderKillswitch(live);
+      }
+    }).catch(() => {});
     const cachedTg = (() => { try { return JSON.parse(localStorage.getItem('tsv_tg_config') || 'null'); } catch { return null; } })();
     if (cachedTg) _renderTelegramConfig(cachedTg, true);
     API.get('getTelegramConfig').then(cfg => {
@@ -5481,6 +5532,16 @@ function _renderSettingsAdminTele(user, isSuperAdmin) {
   }
   return `
     <div class="settings-section">
+      <div class="settings-section-header">🔴 Broadcast Killswitch</div>
+      <div style="padding:8px 16px 0;font-size:12px;color:var(--text-3);line-height:1.5">
+        Master gate for <b>A1-A5 scheduled broadcasts</b> (weather, reminder, SITREP, curfew, parade). OFF = crons still run but Telegram send is blocked. ON = broadcasts fire live. M-series (user-tap sends) is never gated.
+      </div>
+      <div id="killswitch-container" style="padding:12px 16px 14px">
+        <div style="color:var(--text-3);font-size:12px">Loading…</div>
+      </div>
+    </div>
+
+    <div class="settings-section">
       <div class="settings-section-header">📡 Telegram Chat Routing</div>
       <div style="padding:8px 16px 0;font-size:12px;color:var(--text-3);line-height:1.5">
         Each routing key controls a message type. Tick to <b>enable</b>, untick to <b>silence</b>.
@@ -5494,6 +5555,42 @@ function _renderSettingsAdminTele(user, isSuperAdmin) {
       </div>
     </div>`;
 }
+
+// Render the killswitch card — big obvious toggle so the state is unambiguous.
+function _renderKillswitch(live) {
+  const host = el('killswitch-container');
+  if (!host) return;
+  const onStyle  = 'background:#059669;color:#fff';
+  const offStyle = 'background:#374151;color:#9ca3af';
+  host.innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <button class="btn btn-sm" style="padding:14px;${live ? onStyle : offStyle};border:0" onclick="setKillswitch(true)">
+        <div style="font-size:20px">${live ? '🟢' : '⚪'}</div>
+        <div style="font-size:12px;font-weight:800;margin-top:4px">LIVE</div>
+        <div style="font-size:10px;opacity:.85;margin-top:2px">A-crons send</div>
+      </button>
+      <button class="btn btn-sm" style="padding:14px;${!live ? 'background:#dc2626;color:#fff' : offStyle};border:0" onclick="setKillswitch(false)">
+        <div style="font-size:20px">${!live ? '🔴' : '⚪'}</div>
+        <div style="font-size:12px;font-weight:800;margin-top:4px">BLOCKED</div>
+        <div style="font-size:10px;opacity:.85;margin-top:2px">A-crons skip</div>
+      </button>
+    </div>
+    <div style="margin-top:8px;font-size:11px;color:var(--text-3);text-align:center">
+      Current: <b style="color:${live ? '#059669' : '#dc2626'}">${live ? 'LIVE — sending' : 'BLOCKED — silent'}</b>
+    </div>`;
+}
+
+window.setKillswitch = async function(on) {
+  const actor = STATE.currentUser?.id;
+  const url = `${CONFIG.apiUrl}?action=setBroadcastsLive&on=${on ? 'true' : 'false'}&actor=${encodeURIComponent(actor || '')}`;
+  const resp = await withLoader(on ? 'Arming broadcasts…' : 'Blocking broadcasts…', () =>
+    fetch(url).then(r => r.json()).catch(() => null)
+  );
+  if (!resp || resp.ok === false) return toast('❌ Failed — ' + (resp?.error || 'retry'));
+  const live = !!(resp.data && resp.data.live);
+  _renderKillswitch(live);
+  toast(live ? '🟢 Broadcasts LIVE' : '🔴 Broadcasts BLOCKED');
+};
 
 // ── Admin · Others (Access, Force-In, Pending requests) ──
 function _renderSettingsAdminOthers(user, isSuperAdmin, pendingReqs) {
