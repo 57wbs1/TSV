@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<meta name="theme-color" content="#f7f4ee" />
+<title>TSV BKK 2026 · Field Guide</title>
+<link rel="icon" href="./icons/icon.svg" />
+<style>
+  :root {
+    --bg:       #f7f4ee;
+    --surface:  #ffffff;
+    --ink:      #1a1a1a;
+    --ink-2:    #4a4a4a;
+    --ink-3:    #6b6b6b;
+    --line:     #e8e3d8;
+    --line-2:   #d8d2c4;
+    --accent:   #003580;
+    --accent-soft:#e6ecf5;
+    --gold:     #b8860b;
+    --rose:     #a8332c;
+    --green:    #1d5d3a;
+    --serif:    'Tiempos Text','Iowan Old Style','Palatino',Georgia,serif;
+    --sans:     -apple-system,'SF Pro Text','Inter',system-ui,sans-serif;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.55;-webkit-font-smoothing:antialiased}
+  body{padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
+
+  /* ── Header ──────────────────────────────── */
+  .hero{padding:56px 24px 40px;max-width:760px;margin:0 auto;text-align:left}
+  .eyebrow{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);font-weight:600}
+  .hero h1{font-family:var(--serif);font-weight:500;font-size:44px;line-height:1.1;letter-spacing:-.02em;margin:18px 0 14px}
+  .hero .lede{font-size:18px;color:var(--ink-2);max-width:52ch;margin:0}
+  .dates{display:inline-flex;align-items:center;gap:10px;margin-top:22px;padding:8px 14px;border:1px solid var(--line-2);border-radius:999px;font-size:13px;color:var(--ink-2);background:var(--surface)}
+  .dot{width:6px;height:6px;border-radius:50%;background:var(--accent);display:inline-block}
+
+  /* ── Nav ────────────────────────────────── */
+  nav.toc{position:sticky;top:0;z-index:20;background:rgba(247,244,238,.92);backdrop-filter:saturate(1.4) blur(10px);-webkit-backdrop-filter:saturate(1.4) blur(10px);border-bottom:1px solid var(--line);padding:10px 14px;overflow-x:auto;white-space:nowrap;-webkit-overflow-scrolling:touch}
+  nav.toc a{display:inline-block;padding:8px 14px;font-size:13px;color:var(--ink-2);text-decoration:none;border-radius:999px;margin-right:4px;font-weight:500}
+  nav.toc a:active,nav.toc a:hover{background:var(--surface);color:var(--ink)}
+
+  /* ── Section chrome ──────────────────────── */
+  section{max-width:760px;margin:0 auto;padding:44px 24px;border-top:1px solid var(--line)}
+  section:first-of-type{border-top:0}
+  h2{font-family:var(--serif);font-weight:500;font-size:30px;letter-spacing:-.015em;margin:0 0 6px}
+  h2 .no{font-family:var(--sans);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);display:block;margin-bottom:10px;font-weight:700}
+  h3{font-family:var(--serif);font-weight:500;font-size:20px;margin:28px 0 8px}
+  p{margin:0 0 12px;color:var(--ink-2)}
+  .sub{color:var(--ink-3);font-size:15px;margin:0 0 24px}
+
+  /* ── Callouts ─────────────────────────────── */
+  .call{border:1px solid var(--line-2);border-radius:12px;padding:16px 18px;background:var(--surface);margin:14px 0}
+  .call.time{border-color:#dccaa0;background:#fdf8ec}
+  .call.time .label{color:var(--gold)}
+  .call.ic{border-color:#cbd8ee;background:#eef3fa}
+  .call.ic .label{color:var(--accent)}
+  .call.warn{border-color:#e8c8c4;background:#fbecea}
+  .call.warn .label{color:var(--rose)}
+  .call .label{font-size:10px;letter-spacing:.14em;text-transform:uppercase;font-weight:800;margin-bottom:4px;display:block}
+
+  /* ── Tile grid (tab overview) ────────────── */
+  .tiles{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:20px}
+  .tile{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px 14px;text-decoration:none;color:inherit;display:flex;flex-direction:column;gap:6px;min-height:96px;transition:transform .15s ease,border-color .15s ease}
+  .tile:active{transform:scale(.98);border-color:var(--line-2)}
+  .tile .icon{font-size:22px}
+  .tile .name{font-weight:700;font-size:14px}
+  .tile .who{font-size:11px;color:var(--ink-3);letter-spacing:.04em;text-transform:uppercase}
+
+  /* ── Steps ────────────────────────────────── */
+  ol.steps{list-style:none;padding:0;counter-reset:s;margin:18px 0}
+  ol.steps li{counter-increment:s;padding:14px 14px 14px 56px;position:relative;background:var(--surface);border:1px solid var(--line);border-radius:12px;margin-bottom:10px}
+  ol.steps li::before{content:counter(s);position:absolute;left:16px;top:14px;width:28px;height:28px;border-radius:50%;background:var(--ink);color:var(--bg);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;font-family:var(--serif)}
+  ol.steps li b{color:var(--ink);font-weight:700}
+
+  /* ── Inline details ───────────────────────── */
+  details.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:0;margin:10px 0;overflow:hidden}
+  details.card summary{padding:14px 16px;cursor:pointer;list-style:none;display:flex;align-items:center;gap:12px;font-weight:600;font-size:15px}
+  details.card summary::-webkit-details-marker{display:none}
+  details.card summary .chev{margin-left:auto;color:var(--ink-3);transition:transform .2s}
+  details.card[open] summary .chev{transform:rotate(90deg)}
+  details.card .body{padding:0 16px 16px;color:var(--ink-2);border-top:1px solid var(--line);padding-top:14px}
+  details.card summary .ic-badge{font-size:9px;letter-spacing:.1em;text-transform:uppercase;background:var(--accent);color:#fff;padding:2px 6px;border-radius:4px;font-weight:800}
+
+  /* ── Mini mockup ─────────────────────────── */
+  .phone{display:block;max-width:240px;margin:18px auto 8px;background:#111;border-radius:26px;padding:6px;box-shadow:0 10px 40px rgba(0,0,0,.12)}
+  .phone .screen{background:#fff;border-radius:20px;overflow:hidden;font-size:12px}
+  .phone .bar{background:#003580;color:#fff;padding:10px 12px;font-weight:700;font-size:11px;display:flex;justify-content:space-between;align-items:center}
+  .phone .body{padding:12px}
+  .phone .pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700;margin-right:4px}
+  .phone .pill.ok{background:#dcfce7;color:#166534}
+  .phone .pill.out{background:#fef3c7;color:#78350f}
+
+  /* ── Daily rhythm timeline ───────────────── */
+  .day-line{list-style:none;margin:20px 0 0;padding:0;position:relative}
+  .day-line::before{content:'';position:absolute;left:54px;top:8px;bottom:8px;width:1px;background:var(--line-2)}
+  .day-line li{display:flex;align-items:flex-start;gap:14px;padding:8px 0;position:relative}
+  .day-line .tick{min-width:72px;font-family:var(--serif);font-weight:500;font-size:15px;color:var(--ink);padding-top:2px;text-align:right}
+  .day-line .dot-t{width:11px;height:11px;border-radius:50%;background:var(--accent);margin-top:6px;position:relative;z-index:1;flex-shrink:0}
+  .day-line .content{flex:1;padding-left:2px}
+  .day-line .content b{display:block;font-weight:700;color:var(--ink);font-size:14px}
+  .day-line .content span{color:var(--ink-3);font-size:13px}
+
+  .footer{max-width:760px;margin:0 auto;padding:32px 24px 48px;color:var(--ink-3);font-size:12px;border-top:1px solid var(--line);text-align:center}
+  .footer a{color:var(--accent);text-decoration:none}
+  .kbd{display:inline-block;padding:1px 6px;font-family:ui-monospace,Menlo,monospace;font-size:12px;background:var(--bg);border:1px solid var(--line-2);border-radius:4px}
+
+  @media (min-width:720px){
+    .tiles{grid-template-columns:repeat(3,1fr)}
+    .hero h1{font-size:56px}
+  }
+</style>
+</head>
+<body>
+
+<!-- ── HERO ─────────────────────────────────── -->
+<header class="hero">
+  <div class="eyebrow">TSV · Bangkok · 2026</div>
+  <h1>The officer's field guide to the TSV app.</h1>
+  <p class="lede">A 10-minute read to get you oriented before wheels-up. Non-admin edition — what every officer needs to know to stay accounted for, move safely, and contribute to the daily rhythm of the trip.</p>
+  <span class="dates"><span class="dot"></span> 26 — 30 April · 5 days · 85 pax</span>
+</header>
+
+<!-- ── TOC ──────────────────────────────────── -->
+<nav class="toc">
+  <a href="#install">1 · Install</a>
+  <a href="#rhythm">2 · Daily rhythm</a>
+  <a href="#tabs">3 · Tabs at a glance</a>
+  <a href="#parade">4 · Parade state</a>
+  <a href="#leave">5 · Leaving hotel</a>
+  <a href="#return">6 · Returning</a>
+  <a href="#transport">7 · Transport</a>
+  <a href="#sitrep">8 · Ad-hoc SITREP</a>
+  <a href="#ir">9 · Incident reports</a>
+  <a href="#settings">10 · Settings</a>
+</nav>
+
+<!-- ── 1. INSTALL ───────────────────────────── -->
+<section id="install">
+  <h2><span class="no">§ 1</span>Install it like a native app</h2>
+  <p class="sub">Open the link on your iPhone and add it to your home screen. Once installed it runs full-screen, works offline, and pushes no ads.</p>
+
+  <ol class="steps">
+    <li>Open <span class="kbd">https://57wbs1.github.io/TSV/</span> in <b>Safari</b> (not Chrome — iOS only lets Safari install PWAs).</li>
+    <li>Tap the <b>Share</b> icon <span class="kbd">􀈂</span> at the bottom.</li>
+    <li>Scroll and tap <b>Add to Home Screen</b>, then <b>Add</b>.</li>
+    <li>Open <b>TSV BKK</b> from your home screen. Sign in with the PIN your admin gave you. Set a new one in Settings when prompted.</li>
+  </ol>
+
+  <div class="call">
+    <span class="label">Why bother</span>
+    <p>Installed means the app gets its own icon, runs full-screen without Safari's URL bar eating space, caches everything for patchy airport Wi-Fi, and remembers your session across restarts.</p>
+  </div>
+</section>
+
+<!-- ── 2. DAILY RHYTHM ──────────────────────── -->
+<section id="rhythm">
+  <h2><span class="no">§ 2</span>Your daily rhythm</h2>
+  <p class="sub">Five things to touch each day. Most take under 30 seconds.</p>
+
+  <ul class="day-line">
+    <li>
+      <span class="tick">0800H</span><span class="dot-t"></span>
+      <span class="content"><b>Mark parade state</b><span>If you're anything other than Present (fever, out for the day, etc.), open Tracker → Parade and update your status.</span></span>
+    </li>
+    <li>
+      <span class="tick">0830H</span><span class="dot-t"></span>
+      <span class="content"><b>Parade state auto-fires</b><span>Telegram gets the 0830H broadcast. Check you're listed correctly.</span></span>
+    </li>
+    <li>
+      <span class="tick">During</span><span class="dot-t"></span>
+      <span class="content"><b>Leave / return flows</b><span>Any time you leave the hotel, hit Leaving → pick buddies → state a location. Hit Return to Hotel when you're back.</span></span>
+    </li>
+    <li>
+      <span class="tick">0200H</span><span class="dot-t"></span>
+      <span class="content"><b>Curfew</b><span>Be marked back in by 0200H BKK. The app will auto-force-in certain groups at 0130H — but don't rely on that, tap Return yourself.</span></span>
+    </li>
+    <li>
+      <span class="tick">0600H</span><span class="dot-t"></span>
+      <span class="content"><b>Weather drops</b><span>Daily weather + programme preview lands in Telegram. Read it before breakfast.</span></span>
+    </li>
+  </ul>
+
+  <div class="call time">
+    <span class="label">Hard cut-off</span>
+    <p>Self-update parade state by <b>0800H</b> and be accounted for back in hotel by <b>0200H</b>. Missing either creates real admin workload for the Duty Officer.</p>
+  </div>
+</section>
+
+<!-- ── 3. TABS ──────────────────────────────── -->
+<section id="tabs">
+  <h2><span class="no">§ 3</span>Tabs at a glance</h2>
+  <p class="sub">Tap any tile for the deeper guide. Syndicate IC duties marked with a blue badge.</p>
+
+  <div class="tiles">
+    <a class="tile" href="#home">
+      <div class="icon">🏠</div>
+      <div class="name">Home</div>
+      <div class="who">Status, quick actions</div>
+    </a>
+    <a class="tile" href="#parade">
+      <div class="icon">📝</div>
+      <div class="name">Tracker</div>
+      <div class="who">Parade · List · Map · Rooms · MOCON</div>
+    </a>
+    <a class="tile" href="#calendar">
+      <div class="icon">📅</div>
+      <div class="name">Calendar</div>
+      <div class="who">Events · Transport · Reflections</div>
+    </a>
+    <a class="tile" href="#learn">
+      <div class="icon">💡</div>
+      <div class="name">Learnings</div>
+      <div class="who">Daily debriefs</div>
+    </a>
+    <a class="tile" href="#ir">
+      <div class="icon">🚨</div>
+      <div class="name">SOP</div>
+      <div class="who">Contingencies · IR</div>
+    </a>
+    <a class="tile" href="#settings">
+      <div class="icon">⚙️</div>
+      <div class="name">Settings</div>
+      <div class="who">PIN · Display · Feedback</div>
+    </a>
+  </div>
+</section>
+
+<!-- ── 4. PARADE STATE ──────────────────────── -->
+<section id="parade">
+  <h2><span class="no">§ 4</span>Parade state — update yourself by 0800H</h2>
+  <p>Everyone defaults to <b>Present</b>. If that's not true for the day — sick, hospitalised, absent from trip, whatever — you must update it before the 0830H auto-send.</p>
+
+  <details class="card" open>
+    <summary>How to update <span class="chev">›</span></summary>
+    <div class="body">
+      <ol class="steps">
+        <li>Open <b>Tracker</b> tab → <b>Parade</b> sub-tab.</li>
+        <li>Find your row (your syndicate is shown by default).</li>
+        <li>Tap <b>✏️ Edit</b>.</li>
+        <li>Type your status — examples: <span class="kbd">Sick in Hotel 26 Apr</span>, <span class="kbd">Hospitalised</span>, <span class="kbd">Absent from Trip UFN</span>.</li>
+        <li>The screen saves immediately. Your syndicate IC sees it live.</li>
+      </ol>
+    </div>
+  </details>
+
+  <details class="card">
+    <summary>Send an ad-hoc parade state <span class="chev">›</span></summary>
+    <div class="body">
+      <p>If statuses change mid-day (officer back from hospital, scheduled return, etc.), anyone can re-send a fresh parade state to Telegram.</p>
+      <ol class="steps">
+        <li>Tracker → Parade → <b>📤 Send Parade State</b>.</li>
+        <li>Pick which syndicates to include (or leave all blank for mass-send).</li>
+        <li>Add optional remarks — e.g. <span class="kbd">All personnel accounted for</span>.</li>
+        <li>Send. The broadcast lands in the parade-state chat.</li>
+      </ol>
+    </div>
+  </details>
+</section>
+
+<!-- ── 5. LEAVING HOTEL ─────────────────────── -->
+<section id="leave">
+  <h2><span class="no">§ 5</span>Leaving the hotel — buddy system</h2>
+  <p>Every movement out of the hotel must be logged. This is how Command knows who's together, where, and how to reach you if things go sideways.</p>
+
+  <ol class="steps">
+    <li>From <b>Home</b>, tap <b>🚶 Leaving Hotel</b>.</li>
+    <li>Pick your <b>syndicate</b>, then tap the officers you're going out with (buddy-system).</li>
+    <li>Type a <b>location</b> at the top — e.g. <span class="kbd">Asok market</span>, <span class="kbd">Terminal 21 — dinner</span>.</li>
+    <li>Optionally tap <b>Share GPS</b> if you want your location visible on the Map tab to admins (useful if there's a risk of getting separated).</li>
+    <li>Hit confirm. You're logged as OUT. Your buddies are flipped to OUT automatically with your location attached.</li>
+  </ol>
+
+  <div class="call">
+    <span class="label">Buddy tips</span>
+    <p>Only tap buddies who are actually walking out the door with you. If someone in your group heads back early, they should hit <b>Return to Hotel</b> themselves — don't do it on their behalf.</p>
+  </div>
+</section>
+
+<!-- ── 6. RETURNING ─────────────────────────── -->
+<section id="return">
+  <h2><span class="no">§ 6</span>Returning to hotel — by 0200H</h2>
+  <p>When you walk through the hotel lobby, tap <b>🏨 Return to Hotel</b> on the Home tab. That flips your status back to IN and stops GPS sharing.</p>
+
+  <div class="call warn">
+    <span class="label">If you don't</span>
+    <p>The 0200H curfew SITREP will list you as OUT. Expect a phone call from the Duty Officer.</p>
+  </div>
+
+  <div class="call">
+    <span class="label">Auto-force-in</span>
+    <p>At <b>0130H</b> certain syndicates (by admin config) get auto-flipped to IN before the 0200H SITREP. Don't rely on it — always tap Return manually so your real return time is logged.</p>
+  </div>
+</section>
+
+<!-- ── 7. CALENDAR + TRANSPORT ──────────────── -->
+<section id="calendar">
+  <h2><span class="no">§ 7</span>Calendar & transport</h2>
+  <p>Open the <b>Calendar</b> tab for the daily programme — visits, timings, attire, locations. Tap any event to expand details.</p>
+
+  <h3>Transport sub-tab</h3>
+  <p>Shows your bus or flight allocation. Times, gates, drivers, remarks.</p>
+
+  <details class="card">
+    <summary>Boarding — Syndicate IC duty <span class="ic-badge">SYN IC</span><span class="chev">›</span></summary>
+    <div class="body">
+      <p>When your syndicate is due to board:</p>
+      <ol class="steps">
+        <li>Open <b>Calendar</b> → <b>Transport</b>.</li>
+        <li>Tap your bus or flight.</li>
+        <li>Tap <b>Board</b> for each syndicate as they step onto the vehicle — or <b>Save Progress</b> to record partial boarding.</li>
+        <li>Once everyone's aboard, tap <b>Send SITREP</b>. A boarding-complete message drops in Telegram.</li>
+        <li>When the vehicle pushes off, tap <b>Pushing</b> — optionally add remarks. Another Telegram update fires.</li>
+        <li>On arrival, tap <b>Dropped</b> to free the vehicle for the next cycle.</li>
+      </ol>
+    </div>
+  </details>
+</section>
+
+<!-- ── 8. AD-HOC SITREP ─────────────────────── -->
+<section id="sitrep">
+  <h2><span class="no">§ 8</span>Ad-hoc SITREP</h2>
+  <p>Scheduled SITREPs fire at 2300H and 0200H. If movement changes during the day — buses divert, half the syn splits off — fire an ad-hoc one.</p>
+
+  <div class="call ic">
+    <span class="label">Primary: SYN IC</span>
+    <p>SYN ICs get a <b>📤 Send SITREP</b> button on the <b>Home</b> tab. One tap, pick syndicates to include, optional remarks, done.</p>
+  </div>
+
+  <div class="call">
+    <span class="label">Fallback: anyone</span>
+    <p>If your SYN IC is unreachable, everyone can send an ad-hoc SITREP from <b>Tracker</b> → list view → <b>📤 Send SITREP</b>. Same outcome.</p>
+  </div>
+</section>
+
+<!-- ── 9. INCIDENT REPORTS ──────────────────── -->
+<section id="ir">
+  <h2><span class="no">§ 9</span>Incident reports — SOP tab</h2>
+  <p>Anything that's not routine — medical, security, missing person, diversion — gets logged as an IR. <b>SYN IC only</b> creates them, but the message trail is public to Command.</p>
+
+  <details class="card" open>
+    <summary>Create a new IR <span class="ic-badge">SYN IC</span><span class="chev">›</span></summary>
+    <div class="body">
+      <ol class="steps">
+        <li>Open <b>SOP</b> tab → <b>+ New Incident Report</b>.</li>
+        <li>Fill <b>Nature</b> (med / security / other), <b>Description</b>, <b>When/Where</b>, <b>Course &amp; Syn involved</b>, <b>NOK informed (Y/N/N/A)</b>.</li>
+        <li>Tick <b>Send to Telegram</b>.</li>
+        <li>Submit. A <b>🚨 IR NEW</b> message lands in Command chat with an ID like <span class="kbd">IR03</span>.</li>
+      </ol>
+    </div>
+  </details>
+
+  <details class="card">
+    <summary>Post an update <span class="ic-badge">SYN IC</span><span class="chev">›</span></summary>
+    <div class="body">
+      <p>As the incident unfolds, keep the feed current. Every update re-sends the full history to Telegram so Command has one canonical thread.</p>
+      <ol class="steps">
+        <li>Open the IR from the SOP tab.</li>
+        <li>Tap <b>➕ Add Update</b>.</li>
+        <li>Write what changed — e.g. <span class="kbd">Officer admitted to BNH Hospital, vitals stable</span>.</li>
+        <li>Send. <b>📝 IR UPDATE #n</b> drops in chat with the original summary + all prior updates attached.</li>
+      </ol>
+    </div>
+  </details>
+
+  <details class="card">
+    <summary>Close the incident <span class="ic-badge">SYN IC</span><span class="chev">›</span></summary>
+    <div class="body">
+      <p>When resolved, tick <b>Close Out</b> on the update form. A <b>✅ IR CLOSED</b> message fires. The IR stays viewable for the rest of the trip but no further updates can be added.</p>
+    </div>
+  </details>
+</section>
+
+<!-- ── 10. MAP + ROOMS ──────────────────────── -->
+<section id="tracker-extras">
+  <h2><span class="no">§ 10</span>Map & Rooms Tracker</h2>
+
+  <h3>Map</h3>
+  <p>Shows SCOPE visit pins, bus locations, and live GPS for anyone who opted to share. Tap any pin for details. Useful before you step out — know where your syn already is.</p>
+
+  <h3>Rooms Tracker</h3>
+  <p>Update your hotel room number once. Your SYN IC needs it to physically find you in an emergency.</p>
+  <ol class="steps">
+    <li>Open <b>Tracker</b> → <b>Rooms</b>.</li>
+    <li>Tap your name, enter your room number.</li>
+    <li>Save. Done for the trip.</li>
+  </ol>
+</section>
+
+<!-- ── 11. SOP CONTINGENCIES ────────────────── -->
+<section id="sop">
+  <h2><span class="no">§ 11</span>SOP — contingencies</h2>
+  <p>The <b>SOP</b> tab holds every contingency the TSV committee pre-wrote: medical escalation, lost passport, bus breakdown, demonstration avoidance, hotel lockout. Read through it once on the flight in. Know what's there so you can find it under pressure.</p>
+</section>
+
+<!-- ── 12. SETTINGS ─────────────────────────── -->
+<section id="settings">
+  <h2><span class="no">§ 12</span>Settings</h2>
+  <p>Personal controls, all in one tab.</p>
+
+  <div class="tiles" style="grid-template-columns:1fr">
+    <div class="tile" style="cursor:default">
+      <div class="icon">🔐</div>
+      <div class="name">Change PIN</div>
+      <div class="who">Rotate the default PIN you were issued.</div>
+    </div>
+    <div class="tile" style="cursor:default">
+      <div class="icon">✍️</div>
+      <div class="name">Your name & display name</div>
+      <div class="who">Fix typos or adjust how you show up in SITREPs.</div>
+    </div>
+    <div class="tile" style="cursor:default">
+      <div class="icon">🎨</div>
+      <div class="name">Display</div>
+      <div class="who">Text size, light / dark theme, watermark, and layout tweaks for different iPhone sizes.</div>
+    </div>
+    <div class="tile" style="cursor:default">
+      <div class="icon">🐞</div>
+      <div class="name">Report an issue</div>
+      <div class="who">Something broken or wrong? Send a note straight to the admin.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ── CLOSING ──────────────────────────────── -->
+<section>
+  <h2><span class="no">§ 13</span>If you remember three things</h2>
+  <ol class="steps">
+    <li><b>Mark parade state by 0800H</b> if you're not Present.</li>
+    <li><b>Leaving / returning hotel</b> — tap the button, name your buddies, state the location.</li>
+    <li><b>SYN ICs</b> — boarding SITREPs on the Transport tab, incident reports on the SOP tab. Everyone else — SITREPs from Tracker if your IC is unreachable.</li>
+  </ol>
+  <p style="margin-top:22px;color:var(--ink-3)">Questions → Caspar. Bugs → Settings → Report an Issue. Emergencies → TSV C2 group on Telegram.</p>
+</section>
+
+<footer class="footer">
+  TSV BKK · 2026 · Made for 85 officers who'd rather read this once than ask the same question five times. ·
+  <a href="./index.html">Open the app →</a>
+</footer>
+
+<script>
+  // Smooth scroll with offset for sticky nav
+  document.querySelectorAll('nav.toc a, a[href^="#"]').forEach(a => {
+    a.addEventListener('click', e => {
+      const id = a.getAttribute('href');
+      if (!id || id === '#') return;
+      const t = document.querySelector(id);
+      if (!t) return;
+      e.preventDefault();
+      const y = t.getBoundingClientRect().top + window.pageYOffset - 56;
+      window.scrollTo({ top: y, behavior: 'smooth' });
+    });
+  });
+</script>
+
+</body>
+</html>
