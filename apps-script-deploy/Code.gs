@@ -1134,30 +1134,48 @@ function _ensureDayTab(ss, day) {
 }
 
 function appendReflectionMatrix(data, timestampIso) {
-  const ss = SpreadsheetApp.openById(REFLECTIONS_MATRIX_SHEET_ID);
-  const { tab, tabName } = _ensureDayTab(ss, data.day);
+  // Concurrent writes from multiple members submitting to the same cell
+  // would race (classic read-modify-write: both read empty, both write, one
+  // overwrites the other). LockService serializes all reflection writes
+  // across all Apps Script instances so no data is lost.
+  const lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(25000);   // wait up to 25s for the lock
+  } catch (e) {
+    // Couldn't acquire — very rare. Better to proceed than drop the entry.
+    logAction('reflection_lock_timeout', 'server', 'proceeding without lock');
+  }
+  try {
+    const ss = SpreadsheetApp.openById(REFLECTIONS_MATRIX_SHEET_ID);
+    const { tab, tabName } = _ensureDayTab(ss, data.day);
 
-  const col = _matrixSynColumn(data.syndicate);
-  const bkkTs = Utilities.formatDate(new Date(timestampIso), 'Asia/Bangkok', 'd MMM · HH:mm');
-  const author = (data.authorName || data.authorId || 'Anon').toString();
-  const header = `— ${author} · ${bkkTs}H —`;
+    const col = _matrixSynColumn(data.syndicate);
+    const bkkTs = Utilities.formatDate(new Date(timestampIso), 'Asia/Bangkok', 'd MMM · HH:mm');
+    const author = (data.authorName || data.authorId || 'Anon').toString();
+    const header = `— ${author} · ${bkkTs}H —`;
 
-  const fields = ['obs', 'patterns', 'impl', 'ahha'];
-  let wrote = 0;
-  fields.forEach(f => {
-    const value = (data[f] || '').toString().trim();
-    if (!value) return;
-    const row = MATRIX_FIELD_ROW[f];
-    const cell = tab.getRange(row, col);
-    const existing = String(cell.getValue() || '').trim();
-    const entry = `${header}\n${value}`;
-    const combined = existing ? `${existing}\n\n${entry}` : entry;
-    cell.setValue(combined);
-    cell.setWrap(true);
-    cell.setVerticalAlignment('top');
-    wrote++;
-  });
-  return `ok · tab "${tabName}" · wrote ${wrote} fields to col ${col}`;
+    const fields = ['obs', 'patterns', 'impl', 'ahha'];
+    let wrote = 0;
+    fields.forEach(f => {
+      const value = (data[f] || '').toString().trim();
+      if (!value) return;
+      const row = MATRIX_FIELD_ROW[f];
+      const cell = tab.getRange(row, col);
+      const existing = String(cell.getValue() || '').trim();
+      const entry = `${header}\n${value}`;
+      const combined = existing ? `${existing}\n\n${entry}` : entry;
+      cell.setValue(combined);
+      cell.setWrap(true);
+      cell.setVerticalAlignment('top');
+      wrote++;
+    });
+    // Force the write to flush before releasing the lock (otherwise a
+    // pending batch could commit after the next lock-holder starts reading).
+    SpreadsheetApp.flush();
+    return `ok · tab "${tabName}" · wrote ${wrote} fields to col ${col}`;
+  } finally {
+    try { if (lock.hasLock()) lock.releaseLock(); } catch (e) { /* ignore */ }
+  }
 }
 
 // Tabs on the external workbook — one per syndicate for the Learning IC.
