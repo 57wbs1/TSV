@@ -3486,13 +3486,19 @@ function renderReflectionsSubTab() {
     : `<div class="learning-feed">${reflections.map(r => {
         const time = r.timestamp ? new Date(r.timestamp).toLocaleString('en-GB', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' }) : '';
         const dayMeta = r.day ? DAYS.find(d => d.day == r.day) : null;
+        // Delete button: own posts + super admin (also removes from matrix sheet)
+        const canDelete = user && (r.authorId === user.id || user.id === CONFIG.superAdminId);
+        const deleteBtn = canDelete && r.id
+          ? `<button onclick="deleteReflection('${escapeHtml(r.id)}')" title="Delete this reflection" style="background:none;border:none;padding:4px 6px;cursor:pointer;color:var(--text-3);font-size:14px;margin-left:auto">🗑</button>`
+          : '';
         return `
           <div class="learning-post">
-            <div class="post-header">
+            <div class="post-header" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
               <span class="post-author">${escapeHtml(r.authorName || 'Anonymous')}</span>
               ${r.syndicate ? `<span class="post-day-badge" style="background:#64748b">${escapeHtml(r.syndicate)}</span>` : ''}
               ${dayMeta ? `<span class="post-day-badge" style="background:${dayMeta.color}">Day ${dayMeta.day}</span>` : ''}
               <span class="post-time">${time}</span>
+              ${deleteBtn}
             </div>
             <div class="post-body">${escapeHtml(r.content || '').replace(/\n/g,'<br>')}</div>
           </div>`;
@@ -3715,6 +3721,32 @@ window.draftForMe = function(visitId) {
 };
 
 // ═══════════ REFLECTIONS ═════════════════════════════════════
+
+// Delete a reflection — removes from both the app feed AND the external
+// Learning Debrief matrix sheet (strips the author-tagged block from the
+// 4 cells). Only the author or super admin can delete.
+window.deleteReflection = async function(id) {
+  const user = STATE.currentUser;
+  if (!user) return toast('Sign in first');
+  const r = (STATE.reflections || []).find(x => x.id === id);
+  if (!r) return toast('Reflection not found');
+  const who = r.authorId === user.id ? 'your' : `${r.authorName || 'this user'}'s`;
+  if (!confirm(`Delete ${who} reflection?\n\nRemoves from both the app feed and the Learning Debrief sheet. Cannot be undone.`)) return;
+
+  const resp = await withLoader('Deleting reflection…', () =>
+    API.postRaw('deleteReflection', { id, actor: user.id })
+  );
+  if (!resp)                 return toast('❌ No response — retry');
+  if (resp.ok === false)     return toast('❌ ' + (resp.error || 'Delete failed'));
+  const inner = resp.data;
+  if (!inner || inner.ok === false) return toast('❌ ' + (inner?.error || 'Delete failed'));
+  // Optimistic removal from feed
+  STATE.reflections = (STATE.reflections || []).filter(x => x.id !== id);
+  toast('🗑 Deleted' + (inner.matrixStripped ? ' · sheet updated' : ''));
+  // Re-render reflections view
+  if (STATE.currentTab === 'calendar' && STATE.calendarSubTab === 'reflections') renderCalendar();
+};
+
 window.postReflection = async function() {
   const user = STATE.currentUser;
   if (!user) return toast('Sign in first');
@@ -4757,26 +4789,34 @@ function renderParadeState() {
     </div>`;
 
   // Member rows
+  const myGk = memberGroupKey(user);
   const memberRows = members.map(m => {
     const state = ps[m.id] || { status: 'Present' };
     const status = state.status || 'Present';
     const isPresent = status === 'Present';
-    const canEdit = adminMode || m.id === user.id;
+    // Buddy-reporting: anyone in the same syndicate (or admin) can edit.
+    // Encourages peer status reporting — if Jamal is sick, Luke can mark him.
+    const canEdit = adminMode || memberGroupKey(m) === myGk;
     const chipStyle = isPresent
       ? 'background:#dcfce7;color:#166534;border:1px solid #bbf7d0'
-      : 'background:#fef3c7;color:#92400e;border:1px solid #fcd34d';
+      : 'background:#fbbf24;color:#78350f;border:1px solid #d97706';
     const prefix = isPresent ? '✅' : '⚠️';
     const labelHtml = `${prefix} ${escapeHtml(status)}`;
     const editBtn = canEdit ? `
       <button class="btn btn-sm btn-outline" style="font-size:11px;padding:4px 10px;flex-shrink:0" onclick="editParadeStatus('${escapeHtml(m.id)}')">
         ✏️ Edit
       </button>` : '';
+    // For non-Present rows: dark amber text on amber background so the name
+    // doesn't disappear in dark mode (where base text colour is white and
+    // white-on-beige was invisible). Explicit color overrides inheritance.
+    const rowBg = isPresent ? 'transparent' : '#fef3c7';
+    const rowText = isPresent ? '' : 'color:#78350f;';
     return `
-      <div style="display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--border-2);background:${isPresent ? 'transparent' : '#fffbeb'}">
+      <div style="display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--border-2);background:${rowBg};${rowText}">
         <div style="flex:1;min-width:0">
-          <div style="font-weight:700;font-size:13px">${escapeHtml(m.rank ? m.rank + ' ' : '')}${escapeHtml(m.shortName || m.name)}</div>
+          <div style="font-weight:700;font-size:13px;${rowText}">${escapeHtml(m.rank ? m.rank + ' ' : '')}${escapeHtml(m.shortName || m.name)}</div>
           <div style="margin-top:4px;display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;${chipStyle}">${labelHtml}</div>
-          ${state.updatedAt ? `<div style="font-size:10px;color:var(--text-3);margin-top:2px">Last: ${new Date(state.updatedAt).toLocaleString('en-GB', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit', timeZone:'Asia/Bangkok' })}${state.updatedBy ? ' · by ' + escapeHtml(state.updatedBy) : ''}</div>` : ''}
+          ${state.updatedAt ? `<div style="font-size:10px;margin-top:2px;${isPresent ? 'color:var(--text-3);' : 'color:#92400e;opacity:.85;'}">Last: ${new Date(state.updatedAt).toLocaleString('en-GB', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit', timeZone:'Asia/Bangkok' })}${state.updatedBy ? ' · by ' + escapeHtml(state.updatedBy) : ''}</div>` : ''}
         </div>
         ${editBtn}
       </div>`;

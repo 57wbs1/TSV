@@ -149,7 +149,7 @@ function doGet(e) {
 // junk. Not cryptographically secure (the client code is public), but
 // blocks everything short of someone pulling a real member ID from git.
 const ACTOR_REQUIRED = new Set([
-  'updateStatus','addLearning','addReflection','addIncident',
+  'updateStatus','addLearning','addReflection','deleteReflection','addIncident',
   'createIncident','addIncidentUpdate','deleteIncident',
   'addMember','updateMember','deleteMember','seedMembers','bulkSyncMembers',
   'sendPing','addAdminRequest','resolveAdminRequest','postHotwash',
@@ -188,6 +188,7 @@ function doPost(e) {
       case 'updateStatus': data = updateStatus(body); break;
       case 'addLearning':  data = addLearning(body); break;
       case 'addReflection':data = addReflection(body); break;
+      case 'deleteReflection': data = deleteReflection(body); break;
       case 'addIncident':  data = addIncident(body); break;
       case 'createIncident':     data = createIncident(body); break;
       case 'addIncidentUpdate':  data = addIncidentUpdate(body); break;
@@ -1150,6 +1151,89 @@ function _ensureDayTab(ss, day) {
     _ensureMatrixScaffold(tab);
   }
   return { tab, tabName };
+}
+
+// Delete a reflection from BOTH the internal Reflections sheet AND strip
+// the matching author-tagged block from the external matrix sheet cells.
+// body: { id, actor }
+function deleteReflection(body) {
+  const id = String(body.id || '').trim();
+  if (!id) return { ok: false, error: 'Missing id' };
+
+  const lock = LockService.getScriptLock();
+  try { lock.waitLock(15000); } catch (e) {}
+  try {
+    // 1) Find + delete the row in the internal Reflections sheet
+    const sheet = getOrCreateSheet(SHEETS.REFLECTIONS);
+    const rows = sheet.getDataRange().getValues();
+    const h = rows[0];
+    const idCol = h.indexOf('id');
+    let foundRow = -1;
+    let reflRow = null;
+    for (let i = 1; i < rows.length; i++) {
+      if (rows[i][idCol] === id) {
+        foundRow = i + 1;
+        reflRow = {};
+        h.forEach((col, ci) => reflRow[col] = rows[i][ci]);
+        break;
+      }
+    }
+    if (foundRow < 0) return { ok: false, error: 'Reflection not found: ' + id };
+
+    // Permission check (basic): only the author OR super admin can delete
+    const actor = String(body.actor || '').trim();
+    if (actor !== SUPER_ADMIN_ID && actor !== reflRow.authorId) {
+      return { ok: false, error: 'Unauthorized — only the author or super admin can delete' };
+    }
+
+    sheet.deleteRow(foundRow);
+
+    // 2) Strip the matching block from the matrix sheet cells
+    let matrixStripped = 'skipped';
+    try {
+      matrixStripped = _stripReflectionFromMatrix(reflRow);
+    } catch (e) {
+      matrixStripped = 'error:' + (e && e.message ? e.message : String(e));
+      logAction('reflection_matrix_strip_fail', 'server', matrixStripped.slice(0, 200));
+    }
+
+    SpreadsheetApp.flush();
+    logAction('reflection_delete', actor, id + ' · matrix=' + matrixStripped);
+    return { ok: true, id, matrixStripped };
+  } finally {
+    try { if (lock.hasLock()) lock.releaseLock(); } catch(e) {}
+  }
+}
+
+// Remove the author/timestamp-tagged block from every cell in the
+// reflection's syn column on the right day tab. Matches the header
+// format appendReflectionMatrix writes: "— ${author} · ${bkkTs}H —"
+function _stripReflectionFromMatrix(r) {
+  if (!r || !r.syndicate || !r.timestamp) return 'no-context';
+  const ss = SpreadsheetApp.openById(REFLECTIONS_MATRIX_SHEET_ID);
+  const tabName = _matrixTabNameForDay(r.day);
+  const tab = ss.getSheetByName(tabName);
+  if (!tab) return 'tab-not-found:' + tabName;
+
+  const col = _matrixSynColumn(r.syndicate);
+  const bkkTs = Utilities.formatDate(new Date(r.timestamp), 'Asia/Bangkok', 'd MMM · HH:mm');
+  const author = String(r.authorName || r.authorId || '').trim();
+  const targetHeader = `— ${author} · ${bkkTs}H —`;
+
+  let cellsHit = 0;
+  [2, 3, 4, 5].forEach(rowNum => {
+    const cell = tab.getRange(rowNum, col);
+    const existing = String(cell.getValue() || '').trim();
+    if (!existing) return;
+    // Entries separated by blank line before each "— …" header.
+    // Lookahead split keeps each entry intact.
+    const entries = existing.split(/\n\n(?=— )/);
+    const kept = entries.filter(e => !e.startsWith(targetHeader));
+    if (kept.length === entries.length) return;   // no match in this row
+    cell.setValue(kept.join('\n\n'));
+    cellsHit++;
+  });
+  return `stripped ${cellsHit} cells in tab "${tabName}" col ${col}`;
 }
 
 function appendReflectionMatrix(data, timestampIso) {
