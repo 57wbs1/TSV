@@ -1,5 +1,5 @@
 // Bump this version number on every deploy to invalidate the cache.
-const CACHE_NAME = 'tsv-bkk-v87-' + '20260421v54';
+const CACHE_NAME = 'tsv-bkk-v87-' + '20260421v55';
 
 const APP_SHELL = [
   './index.html',
@@ -45,6 +45,12 @@ self.addEventListener('activate', e => {
 // Network-first for app shell (HTML/JS/CSS/JSON) so users ALWAYS get latest after a deploy.
 // Cache-first for external libs + tiles (they rarely change).
 self.addEventListener('fetch', e => {
+  // Only cache GET. POST/PUT/DELETE must never be intercepted — the Cache API
+  // can't store non-GET anyway, and responding from cache to a mutation would
+  // lose the write. Belt-and-braces even though the explicit url exclusions
+  // below already cover all our real mutation endpoints.
+  if (e.request.method !== 'GET') return;
+
   const url = e.request.url;
 
   // Never intercept Firebase, Telegram, Sheets APIs, or map tiles

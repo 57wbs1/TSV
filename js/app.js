@@ -2743,14 +2743,43 @@ window.confirmLeaveHotel = async function() {
       roomNumber: bStatus.roomNumber || ''
     });
   });
-  await withLoader(`Marking ${nPeople} out of hotel…`, () =>
-    Promise.all(payloads.map(p => API.post('updateStatus', p)))
+  // Snapshot prior statuses for every member we're about to optimistically
+  // flip, so any server rejection can be reverted per-member.
+  const priorSnap = {};
+  priorSnap[user.id] = existingStatus ? JSON.parse(JSON.stringify(existingStatus)) : null;
+  buddyObjs.forEach(b => { priorSnap[b.id] = JSON.parse(JSON.stringify(getStatusOf(b.id))); });
+
+  // allSettled instead of all — if one buddy's write fails we STILL want the
+  // others to land. Previously Promise.all rejected on first failure and the
+  // toast didn't even fire, leaving the client optimistic state desynced.
+  const results = await withLoader(`Marking ${nPeople} out of hotel…`, () =>
+    Promise.allSettled(payloads.map(p => API.post('updateStatus', p)))
   );
+
+  const failed = [];
+  results.forEach((r, i) => {
+    // API.post returns null on network fail, or the data object on success.
+    // A null or rejected promise means the write didn't land.
+    const ok = r.status === 'fulfilled' && r.value != null;
+    if (!ok) {
+      const mid = payloads[i].memberId;
+      const displayName = payloads[i].shortName || payloads[i].name || mid;
+      if (priorSnap[mid] != null) STATE.memberStatuses[mid] = priorSnap[mid];
+      else delete STATE.memberStatuses[mid];
+      failed.push(displayName);
+    }
+  });
 
   renderLocation();
   renderPinnedActionBar();
   const n = 1 + buddyObjs.length;
-  toast(`✅ ${n} marked OUT — stay safe!`);
+  if (!failed.length) {
+    toast(`✅ ${n} marked OUT — stay safe!`);
+  } else if (failed.length === n) {
+    toast(`❌ None saved — ${STATE.lastApiError || 'network error'}`);
+  } else {
+    toast(`⚠️ ${n - failed.length}/${n} saved · failed: ${failed.join(', ')}`);
+  }
 };
 
 window.returnToHotel = async function() {
@@ -2762,12 +2791,24 @@ window.returnToHotel = async function() {
     STATE._gpsWatchId = null;
   }
   STATE._lastGpsSent = null;
+  // Snapshot prior so we can revert if the server rejects — previously we
+  // toasted "Welcome back!" even when the write didn't land, so the team
+  // roster still saw the officer as OUT.
+  const prior = STATE.memberStatuses[user.id] ? JSON.parse(JSON.stringify(STATE.memberStatuses[user.id])) : null;
   STATE.memberStatuses[user.id] = { status:'in_hotel', locationText:'Hotel', lat:CONFIG.hotel.lat, lng:CONFIG.hotel.lng, buddyWith:'', lastUpdated:new Date().toISOString() };
   renderLocation();
   renderPinnedActionBar();
-  await withLoader('Marking you back in hotel…', () =>
+  const resp = await withLoader('Marking you back in hotel…', () =>
     API.post('updateStatus', { memberId:user.id, name:user.name, shortName:user.shortName, role:user.role, syndicate:user.syndicate, status:'in_hotel', locationText:'Hotel', lat:CONFIG.hotel.lat, lng:CONFIG.hotel.lng, buddyWith:'' })
   );
+  if (resp == null) {
+    if (prior) STATE.memberStatuses[user.id] = prior;
+    else delete STATE.memberStatuses[user.id];
+    renderLocation();
+    renderPinnedActionBar();
+    toast('❌ Save failed — ' + (STATE.lastApiError || 'retry') + ' · status NOT updated');
+    return;
+  }
   toast('🏨 Welcome back!');
 };
 

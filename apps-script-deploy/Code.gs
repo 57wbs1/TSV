@@ -54,11 +54,23 @@ function doGet(e) {
       case 'fixAllPins':  data = fixAllPins(); break;
       case 'resetCasparPin': data = resetCasparPin(); break;
       case 'getBotChats': data = getBotChats(); break;
-      case 'testWeather': data = sendWeatherBriefing(); break;
-      case 'testEveningSitrep': data = sendEveningSitrep(); break;
-      case 'testMidnightSitrep': data = sendMidnightSitrep(); break;
-      case 'testForceSyn1AllIn': data = forceSyn1AllIn(); break;
-      case 'testParadeState':    data = sendParadeStateBroadcast(); break;
+      // Test endpoints fire real Telegram broadcasts — gate to super-admin so
+      // the deployment URL can't be scraped and replayed by anyone.
+      case 'testWeather':
+        if (e.parameter.actor !== SUPER_ADMIN_ID) { data = { error: 'Unauthorized' }; break; }
+        data = sendWeatherBriefing(); break;
+      case 'testEveningSitrep':
+        if (e.parameter.actor !== SUPER_ADMIN_ID) { data = { error: 'Unauthorized' }; break; }
+        data = sendEveningSitrep(); break;
+      case 'testMidnightSitrep':
+        if (e.parameter.actor !== SUPER_ADMIN_ID) { data = { error: 'Unauthorized' }; break; }
+        data = sendMidnightSitrep(); break;
+      case 'testForceSyn1AllIn':
+        if (e.parameter.actor !== SUPER_ADMIN_ID) { data = { error: 'Unauthorized' }; break; }
+        data = forceSyn1AllIn(); break;
+      case 'testParadeState':
+        if (e.parameter.actor !== SUPER_ADMIN_ID) { data = { error: 'Unauthorized' }; break; }
+        data = sendParadeStateBroadcast(); break;
       case 'wipeReflectionMatrix': data = wipeReflectionMatrix(e.parameter.actor); break;
       case 'resetIRCounter':
         if (e.parameter.actor !== SUPER_ADMIN_ID) { data = { error: 'Unauthorized' }; break; }
@@ -2209,32 +2221,34 @@ See everyone at the gate! 👋`
 
 // Pass `forceDate` (e.g. '2026-04-26') to test any day regardless of today's date.
 function sendDailyReminder(forceDate, overrideChatId) {
-  const bkk = bkkNow();
-  const tmr = forceDate
-    ? new Date(forceDate + 'T00:00:00+07:00')
-    : new Date(bkk.getTime() + 24*60*60*1000);
-  const tmrDate = forceDate || Utilities.formatDate(tmr, 'Asia/Bangkok', 'yyyy-MM-dd');
+  return _safeCron('reminder_1900', () => {
+    const bkk = bkkNow();
+    const tmr = forceDate
+      ? new Date(forceDate + 'T00:00:00+07:00')
+      : new Date(bkk.getTime() + 24*60*60*1000);
+    const tmrDate = forceDate || Utilities.formatDate(tmr, 'Asia/Bangkok', 'yyyy-MM-dd');
 
-  let msg = DAILY_PREVIEWS[tmrDate];
-  if (!msg) {
-    // For test / QC: if it's not a trip-eve day, pick the nearest upcoming preview
-    if (overrideChatId) {
-      const keys = Object.keys(DAILY_PREVIEWS).sort();
-      const upcoming = keys.find(k => k >= Utilities.formatDate(bkk, 'Asia/Bangkok', 'yyyy-MM-dd')) || keys[0];
-      if (upcoming) msg = '<b>[TEST PREVIEW — ' + upcoming + ']</b>\n\n' + DAILY_PREVIEWS[upcoming];
-    }
+    let msg = DAILY_PREVIEWS[tmrDate];
     if (!msg) {
-      logAction('reminder_skip', 'server', 'not trip day: ' + tmrDate);
-      return 'Not a trip-eve day: ' + tmrDate;
+      // For test / QC: if it's not a trip-eve day, pick the nearest upcoming preview
+      if (overrideChatId) {
+        const keys = Object.keys(DAILY_PREVIEWS).sort();
+        const upcoming = keys.find(k => k >= Utilities.formatDate(bkk, 'Asia/Bangkok', 'yyyy-MM-dd')) || keys[0];
+        if (upcoming) msg = '<b>[TEST PREVIEW — ' + upcoming + ']</b>\n\n' + DAILY_PREVIEWS[upcoming];
+      }
+      if (!msg) {
+        logAction('reminder_skip', 'server', 'not trip day: ' + tmrDate);
+        return 'Not a trip-eve day: ' + tmrDate;
+      }
     }
-  }
 
-  const sr2 = _tgSendRouted(msg, 'A2_reminder', overrideChatId);
-  if (sr2 === 'disabled') { logAction('reminder_disabled', 'server', tmrDate); return 'A2 disabled'; }
-  if (sr2 === 'killswitch-off') return 'A2 killswitch-off (' + tmrDate + ')';
-  if (String(sr2).indexOf('fail:') === 0) { logAction('reminder_fail', 'server', sr2.slice(0, 180)); return sr2; }
-  logAction('reminder_sent', 'server', tmrDate);
-  return 'Sent reminder for ' + tmrDate;
+    const sr2 = _tgSendRouted(msg, 'A2_reminder', overrideChatId);
+    if (sr2 === 'disabled') { logAction('reminder_disabled', 'server', tmrDate); return 'A2 disabled'; }
+    if (sr2 === 'killswitch-off') return 'A2 killswitch-off (' + tmrDate + ')';
+    if (String(sr2).indexOf('fail:') === 0) { logAction('reminder_fail', 'server', sr2.slice(0, 180)); return sr2; }
+    logAction('reminder_sent', 'server', tmrDate);
+    return 'Sent reminder for ' + tmrDate;
+  });
 }
 
 
@@ -2332,40 +2346,57 @@ function _buildSitrepMessage(data, header, dateLabel) {
   return msg;
 }
 
+// Wrap any cron handler so an uncaught throw doesn't bubble up to Google's
+// trigger runtime. Google auto-disables triggers after repeated failures, so
+// an unhandled exception on one night can kill the cron for the whole trip.
+// We catch, log, and return a marker instead of re-throwing.
+function _safeCron(name, fn) {
+  try { return fn(); }
+  catch (e) {
+    const msg = (e && e.message) ? e.message : String(e);
+    try { logAction(name + '_cron_crash', 'server', msg.slice(0, 200)); } catch (_) {}
+    return name + '_crashed: ' + msg;
+  }
+}
+
 // ── 2300H SITREP: all syndicates, actual status ──
 function sendEveningSitrep(overrideChatId) {
-  const bkk = bkkNow();
-  const dateLabel = Utilities.formatDate(bkk, 'Asia/Bangkok', 'd MMM EEE').toUpperCase();
-  const data = _buildSitrepData([]);   // no forced all-in
-  const msg = _buildSitrepMessage(data, '2300H SITREP', dateLabel);
-  const sr3 = _tgSendRouted(msg, 'A3_evening', overrideChatId);
-  if (sr3 === 'disabled') { logAction('sitrep_2300_disabled', 'server', ''); return 'A3 disabled'; }
-  if (sr3 === 'killswitch-off') return 'A3 killswitch-off';
-  if (String(sr3).indexOf('fail:') === 0) {
-    logAction('sitrep_2300_fail', 'server', sr3.slice(0, 180));
-    return sr3;
-  }
-  logAction('sitrep_2300', 'server', data.totals.inC + '/' + data.totals.total);
-  return 'Sent 2300H';
+  return _safeCron('sitrep_2300', () => {
+    const bkk = bkkNow();
+    const dateLabel = Utilities.formatDate(bkk, 'Asia/Bangkok', 'd MMM EEE').toUpperCase();
+    const data = _buildSitrepData([]);   // no forced all-in
+    const msg = _buildSitrepMessage(data, '2300H SITREP', dateLabel);
+    const sr3 = _tgSendRouted(msg, 'A3_evening', overrideChatId);
+    if (sr3 === 'disabled') { logAction('sitrep_2300_disabled', 'server', ''); return 'A3 disabled'; }
+    if (sr3 === 'killswitch-off') return 'A3 killswitch-off';
+    if (String(sr3).indexOf('fail:') === 0) {
+      logAction('sitrep_2300_fail', 'server', sr3.slice(0, 180));
+      return sr3;
+    }
+    logAction('sitrep_2300', 'server', data.totals.inC + '/' + data.totals.total);
+    return 'Sent 2300H';
+  });
 }
 
 // ── 0200H SITREP: all syndicates, forced groups reported as all-in ──
 function sendMidnightSitrep(overrideChatId) {
-  const bkk = bkkNow();
-  const yesterday = new Date(bkk.getTime() - 24*60*60*1000);
-  const yLabel = Utilities.formatDate(yesterday, 'Asia/Bangkok', 'd MMM EEE').toUpperCase();
-  // Read from the same config the 0130H auto-force-in uses (super-admin configurable)
-  const data = _buildSitrepData(_getForceInGroups());
-  const msg = _buildSitrepMessage(data, '0200H SITREP', yLabel);
-  const sr4 = _tgSendRouted(msg, 'A4_midnight', overrideChatId);
-  if (sr4 === 'disabled') { logAction('sitrep_0200_disabled', 'server', ''); return 'A4 disabled'; }
-  if (sr4 === 'killswitch-off') return 'A4 killswitch-off';
-  if (String(sr4).indexOf('fail:') === 0) {
-    logAction('sitrep_0200_fail', 'server', sr4.slice(0, 180));
-    return sr4;
-  }
-  logAction('sitrep_0200', 'server', data.totals.inC + '/' + data.totals.total);
-  return 'Sent 0200H';
+  return _safeCron('sitrep_0200', () => {
+    const bkk = bkkNow();
+    const yesterday = new Date(bkk.getTime() - 24*60*60*1000);
+    const yLabel = Utilities.formatDate(yesterday, 'Asia/Bangkok', 'd MMM EEE').toUpperCase();
+    // Read from the same config the 0130H auto-force-in uses (super-admin configurable)
+    const data = _buildSitrepData(_getForceInGroups());
+    const msg = _buildSitrepMessage(data, '0200H SITREP', yLabel);
+    const sr4 = _tgSendRouted(msg, 'A4_midnight', overrideChatId);
+    if (sr4 === 'disabled') { logAction('sitrep_0200_disabled', 'server', ''); return 'A4 disabled'; }
+    if (sr4 === 'killswitch-off') return 'A4 killswitch-off';
+    if (String(sr4).indexOf('fail:') === 0) {
+      logAction('sitrep_0200_fail', 'server', sr4.slice(0, 180));
+      return sr4;
+    }
+    logAction('sitrep_0200', 'server', data.totals.inC + '/' + data.totals.total);
+    return 'Sent 0200H';
+  });
 }
 
 // ── Air quality helpers ──
@@ -2447,6 +2478,9 @@ function _psiBand(v, label) {
 // Pulls the day's forecast from Open-Meteo (free, no key) and builds a
 // briefing with tailored advice based on max temp + humidity + rain.
 function sendWeatherBriefing(overrideChatId) {
+  return _safeCron('weather_0600', () => _sendWeatherBriefingImpl(overrideChatId));
+}
+function _sendWeatherBriefingImpl(overrideChatId) {
   const bkk = bkkNow();
   const dateLabel = Utilities.formatDate(bkk, 'Asia/Bangkok', 'EEEE, d MMM');
   const today = Utilities.formatDate(bkk, 'Asia/Bangkok', 'yyyy-MM-dd');
@@ -2780,6 +2814,17 @@ function updateParadeStatus(body) {
 //   Single-syndicate → header includes the syn label
 //   Multi/all-syndicate → standard date header; always lists who's not around
 //                         (user spec: never "Refer to TSV App" for parade state)
+// HTML-escape user-provided strings for Telegram parseMode=HTML. Unescaped
+// `<`, `>`, `&` in a message body cause Telegram to return 400 "can't parse
+// entities" and the whole message is silently dropped. Before this helper,
+// one officer entering "status: <hospital>" would kill the parade state send.
+function _escTg(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
 function _buildParadeStateMessage(options) {
   const opts = options || {};
   const wantGroups = Array.isArray(opts.groupKeys) && opts.groupKeys.length
@@ -2827,13 +2872,13 @@ function _buildParadeStateMessage(options) {
     msg += 'Nil — all personnel present ✅\n';
   } else {
     remarks.forEach(r => {
-      const nameWithRank = r.rank ? `${r.rank} ${r.name}` : r.name;
-      msg += `${_formatGroup(r.gk)}: ${nameWithRank} — ${r.status}\n`;
+      const nameWithRank = r.rank ? `${_escTg(r.rank)} ${_escTg(r.name)}` : _escTg(r.name);
+      msg += `${_formatGroup(r.gk)}: ${nameWithRank} — ${_escTg(r.status)}\n`;
     });
   }
 
   if (opts.remarks) {
-    msg += `\n${String(opts.remarks).trim()}\n`;
+    msg += `\n${_escTg(String(opts.remarks).trim())}\n`;
   }
   msg += `\n<b>END OF PARADE STATE</b>`;
   return msg;
@@ -2841,13 +2886,15 @@ function _buildParadeStateMessage(options) {
 
 // Server-scheduled 0830H daily broadcast (A5_parade)
 function sendParadeStateBroadcast(overrideChatId) {
-  const msg = _buildParadeStateMessage();
-  const sr = _tgSendRouted(msg, 'A5_parade', overrideChatId);
-  if (sr === 'disabled') { logAction('parade_disabled', 'server', ''); return 'A5 disabled'; }
-  if (sr === 'killswitch-off') return 'A5 killswitch-off';
-  if (String(sr).indexOf('fail:') === 0) { logAction('parade_0830_fail', 'server', sr.slice(0, 180)); return sr; }
-  logAction('parade_0830', 'server', 'sent');
-  return 'Parade State 0830H sent';
+  return _safeCron('parade_0830', () => {
+    const msg = _buildParadeStateMessage();
+    const sr = _tgSendRouted(msg, 'A5_parade', overrideChatId);
+    if (sr === 'disabled') { logAction('parade_disabled', 'server', ''); return 'A5 disabled'; }
+    if (sr === 'killswitch-off') return 'A5 killswitch-off';
+    if (String(sr).indexOf('fail:') === 0) { logAction('parade_0830_fail', 'server', sr.slice(0, 180)); return sr; }
+    logAction('parade_0830', 'server', 'sent');
+    return 'Parade State 0830H sent';
+  });
 }
 
 // Client-triggered ad-hoc parade state (M7_parade)
@@ -2873,6 +2920,9 @@ function sendAdhocParadeState(body) {
 }
 
 function forceSyn1AllIn() {
+  return _safeCron('force_syn_0130', () => _forceSyn1AllInImpl());
+}
+function _forceSyn1AllInImpl() {
   const targetGroups = _getForceInGroups();
   if (!targetGroups.length) {
     logAction('force_syn_skip', 'server', 'no groups configured');
@@ -3248,6 +3298,9 @@ function _normalizeHHmm(v) {
 // update the Calendar sheet row if anything changed. Deletes in GCal
 // are ignored (safer — user might have archived by accident).
 function syncFromGoogleCalendar() {
+  return _safeCron('gcal_sync', () => _syncFromGoogleCalendarImpl());
+}
+function _syncFromGoogleCalendarImpl() {
   const props = PropertiesService.getScriptProperties();
   const calId = props.getProperty(GCAL_PROP_KEY);
   if (!calId) { logAction('gcal_sync_skip', 'server', 'no calendar id'); return 'No TSV GCal configured'; }
