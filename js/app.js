@@ -3754,37 +3754,42 @@ window.postReflection = async function() {
 // ═══════════ IR TAB ══════════════════════════════════════════
 // Modes (STATE.irMode): 'list' (default) | 'new' | 'update:<incidentId>'
 //
-// Gotcha: IR markup lives in #tab-ir but when accessed via SOP → IR sub-tab,
-// renderSOP hoists #tab-ir's innerHTML into #tab-sop. Any subsequent
-// renderIR() call writes to #tab-ir (hidden), so the visible #tab-sop
-// never updates — clicks do nothing. Fix: always hoist after re-render.
+// IR is accessed via SOP → IR sub-tab. Rather than the old hoist-from-tab-ir
+// dance (which produced duplicate IDs and broke getElementById), we render
+// directly into a dedicated #ir-inner container inside #tab-sop. #tab-ir
+// stays unused and stable.
 function renderIR() {
+  // Ensure #ir-inner scaffold exists under #tab-sop with the sub-tab header
+  _ensureIRScaffold();
   const mode = STATE.irMode || 'list';
   if (mode === 'new')                       renderIRNew();
   else if (/^update:/.test(mode))           renderIRUpdate(mode.slice(7));
   else                                      renderIRList();
-  _hoistIRToSop();
 }
 
-// If the IR sub-tab is currently shown inside SOP, copy #tab-ir's content
-// over to #tab-sop (with the SOP sub-tab header) so re-renders reach the
-// visible DOM. CRITICAL: wipe #tab-ir afterwards — otherwise every ID in
-// the IR form (ir-nok-y, ir-desc, …) exists TWICE and document.getElementById
-// returns the hidden #tab-ir copy, breaking every onclick/.value read.
-function _hoistIRToSop() {
-  if (STATE.currentTab !== 'sop' || STATE.sopSubTab !== 'ir') return;
-  const irTab = el('tab-ir');
+function _ensureIRScaffold() {
+  // If SOP tab isn't the current one, nothing to do — renderSOP will call
+  // renderIR which will rebuild when needed.
   const sopTab = el('tab-sop');
-  if (!irTab || !sopTab) return;
-  const irHtml = irTab.innerHTML || '';
+  if (!sopTab) return;
+  // If #ir-inner already exists under SOP and we're in IR sub-tab, reuse it
+  if (el('ir-inner') && STATE.sopSubTab === 'ir') return;
+  // Build fresh scaffold
   sopTab.innerHTML = `
     <div class="subtab-row" id="sop-subtabs">
       <button class="subtab-btn" onclick="setSopSubTab('sops')">🛡️ SOPs</button>
       <button class="subtab-btn active" onclick="setSopSubTab('ir')">🚨 Incident Report for Syn IC</button>
     </div>
-    ${irHtml}`;
-  // Dedupe — empty the hidden tab-ir so IDs live ONLY in the visible tab-sop
-  irTab.innerHTML = '';
+    <div id="ir-inner"></div>`;
+  // Clear the legacy #tab-ir so any stale IDs there can't shadow ours
+  const irTab = el('tab-ir');
+  if (irTab) irTab.innerHTML = '';
+}
+
+// Target element for IR body HTML. Falls back to #tab-ir if SOP isn't ready
+// (shouldn't happen in practice — renderSOP is what triggers renderIR).
+function _irTarget() {
+  return el('ir-inner') || el('tab-ir');
 }
 
 // ── LIST view — default landing for the IR sub-tab ──────────
@@ -3800,7 +3805,7 @@ function renderIRList() {
   const incidents = STATE.incidents;
   if (!Array.isArray(incidents)) {
     // No cache + no fetch yet — show a minimal placeholder and kick off load
-    el('tab-ir').innerHTML = `
+    _irTarget().innerHTML = `
       <div class="ir-header-banner"><h2>🚨 Incident Reports</h2><p>Loading…</p></div>`;
     _loadIncidents();
     return;
@@ -3866,7 +3871,7 @@ function renderIRList() {
       </div>`;
   };
 
-  el('tab-ir').innerHTML = `
+  _irTarget().innerHTML = `
     <div class="ir-header-banner">
       <h2>🚨 Incident Reports</h2>
       <p>Lifecycle tracker — NEW → Updates → CLOSED. Auto-logs to Google Sheets.</p>
@@ -3898,7 +3903,7 @@ function renderIRNew() {
   const me = STATE.currentUser;
   const myGroup = me ? formatGroupDisplay(memberGroupKey(me)) : '';
   const myName = me ? `${me.rank ? me.rank + ' ' : ''}${me.name}` : '';
-  el('tab-ir').innerHTML = `
+  _irTarget().innerHTML = `
     <div class="ir-header-banner">
       <div style="display:flex;align-items:center;gap:10px">
         <button class="btn btn-outline btn-sm" onclick="closeIRForm()">← Back</button>
@@ -3968,7 +3973,7 @@ function renderIRUpdate(incidentId) {
     const body = ev.eventType === 'NEW' ? ev.description : ev.updateText;
     return `<div style="padding:4px 0"><b>${escapeHtml(ev.eventType)} #${ev.eventNum}</b> · ${escapeHtml(ev.timestamp)}H — ${escapeHtml((body || '').slice(0, 120))}</div>`;
   }).join('');
-  el('tab-ir').innerHTML = `
+  _irTarget().innerHTML = `
     <div class="ir-header-banner">
       <div style="display:flex;align-items:center;gap:10px">
         <button class="btn btn-outline btn-sm" onclick="closeIRForm()">← Back</button>
@@ -4246,8 +4251,8 @@ function renderSOP() {
         </div>`;
       return;
     }
-    // renderIR writes to #tab-ir then auto-hoists into #tab-sop via
-    // _hoistIRToSop() — no manual copy needed here.
+    // renderIR builds the scaffold under #tab-sop and renders directly
+    // into #ir-inner — no cross-container shuffling.
     renderIR();
     return;
   }
