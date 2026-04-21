@@ -2475,9 +2475,16 @@ window.setLocationFilter = function(f) {
 };
 
 // ═══════════ BUDDY / STATUS ACTIONS ══════════════════════════
+// New UX (replaces multi-group-expanded mess):
+//   1. Dropdown: pick ONE syndicate
+//   2. Members of that syndicate render as tappable cards
+//   3. Selections persist in STATE.buddySelected (Set) across syndicate switches
+//   4. Running chip list at the bottom shows everyone selected, tap a chip to deselect
 window.showBuddyModal = function() {
   el('buddy-modal').classList.remove('hidden');
   STATE._pendingGPS = null;
+  STATE.buddySelected = new Set();
+  STATE.buddyPickedSyn = null;  // will auto-pick first available on first render
   // Reset the in-modal GPS button
   const gpsBtn = el('buddy-gps-btn');
   if (gpsBtn) { gpsBtn.textContent = '📡 GPS'; gpsBtn.disabled = false; gpsBtn.style.background = ''; }
@@ -2486,7 +2493,6 @@ window.showBuddyModal = function() {
   const locInput = el('location-text-input');
   if (locInput) locInput.value = '';
 
-  if (!STATE.expandedBuddyGroups) STATE.expandedBuddyGroups = new Set();
   const user = STATE.currentUser;
   if (!user) return;
   renderBuddyList();
@@ -2497,65 +2503,96 @@ function renderBuddyList() {
   const list = el('buddy-list');
   const user = STATE.currentUser;
   if (!user) { list.innerHTML = ''; return; }
-  const groups = groupOrder();
-  const selectedIds = new Set(
-    [...document.querySelectorAll('.buddy-item.selected')].map(x => x.dataset.id)
-  );
+  if (!STATE.buddySelected) STATE.buddySelected = new Set();
 
-  list.innerHTML = groups.map(gk => {
-    const members = membersInGroup(gk)
-      .filter(m => m.id !== user.id && getStatusOf(m.id).status !== 'out');
-    if (!members.length) return '';
-    const isOpen = STATE.expandedBuddyGroups.has(gk);
-    const safeId = gk.replace(/[^a-z0-9]/gi, '_');
-    const itemsHtml = !isOpen ? '' : members.map(m => {
-      const sel = selectedIds.has(m.id) ? 'selected' : '';
-      return `<div class="buddy-item ${sel}" data-id="${m.id}" onclick="toggleBuddySelect(this)">
-        <span class="bi-dot"></span>${escapeHtml(m.shortName || m.name)}
-      </div>`;
-    }).join('');
-    const selectedCount = members.filter(m => selectedIds.has(m.id)).length;
-    return `
-      <div class="buddy-group" id="bg-${safeId}">
-        <div class="buddy-group-header" style="background:${synColor(gk)}"
-          onclick="toggleBuddyGroup('${gk.replace(/'/g,"\\'")}')">
-          <span>${formatGroupDisplay(gk)} <span style="opacity:.75;font-weight:600">· ${members.length}</span></span>
-          <span style="display:flex;align-items:center;gap:6px">
-            ${selectedCount ? `<span class="selcount">${selectedCount} selected</span>` : ''}
-            <span style="font-size:10px;opacity:.8">${isOpen?'▲':'▼'}</span>
-          </span>
-        </div>
-        ${isOpen ? `<div class="buddy-group-items">${itemsHtml}</div>` : ''}
-      </div>`;
-  }).join('') || '<p style="padding:16px;color:var(--text-2);font-size:13px;text-align:center">No members available.</p>';
+  // Build per-syndicate roster (filter out: me + members already OUT)
+  const groups = groupOrder();
+  const synOptions = groups.map(gk => {
+    const members = membersInGroup(gk).filter(m =>
+      m.id !== user.id && getStatusOf(m.id).status !== 'out'
+    );
+    return { gk, label: formatGroupDisplay(gk), count: members.length, members };
+  }).filter(o => o.count > 0);
+
+  if (!synOptions.length) {
+    list.innerHTML = '<p style="padding:16px;color:var(--text-2);font-size:13px;text-align:center">No members available.</p>';
+    return;
+  }
+
+  // If current syndicate not valid (first open, or picked syn empty), pick first
+  if (!STATE.buddyPickedSyn || !synOptions.find(o => o.gk === STATE.buddyPickedSyn)) {
+    STATE.buddyPickedSyn = synOptions[0].gk;
+  }
+
+  const current = synOptions.find(o => o.gk === STATE.buddyPickedSyn);
+  const color = synColor(current.gk);
+  const selectedInCurrent = current.members.filter(m => STATE.buddySelected.has(m.id)).length;
+  const totalSelected = STATE.buddySelected.size;
+
+  // Pre-compute selected chips (across ALL syndicates)
+  const selectedMembers = [...STATE.buddySelected].map(id => getMemberById(id)).filter(Boolean);
+  const chipsRow = selectedMembers.length ? `
+    <div style="margin-top:12px;padding:10px 12px;background:var(--n-50);border-radius:10px;border:1px solid var(--border)">
+      <div style="font-size:11px;font-weight:800;color:var(--text-2);letter-spacing:.04em;text-transform:uppercase;margin-bottom:6px">
+        Selected buddies · ${totalSelected}
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        ${selectedMembers.map(m => {
+          const gk = memberGroupKey(m);
+          const c = synColor(gk);
+          return `<span class="buddy-chip" onclick="toggleBuddyPick('${m.id}')"
+            style="cursor:pointer;background:${c};color:#fff;padding:4px 10px;border-radius:14px;font-size:12px;font-weight:700;display:inline-flex;align-items:center;gap:4px">
+            ${escapeHtml(m.shortName || m.name)} <span style="opacity:.75;font-weight:900">✕</span>
+          </span>`;
+        }).join('')}
+      </div>
+    </div>` : '';
+
+  list.innerHTML = `
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
+      <label style="font-size:12px;font-weight:700;color:var(--text-2);white-space:nowrap">Syndicate:</label>
+      <select id="buddy-syn-select" onchange="pickBuddySyn(this.value)"
+        style="flex:1;border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-size:14px;background:var(--card);color:var(--text);font-weight:700;appearance:auto">
+        ${synOptions.map(o => {
+          const sel = [...STATE.buddySelected].filter(id => o.members.some(m => m.id === id)).length;
+          return `<option value="${escapeHtml(o.gk)}" ${o.gk === current.gk ? 'selected' : ''}>
+            ${escapeHtml(o.label)} — ${o.count} ${sel ? `· ${sel} picked` : ''}
+          </option>`;
+        }).join('')}
+      </select>
+    </div>
+
+    <div class="buddy-group" style="border-left:4px solid ${color}">
+      <div class="buddy-group-header" style="background:${color}">
+        <span>${escapeHtml(current.label)} · ${current.count} members</span>
+        ${selectedInCurrent ? `<span class="selcount">${selectedInCurrent} picked</span>` : ''}
+      </div>
+      <div class="buddy-group-items">
+        ${current.members.map(m => {
+          const sel = STATE.buddySelected.has(m.id) ? 'selected' : '';
+          return `<div class="buddy-item ${sel}" onclick="toggleBuddyPick('${m.id}')">
+            <span class="bi-dot"></span>${escapeHtml(m.shortName || m.name)}
+          </div>`;
+        }).join('')}
+      </div>
+    </div>
+
+    ${chipsRow}
+  `;
 }
 
-window.toggleBuddyGroup = function(gk) {
-  if (!STATE.expandedBuddyGroups) STATE.expandedBuddyGroups = new Set();
-  if (STATE.expandedBuddyGroups.has(gk)) STATE.expandedBuddyGroups.delete(gk);
-  else STATE.expandedBuddyGroups.add(gk);
+// Switch the visible syndicate (selections persist)
+window.pickBuddySyn = function(gk) {
+  STATE.buddyPickedSyn = gk;
   renderBuddyList();
 };
 
-window.toggleBuddySelect = function(itemEl) {
-  itemEl.classList.toggle('selected');
-  // Update the selected-count pill in this group's header without full re-render
-  const groupEl = itemEl.closest('.buddy-group');
-  if (!groupEl) return;
-  const count = groupEl.querySelectorAll('.buddy-item.selected').length;
-  const header = groupEl.querySelector('.buddy-group-header');
-  const existing = header?.querySelector('.selcount');
-  if (count === 0) existing?.remove();
-  else {
-    if (existing) existing.textContent = count + ' selected';
-    else {
-      const right = header?.lastElementChild;
-      const pill = document.createElement('span');
-      pill.className = 'selcount';
-      pill.textContent = count + ' selected';
-      right?.insertBefore(pill, right.firstElementChild);
-    }
-  }
+// Toggle one member's selection (called from cards AND chips)
+window.toggleBuddyPick = function(id) {
+  if (!STATE.buddySelected) STATE.buddySelected = new Set();
+  if (STATE.buddySelected.has(id)) STATE.buddySelected.delete(id);
+  else STATE.buddySelected.add(id);
+  renderBuddyList();
 };
 
 // Pre-share GPS from inside the buddy modal (before submitting)
@@ -2589,8 +2626,8 @@ window.confirmLeaveHotel = async function() {
   if (!user) return;
   const rawLoc = el('location-text-input')?.value?.trim() || '';
   const locText = rawLoc || 'Out of Hotel';
-  const selectedItems = [...document.querySelectorAll('.buddy-item.selected')];
-  const buddyObjs = selectedItems.map(x => getMemberById(x.dataset.id)).filter(Boolean);
+  const buddyObjs = [...(STATE.buddySelected || [])]
+    .map(id => getMemberById(id)).filter(Boolean);
   const myLabel = user.shortName || user.name;
   const buddyLabels = buddyObjs.map(b => b.shortName || b.name);
   // Confirm when marking ≥ 2 people out to prevent fat-finger group check-outs
