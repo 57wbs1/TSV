@@ -4497,18 +4497,106 @@ window.editParadeStatus = async function(memberId) {
   toast('✅ Status updated');
 };
 
-// Fire the ad-hoc parade state message via Telegram (M7 routing key)
-window.sendAdhocParadeStateClick = async function() {
-  const remarks = prompt('Optional remarks to append (blank for none):', '');
-  if (remarks === null) return;
-  const resp = await withLoader('Sending Parade State…', () =>
-    API.postRaw('sendAdhocParadeState', { remarks: String(remarks).trim(), actor: STATE.currentUser?.id })
+// Picker (mirrors ADHOC SITREP picker) — select syns + remarks + mass-send.
+// Mass send = omit groupKeys; server includes every syn's counts AND the
+// remarks of every non-Present member (per user spec: never "Refer to TSV App").
+window.sendAdhocParadeStateClick = function() {
+  const canAll = canSeeAllSyndicates();
+  const allowed = (canAll ? groupOrder() : visibleGroups());
+  const opts = allowed.map(g => ({ key: g, label: formatGroupDisplay(g), count: membersInGroup(g).length }));
+
+  // Non-admin single-visible syn → pre-select it
+  STATE._paradeSelected = opts.length === 1 ? new Set([opts[0].key]) : new Set();
+
+  const rows = opts.map(o => {
+    const sel = STATE._paradeSelected.has(o.key);
+    return `
+      <button class="adhoc-row adhoc-multi ${sel ? 'selected' : ''}" data-key="${escapeHtml(o.key)}" onclick="toggleParadePick(this)">
+        <span class="ah-check">${sel ? '☑' : '☐'}</span>
+        <span class="ah-label">${escapeHtml(o.label)}</span>
+        <span class="ah-count">${o.count} ${o.count === 1 ? 'member' : 'members'}</span>
+      </button>`;
+  }).join('');
+
+  const wrap = document.createElement('div');
+  wrap.id = 'parade-picker';
+  wrap.className = 'adhoc-picker';
+  wrap.innerHTML = `
+    <div class="adhoc-sheet">
+      <h3>📝 Send Parade State</h3>
+      <p class="ah-sub">Tap each syndicate to include. Add remarks if needed.</p>
+      ${rows}
+
+      <div style="margin:12px 0 4px">
+        <label style="font-size:12px;font-weight:700;color:var(--text-2);display:block;margin-bottom:4px">
+          Remarks <span style="font-weight:400;opacity:.7">(optional — appears at bottom of message)</span>
+        </label>
+        <textarea id="parade-remarks"
+          style="width:100%;box-sizing:border-box;border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-size:13px;font-family:inherit;min-height:56px;background:var(--card);color:var(--text);resize:vertical"
+          placeholder="e.g. Day 2 pre-brief · All medical cases recovered"></textarea>
+      </div>
+
+      <div class="adhoc-actions">
+        <button class="adhoc-cancel" onclick="closeParadePicker()">Cancel</button>
+        <button id="parade-send-btn" class="adhoc-send" onclick="sendParadeSelected()" ${STATE._paradeSelected.size ? '' : 'disabled'}>Send selected (${STATE._paradeSelected.size})</button>
+      </div>
+
+      ${canAll ? `<button class="adhoc-row mass" onclick="sendParadeMassClick()">
+        📣 Mass send — all syndicates (lists every non-Present member)
+      </button>` : ''}
+    </div>`;
+  document.body.appendChild(wrap);
+};
+
+window.toggleParadePick = function(btn) {
+  const key = btn.dataset.key;
+  if (!STATE._paradeSelected) STATE._paradeSelected = new Set();
+  if (STATE._paradeSelected.has(key)) {
+    STATE._paradeSelected.delete(key);
+    btn.classList.remove('selected');
+    const chk = btn.querySelector('.ah-check'); if (chk) chk.textContent = '☐';
+  } else {
+    STATE._paradeSelected.add(key);
+    btn.classList.add('selected');
+    const chk = btn.querySelector('.ah-check'); if (chk) chk.textContent = '☑';
+  }
+  const sendBtn = el('parade-send-btn');
+  if (sendBtn) {
+    const n = STATE._paradeSelected.size;
+    sendBtn.disabled = n === 0;
+    sendBtn.textContent = `Send selected (${n})`;
+  }
+};
+
+window.closeParadePicker = function() { el('parade-picker')?.remove(); };
+
+window.sendParadeSelected = async function() {
+  const picks = [...(STATE._paradeSelected || [])];
+  if (!picks.length) return;
+  const remarks = (el('parade-remarks')?.value || '').trim();
+  closeParadePicker();
+  const label = picks.length === 1 ? formatGroupDisplay(picks[0]) : `${picks.length} syndicates`;
+  const resp = await withLoader(`Sending Parade State (${label})…`, () =>
+    API.postRaw('sendAdhocParadeState', { groupKeys: picks, remarks, actor: STATE.currentUser?.id })
   );
-  if (!resp)                 return toast('❌ No response — retry');
-  if (resp.ok === false)     return toast('❌ ' + (resp.error || 'Send failed'));
+  if (!resp)             return toast('❌ No response — retry');
+  if (resp.ok === false) return toast('❌ ' + (resp.error || 'Send failed'));
   const inner = resp.data;
   if (inner && inner.ok === false) return toast('❌ ' + inner.error);
-  toast('✅ Parade State sent to Telegram');
+  toast('✅ ' + (inner?.sent || 'Parade State sent'));
+};
+
+window.sendParadeMassClick = async function() {
+  const remarks = (el('parade-remarks')?.value || '').trim();
+  closeParadePicker();
+  const resp = await withLoader('Sending Mass Parade State…', () =>
+    API.postRaw('sendAdhocParadeState', { groupKeys: [], remarks, actor: STATE.currentUser?.id })
+  );
+  if (!resp)             return toast('❌ No response — retry');
+  if (resp.ok === false) return toast('❌ ' + (resp.error || 'Send failed'));
+  const inner = resp.data;
+  if (inner && inner.ok === false) return toast('❌ ' + inner.error);
+  toast('✅ ' + (inner?.sent || 'Mass Parade State sent'));
 };
 
 function renderRooms() {

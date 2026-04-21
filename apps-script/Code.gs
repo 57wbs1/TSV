@@ -2306,11 +2306,17 @@ function updateParadeStatus(body) {
 }
 
 // Build the Telegram parade-state message.
-//   Header: PARADE STATE FOR 26 APR (SUN)
-//   Per syndicate: present / total
-//   Remarks: one line per non-Present member
+//   options:
+//     groupKeys (array) — if non-empty, only include these syndicates
+//                         (and only their members' remarks)
+//     remarks (string)  — free-text footer
+//   Single-syndicate → header includes the syn label
+//   Multi/all-syndicate → standard date header; always lists who's not around
+//                         (user spec: never "Refer to TSV App" for parade state)
 function _buildParadeStateMessage(options) {
   const opts = options || {};
+  const wantGroups = Array.isArray(opts.groupKeys) && opts.groupKeys.length
+    ? new Set(opts.groupKeys) : null;   // null = all groups
   const members = readSheet(SHEETS.MEMBERS).filter(m =>
     m.isDeleted !== 'true' && m.isDeleted !== true
   );
@@ -2322,12 +2328,17 @@ function _buildParadeStateMessage(options) {
     if (!byGroup[gk]) byGroup[gk] = [];
     byGroup[gk].push(m);
   });
-  const groups = Object.keys(byGroup).sort((a, b) => _groupPriority(a) - _groupPriority(b));
+  let groups = Object.keys(byGroup).sort((a, b) => _groupPriority(a) - _groupPriority(b));
+  if (wantGroups) groups = groups.filter(g => wantGroups.has(g));
+  if (!groups.length) groups = Object.keys(byGroup);   // safety fallback
 
   const bkk = bkkNow();
   const dateLabel = Utilities.formatDate(bkk, 'Asia/Bangkok', 'd MMM (EEE)').toUpperCase();
 
-  let msg = `<b>PARADE STATE FOR ${dateLabel}</b>\n\n`;
+  // Header varies: single-syn includes the syn label on line 2
+  let msg = `<b>PARADE STATE FOR ${dateLabel}</b>\n`;
+  if (groups.length === 1) msg += `<b>${_formatGroup(groups[0])}</b>\n`;
+  msg += `\n`;
 
   const remarks = [];
   groups.forEach(gk => {
@@ -2369,12 +2380,21 @@ function sendParadeStateBroadcast(overrideChatId) {
 }
 
 // Client-triggered ad-hoc parade state (M7_parade)
+// body: { groupKeys?: [syn...], remarks?: string, actor }
+// Empty/missing groupKeys = all syndicates ("mass send")
 function sendAdhocParadeState(body) {
-  const msg = _buildParadeStateMessage({ remarks: body ? body.remarks : '' });
+  const groupKeys = Array.isArray(body && body.groupKeys) ? body.groupKeys : [];
+  const msg = _buildParadeStateMessage({
+    groupKeys,
+    remarks: body ? body.remarks : ''
+  });
   const sr = _tgSendRouted(msg, 'M7_parade');
   if (sr === 'disabled') return { ok: false, error: 'M7_parade disabled in settings' };
-  logAction('parade_adhoc', body ? (body.actor || '') : '', 'sent');
-  return { ok: true, sent: 'ad-hoc parade state' };
+  const label = groupKeys.length === 0 ? 'mass (all syns)'
+              : groupKeys.length === 1 ? _formatGroup(groupKeys[0])
+              : groupKeys.length + ' syns';
+  logAction('parade_adhoc', body ? (body.actor || '') : '', label);
+  return { ok: true, sent: 'parade state · ' + label };
 }
 
 function forceSyn1AllIn() {
