@@ -3751,6 +3751,17 @@ window.postReflection = async function() {
   renderLearnings();
 };
 
+// Safe "rank + name" builder — avoids "MAJ MAJ Caspar Ng" when member.name
+// already includes the rank prefix (current roster convention).
+const _RANK_PREFIX_RE = /^(COL|SLTC|LTC|SWO|MWO|CWO|MAJ|CPT|ME[3-8]|BG|SQN LDR|WG CDR|WCDR|LT CDR|Ms|Mr|DX12)\b/i;
+function _displayName(m) {
+  if (!m) return '';
+  const name = (m.name || '').trim();
+  if (!name) return m.shortName || m.id || '';
+  if (_RANK_PREFIX_RE.test(name)) return name;   // already prefixed
+  return m.rank ? `${m.rank} ${name}` : name;
+}
+
 // ═══════════ IR TAB ══════════════════════════════════════════
 // Modes (STATE.irMode): 'list' (default) | 'new' | 'update:<incidentId>'
 //
@@ -3902,7 +3913,8 @@ function renderIRList() {
 function renderIRNew() {
   const me = STATE.currentUser;
   const myGroup = me ? formatGroupDisplay(memberGroupKey(me)) : '';
-  const myName = me ? `${me.rank ? me.rank + ' ' : ''}${me.name}` : '';
+  // me.name already includes the rank (e.g. "MAJ Caspar Ng") so use it as-is.
+  const myName = me ? _displayName(me) : '';
   _irTarget().innerHTML = `
     <div class="ir-header-banner">
       <div style="display:flex;align-items:center;gap:10px">
@@ -4213,7 +4225,7 @@ window.submitIRUpdate = async function(incidentId) {
     API.postRaw('addIncidentUpdate', {
       incidentId, updateText, closeOut,
       reportedBy: me.id,
-      reportedByName: `${me.rank ? me.rank + ' ' : ''}${me.name}`,
+      reportedByName: _displayName(me),
       telegramSent: sendTG,
       actor: me.id
     })
@@ -4228,7 +4240,7 @@ window.submitIRUpdate = async function(incidentId) {
       id: incidentId,
       eventNum: inner.eventNum,
       updateText, closeOut,
-      reportedByName: `${me.rank ? me.rank + ' ' : ''}${me.name}`,
+      reportedByName: _displayName(me),
       timestamp: inner.timestamp
     }, incident);
     const ok = await TELEGRAM.sendRouted('M1_ir', msg, 'Markdown');
@@ -4244,7 +4256,7 @@ window.submitIRUpdate = async function(incidentId) {
       eventType: closeOut ? 'CLOSED' : 'UPDATE',
       timestamp: inner.timestamp,
       reportedBy: me.id,
-      reportedByName: `${me.rank ? me.rank + ' ' : ''}${me.name}`,
+      reportedByName: _displayName(me),
       updateText, telegramSent: sendTG ? 'true' : 'false'
     });
     inc.latestAt = inner.timestamp;
