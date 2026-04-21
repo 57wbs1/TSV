@@ -57,6 +57,17 @@ const API = {
     }
   },
   async post(action, data) {
+    const resp = await this._postRaw(action, data);
+    if (!resp) return null;
+    return resp.ok ? resp.data : null;
+  },
+  // Variant that surfaces the full server response so callers can read
+  // json.error / json.description / json.data independently. Use when you
+  // need to tell the user exactly why something failed.
+  async postRaw(action, data) {
+    return this._postRaw(action, data);
+  },
+  async _postRaw(action, data) {
     if (!this.configured) { STATE.apiState = 'unconfigured'; return null; }
     // Always include an `actor` (server gate requires it for mutations).
     const payload = { action, actor: (data && data.actor) || STATE.currentUser?.id || '', ...data };
@@ -74,7 +85,7 @@ const API = {
       STATE.apiState = 'online';
       STATE.offlineMode = false;
       if (!json.ok && json.error) console.warn('[API]', action, json.error);
-      return json.ok ? json.data : null;
+      return json;
     } catch (e) {
       STATE.apiState = navigator.onLine ? 'error' : 'offline';
       STATE.offlineMode = true;
@@ -963,7 +974,9 @@ window.showSelfRegister = function() {
 };
 window.hideSelfRegister = function() {
   el('self-register-modal').classList.add('hidden');
-  showIdentityModal();
+  // Return to the current login flow (Syndicate → Name → PIN), not the legacy
+  // identity-modal which no longer exists / has stale state.
+  showLoginFlow();
 };
 function populateSelfRegSyn(csc, preselectSyn) {
   const syns = getSyndicatesForCSC(csc);
@@ -1270,6 +1283,11 @@ function setupPullToRefresh() {
 
   main.addEventListener('touchstart', (e) => {
     if (refreshing) return;
+    // Don't trigger PTR while a modal is open OR the user is typing in a
+    // textarea/input — accidental refresh wipes in-progress compose.
+    if (anyModalOpen()) { pulling = false; return; }
+    const activeTag = document.activeElement?.tagName;
+    if (activeTag === 'TEXTAREA' || activeTag === 'INPUT') { pulling = false; return; }
     if (main.scrollTop > 0) { pulling = false; return; }
     startY = e.touches[0].clientY;
     pulling = true;
@@ -2526,6 +2544,12 @@ window.confirmLeaveHotel = async function() {
   const buddyObjs = selectedItems.map(x => getMemberById(x.dataset.id)).filter(Boolean);
   const myLabel = user.shortName || user.name;
   const buddyLabels = buddyObjs.map(b => b.shortName || b.name);
+  // Confirm when marking ≥ 2 people out to prevent fat-finger group check-outs
+  const totalOut = 1 + buddyObjs.length;
+  if (totalOut >= 2) {
+    const names = [myLabel, ...buddyLabels].join(', ');
+    if (!confirm(`Marking ${totalOut} OUT at "${locText}":\n\n${names}\n\nContinue?`)) return;
+  }
   hideBuddyModal();
 
   // User explicitly does NOT want auto-GPS on Leaving Hotel. Only use
@@ -2955,19 +2979,27 @@ window.saveTransportProgress = async function() {
   const actorName = user ? (user.shortName || user.name) : 'unknown';
   const remarks = (el('tmod-remarks')?.value || m.remarks || '').trim();
   // Optimistic update so UI reflects save immediately even if server is slow
+  const priorState = STATE.transport ? JSON.parse(JSON.stringify(STATE.transport)) : {};
   if (!STATE.transport) STATE.transport = {};
   if (!STATE.transport[m.vehicleId]) STATE.transport[m.vehicleId] = { status:'idle', boardedSyns:[], driver:{} };
   STATE.transport[m.vehicleId].boardedSyns = m.selected.slice();
   STATE.transport[m.vehicleId].boardingRemarks = remarks;
-  const result = await API.post('updateTransport', {
+  const resp = await API.postRaw('updateTransport', {
     vehicleId: m.vehicleId,
     op: 'boardBatch',           // renamed from 'action' (was shadowing outer action)
     synLabels: m.selected,
     remarks,
     actorName
   });
-  if (result) STATE.transport = result;
-  toast('💾 Progress saved');
+  if (resp && resp.ok && resp.data) {
+    STATE.transport = resp.data;
+    toast('💾 Progress saved');
+  } else {
+    // Roll back optimistic update and tell user honestly
+    STATE.transport = priorState;
+    const err = resp?.error || 'no response (offline?)';
+    toast('❌ Save failed — ' + err);
+  }
   STATE.transportModal = null;
   const body = el('calendar-sub-content');
   if (body) _redrawTransport(body);
@@ -4302,15 +4334,55 @@ function renderSettings() {
     return;
   }
   const gk = memberGroupKey(user);
-  const sizePref = localStorage.getItem('tsv_size') || 'md';
-  const themePref = localStorage.getItem('tsv_theme') || 'auto';
   const isSuperAdmin = user.id === CONFIG.superAdminId;
+  const canSeeAdmin = hasAdminRights() || !hasAdminRights();   // everyone sees Admin tab (request flow is there too)
+  // Default sub-tab
+  if (!STATE.settingsSubTab) STATE.settingsSubTab = 'me';
+  const sub = STATE.settingsSubTab;
   const adminReqs = STATE.adminRequests || [];
   const pendingReqs = adminReqs.filter(r => r.status === 'pending');
+  const pendingBadge = (isSuperAdmin && pendingReqs.length) ? ` <span style="display:inline-block;background:#ef4444;color:#fff;border-radius:10px;padding:0 6px;font-size:10px;font-weight:800;margin-left:4px">${pendingReqs.length}</span>` : '';
 
-  container.innerHTML = `
-    <div class="section-title">⚙️ Settings</div>
-    <!-- Account -->
+  const subtabBar = `
+    <div class="subtab-bar" style="display:flex;gap:6px;padding:10px 12px 6px;overflow-x:auto">
+      <button class="subtab-btn ${sub === 'me'      ? 'active' : ''}" onclick="setSettingsSubTab('me')">👤 Me</button>
+      <button class="subtab-btn ${sub === 'display' ? 'active' : ''}" onclick="setSettingsSubTab('display')">🎨 Display</button>
+      <button class="subtab-btn ${sub === 'admin'   ? 'active' : ''}" onclick="setSettingsSubTab('admin')">🔐 Admin${pendingBadge}</button>
+    </div>`;
+
+  let body = '';
+  if (sub === 'me')           body = _renderSettingsMe(user, gk);
+  else if (sub === 'display') body = _renderSettingsDisplay();
+  else if (sub === 'admin')   body = _renderSettingsAdmin(user, isSuperAdmin, pendingReqs);
+
+  container.innerHTML = subtabBar + `<div id="settings-sub-content">${body}</div>`;
+
+  // Post-render hooks (only run when admin sub-tab is active)
+  if (sub === 'admin' && isSuperAdmin) {
+    const cached = (() => { try { return JSON.parse(localStorage.getItem('tsv_tg_config') || 'null'); } catch { return null; } })();
+    if (cached) _renderTelegramConfig(cached, true);
+    API.get('getTelegramConfig').then(cfg => {
+      if (!cfg) {
+        if (!cached) {
+          const c = el('tg-config-container');
+          if (c) c.innerHTML = `<div style="padding:12px 16px;color:#b91c1c;font-size:12px">⚠️ Could not load Telegram config — check connection and reload.</div>`;
+        }
+        return;
+      }
+      localStorage.setItem('tsv_tg_config', JSON.stringify(cfg));
+      _renderTelegramConfig(cfg, false);
+    });
+  }
+}
+
+window.setSettingsSubTab = function(sub) {
+  STATE.settingsSubTab = sub;
+  renderSettings();
+};
+
+// ── Settings: ME sub-tab (Account + Session) ──
+function _renderSettingsMe(user, gk) {
+  return `
     <div class="settings-section">
       <div class="settings-section-header">👤 Account</div>
       <div class="settings-row">
@@ -4349,10 +4421,24 @@ function renderSettings() {
       </div>
     </div>
 
-    <!-- App Display (consolidated) -->
+    <div class="settings-section">
+      <div class="settings-section-header">🚪 Session</div>
+      <div class="settings-row">
+        <div class="sr-label">Sign out
+          <div class="sr-value">Back to login screen</div>
+        </div>
+        <button class="btn btn-red btn-sm" onclick="if(confirm('Sign out?'))logout()">Sign Out</button>
+      </div>
+    </div>`;
+}
+
+// ── Settings: DISPLAY sub-tab (theme, size, layout) ──
+function _renderSettingsDisplay() {
+  const sizePref = localStorage.getItem('tsv_size') || 'md';
+  const themePref = localStorage.getItem('tsv_theme') || 'auto';
+  return `
     <div class="settings-section">
       <div class="settings-section-header">📱 App Display</div>
-
       <div class="settings-row">
         <div class="sr-label">Text Size
           <div class="sr-value">Scales body text only — card sizes stay fixed</div>
@@ -4437,60 +4523,58 @@ function renderSettings() {
       <div style="padding:0 16px 14px">
         <button class="btn btn-outline btn-block btn-sm" onclick="resetLayout()">↺ Reset to defaults</button>
       </div>
-    </div>
+    </div>`;
+}
 
-    <!-- Access -->
-    <div class="settings-section">
-      <div class="settings-section-header">🔐 Access</div>
-      ${hasAdminRights() ? `
-        <div class="settings-row">
-          <div class="sr-label">You have Admin rights
-            <div class="sr-value">You can see all syndicates, send reports, manage members</div>
-          </div>
-          <span style="font-size:22px">👑</span>
+// ── Settings: ADMIN sub-tab (Access + Telegram config + pending requests) ──
+function _renderSettingsAdmin(user, isSuperAdmin, pendingReqs) {
+  const access = hasAdminRights() ? `
+      <div class="settings-row">
+        <div class="sr-label">You have Admin rights
+          <div class="sr-value">You can see all syndicates, send reports, manage members</div>
         </div>
-        <div class="settings-row">
-          <div class="sr-label">Database
-            <div class="sr-value">Raw Google Sheet — TSV master DB</div>
-          </div>
-          <a class="btn btn-outline btn-sm" href="https://docs.google.com/spreadsheets/d/${CONFIG.sheetId}/edit" target="_blank" rel="noopener">View DB ↗</a>
+        <span style="font-size:22px">👑</span>
+      </div>
+      <div class="settings-row">
+        <div class="sr-label">Database
+          <div class="sr-value">Raw Google Sheet — TSV master DB</div>
         </div>
-        <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:8px">
-          <div class="sr-label">View as…
-            <div class="sr-value">Declutter the app by hiding admin-only controls</div>
-          </div>
-          <div class="theme-chooser">
-            <button class="${localStorage.getItem('tsv_admin_view_as') !== 'non-admin' ? 'active' : ''}" onclick="setAdminView('admin')">👑<br>Full Admin</button>
-            <button class="${localStorage.getItem('tsv_admin_view_as') === 'non-admin' ? 'active' : ''}" onclick="setAdminView('non-admin')">👤<br>Non-Admin</button>
-          </div>
+        <a class="btn btn-outline btn-sm" href="https://docs.google.com/spreadsheets/d/${CONFIG.sheetId}/edit" target="_blank" rel="noopener">View DB ↗</a>
+      </div>
+      <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:8px">
+        <div class="sr-label">View as…
+          <div class="sr-value">Declutter the app by hiding admin-only controls</div>
         </div>
-      ` : `
-        <div class="settings-row">
-          <div class="sr-label">Request Admin Rights
-            <div class="sr-value">Lets you see all syndicates in Tracker / Rooms</div>
-          </div>
-          <button class="btn btn-gold btn-sm" onclick="requestAdminRights()">Request</button>
+        <div class="theme-chooser">
+          <button class="${localStorage.getItem('tsv_admin_view_as') !== 'non-admin' ? 'active' : ''}" onclick="setAdminView('admin')">👑<br>Full Admin</button>
+          <button class="${localStorage.getItem('tsv_admin_view_as') === 'non-admin' ? 'active' : ''}" onclick="setAdminView('non-admin')">👤<br>Non-Admin</button>
         </div>
-      `}
-      ${isSuperAdmin && pendingReqs.length ? `
-        <div style="padding:12px 16px;border-top:1px solid var(--border-2)">
-          <div style="font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--text-2);margin-bottom:8px">Pending Admin Requests (${pendingReqs.length})</div>
-          ${pendingReqs.map(r => `
-            <div class="admin-request-card">
-              <div class="arc-info">
-                <b>${escapeHtml(r.fromName)}</b> — ${escapeHtml(r.fromGroup || '')}
-                <div style="font-size:11px;margin-top:2px;opacity:.8">${new Date(r.timestamp).toLocaleString('en-GB')}</div>
-                ${r.message ? `<div style="font-size:12px;margin-top:4px;font-style:italic">"${escapeHtml(r.message)}"</div>` : ''}
-              </div>
-              <div class="arc-actions">
-                <button class="btn btn-green btn-sm" onclick="approveAdminReq('${r.id}')">✓ Approve</button>
-                <button class="btn btn-outline btn-sm" onclick="declineAdminReq('${r.id}')">✕ Decline</button>
-              </div>
-            </div>`).join('')}
-        </div>` : ''}
-    </div>
+      </div>` : `
+      <div class="settings-row">
+        <div class="sr-label">Request Admin Rights
+          <div class="sr-value">Lets you see all syndicates in Tracker / Rooms</div>
+        </div>
+        <button class="btn btn-gold btn-sm" onclick="requestAdminRights()">Request</button>
+      </div>`;
 
-    ${isSuperAdmin ? `
+  const pendingBlock = (isSuperAdmin && pendingReqs.length) ? `
+      <div style="padding:12px 16px;border-top:1px solid var(--border-2)">
+        <div style="font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--text-2);margin-bottom:8px">Pending Admin Requests (${pendingReqs.length})</div>
+        ${pendingReqs.map(r => `
+          <div class="admin-request-card">
+            <div class="arc-info">
+              <b>${escapeHtml(r.fromName)}</b> — ${escapeHtml(r.fromGroup || '')}
+              <div style="font-size:11px;margin-top:2px;opacity:.8">${new Date(r.timestamp).toLocaleString('en-GB')}</div>
+              ${r.message ? `<div style="font-size:12px;margin-top:4px;font-style:italic">"${escapeHtml(r.message)}"</div>` : ''}
+            </div>
+            <div class="arc-actions">
+              <button class="btn btn-green btn-sm" onclick="approveAdminReq('${r.id}')">✓ Approve</button>
+              <button class="btn btn-outline btn-sm" onclick="declineAdminReq('${r.id}')">✕ Decline</button>
+            </div>
+          </div>`).join('')}
+      </div>` : '';
+
+  const tgSection = isSuperAdmin ? `
     <div class="settings-section">
       <div class="settings-section-header">📡 Telegram Chat Routing</div>
       <div id="tg-config-container">
@@ -4499,37 +4583,15 @@ function renderSettings() {
       <div style="padding:0 16px 14px">
         <button class="btn btn-primary btn-sm" style="width:100%" onclick="saveTelegramConfig()">💾 Save Chat IDs</button>
       </div>
-    </div>` : ''}
+    </div>` : '';
 
-    <!-- Session -->
+  return `
     <div class="settings-section">
-      <div class="settings-section-header">🚪 Session</div>
-      <div class="settings-row">
-        <div class="sr-label">Sign out
-          <div class="sr-value">Back to login screen</div>
-        </div>
-        <button class="btn btn-red btn-sm" onclick="if(confirm('Sign out?'))logout()">Sign Out</button>
-      </div>
+      <div class="settings-section-header">🔐 Access</div>
+      ${access}
+      ${pendingBlock}
     </div>
-  `;
-
-  if (isSuperAdmin) {
-    // Stale-while-revalidate: render cached immediately, then refresh in background.
-    const cached = (() => { try { return JSON.parse(localStorage.getItem('tsv_tg_config') || 'null'); } catch { return null; } })();
-    if (cached) _renderTelegramConfig(cached, true);
-
-    API.get('getTelegramConfig').then(cfg => {
-      if (!cfg) {
-        if (!cached) {
-          const c = el('tg-config-container');
-          if (c) c.innerHTML = `<div style="padding:12px 16px;color:#b91c1c;font-size:12px">⚠️ Could not load Telegram config — check connection and reload.</div>`;
-        }
-        return;
-      }
-      localStorage.setItem('tsv_tg_config', JSON.stringify(cfg));
-      _renderTelegramConfig(cfg, false);
-    });
-  }
+    ${tgSection}`;
 }
 
 function _renderTelegramConfig(cfg, fromCache) {
@@ -4581,11 +4643,11 @@ window.saveTelegramConfig = async function() {
     if (v) chats[k] = v;
   });
   toast('💾 Saving…');
-  const result = await API.post('updateTelegramConfig', { chats, actor: STATE.currentUser?.id });
-  if (!result || result.error) {
-    toast('❌ Save failed — ' + (result?.error || 'no response'));
-    return;
-  }
+  const resp = await API.postRaw('updateTelegramConfig', { chats, actor: STATE.currentUser?.id });
+  if (!resp)                    return toast('❌ Save failed — no response (offline?)');
+  if (resp.ok === false)        return toast('❌ Save failed — ' + (resp.error || 'server error'));
+  const result = resp.data;
+  if (!result)                  return toast('❌ Save failed — empty response');
   // Persist the fresh config immediately so it's instantly available next time
   localStorage.setItem('tsv_tg_config', JSON.stringify(result));
   // Re-render with fresh data to confirm write stuck

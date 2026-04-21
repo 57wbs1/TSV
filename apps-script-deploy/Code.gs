@@ -190,6 +190,7 @@ function doPost(e) {
       case 'addEvent':         data = addCalendarEvent(body); break;
       case 'deleteEvent':      data = deleteCalendarEvent(body); break;
       case 'updateTransport':  data = updateTransportState(body); break;
+      case 'seedCalendar':     data = seedCalendarFromServer(); break;
       case 'updateTelegramConfig':  data = updateTelegramConfig(body); break;
       case 'testRouting':           data = testRouting(body); break;
       default: return json({ ok: false, error: 'Unknown action: ' + action });
