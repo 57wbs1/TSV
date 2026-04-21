@@ -4083,15 +4083,53 @@ function _buildIRNewTG(payload) {
 _Reported by ${payload.reportedByName || '—'} · ${payload.timestamp || ''}H_`;
 }
 function _buildIRUpdateTG(payload, incident) {
+  // User-facing update numbering starts at 1 for the first UPDATE.
+  // Server eventNum counts NEW=1, first UPDATE=2 → subtract 1 for display.
+  const updateNum = Math.max(1, (payload.eventNum || 2) - 1);
   const head = payload.closeOut
     ? `✅ *INCIDENT CLOSED*`
-    : `🔄 *INCIDENT UPDATE #${payload.eventNum}*`;
+    : `🔄 *INCIDENT UPDATE #${updateNum}*`;
+  const statusLine = payload.closeOut ? '*Status:* ✅ CLOSED' : '*Status:* ⚠️ OPEN';
+
+  // Embed the full history (NEW + all prior UPDATEs) so recipients always
+  // have complete context without scrolling back through the chat.
+  const newEv = (incident?.events || []).find(e => e.eventType === 'NEW') || {};
+  const priorUpdates = (incident?.events || []).filter(e => e.eventType === 'UPDATE');
+
+  const originalBlock = `🚨 *INCIDENT REPORT — NEW*
+*${payload.id}*
+
+*Nature:* ${newEv.nature || '—'}
+*Description:* ${newEv.description || '—'}
+*When:* ${newEv.incidentWhen || '—'}
+*Where:* ${newEv.incidentWhere || '—'}
+*Course/Syn:* ${newEv.groupInvolved || '—'}
+*NOK Informed:* ${newEv.nokInformed || 'N/A'}
+
+_Reported by ${newEv.reportedByName || newEv.reportedBy || '—'} · ${newEv.timestamp || ''}H_`;
+
+  const historyBlocks = priorUpdates.map(ev => {
+    const n = Math.max(1, (parseInt(ev.eventNum) || 2) - 1);
+    return `*UPDATE #${n}* · ${ev.timestamp || ''}H · by ${ev.reportedByName || ev.reportedBy || '—'}
+${ev.updateText || '—'}`;
+  }).join('\n\n');
+
+  const historyBody = historyBlocks
+    ? `${originalBlock}\n\n${historyBlocks}`
+    : originalBlock;
+
   return `${head}
 *${payload.id}* — ${incident?.nature || 'Incident'} @ ${incident?.incidentWhere || '—'}
+${payload.timestamp || ''}H · by ${payload.reportedByName || '—'}
 
 ${payload.updateText || '—'}
 
-_${payload.closeOut ? 'Closed' : 'Updated'} by ${payload.reportedByName || '—'} · ${payload.timestamp || ''}H_`;
+++++++
+*Full History:*
+${historyBody}
+++++++
+
+${statusLine}`;
 }
 
 window.setIRNOK = function(v) {
