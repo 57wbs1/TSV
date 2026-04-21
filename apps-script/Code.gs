@@ -59,6 +59,7 @@ function doGet(e) {
       case 'testMidnightSitrep': data = sendMidnightSitrep(); break;
       case 'testForceSyn1AllIn': data = forceSyn1AllIn(); break;
       case 'testParadeState':    data = sendParadeStateBroadcast(); break;
+      case 'wipeReflectionMatrix': data = wipeReflectionMatrix(e.parameter.actor); break;
       case 'resetIRCounter':
         if (e.parameter.actor !== SUPER_ADMIN_ID) { data = { error: 'Unauthorized' }; break; }
         data = resetIRCounter(parseInt(e.parameter.startAt) || 0);
@@ -1151,6 +1152,27 @@ function _ensureDayTab(ss, day) {
     _ensureMatrixScaffold(tab);
   }
   return { tab, tabName };
+}
+
+// Super-admin utility: wipe every content cell (B2:G5) on every day tab
+// of the matrix sheet. Leaves the scaffold (row 1 headers + col A prompts)
+// intact. Used to clear orphaned test-data entries whose internal-sheet
+// rows were already deleted and couldn't be strip-matched individually.
+function wipeReflectionMatrix(actor) {
+  if (actor !== SUPER_ADMIN_ID) return { ok: false, error: 'Unauthorized' };
+  const ss = SpreadsheetApp.openById(REFLECTIONS_MATRIX_SHEET_ID);
+  const tabs = ss.getSheets();
+  let cleared = 0;
+  tabs.forEach(tab => {
+    const name = tab.getName();
+    // Only touch the day-matrix tabs (name starts with "Day ")
+    if (!/^Day\s+\d+/i.test(name) && name !== 'General') return;
+    // Clear B2:G5 (6 cols × 4 rows = 24 cells)
+    tab.getRange(2, 2, 4, 6).clearContent();
+    cleared++;
+  });
+  logAction('matrix_wipe', actor, 'cleared ' + cleared + ' tabs');
+  return { ok: true, tabsCleared: cleared };
 }
 
 // Delete a reflection from BOTH the internal Reflections sheet AND strip
