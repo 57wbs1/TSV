@@ -140,7 +140,7 @@ function doGet(e) {
 // blocks everything short of someone pulling a real member ID from git.
 const ACTOR_REQUIRED = new Set([
   'updateStatus','addLearning','addReflection','addIncident',
-  'addMember','updateMember','deleteMember','seedMembers',
+  'addMember','updateMember','deleteMember','seedMembers','bulkSyncMembers',
   'sendPing','addAdminRequest','resolveAdminRequest','postHotwash',
   'sendTelegram'
 ]);
@@ -182,6 +182,7 @@ function doPost(e) {
       case 'updateMember': data = updateMember(body); break;
       case 'deleteMember': data = deleteMember(body); break;
       case 'seedMembers':  data = seedMembers(body.members || [], body.actor); break;
+      case 'bulkSyncMembers': data = bulkSyncMembers(body); break;
       case 'sendPing':     data = sendPing(body); break;
       case 'markPingRead': data = markPingRead(body.id); break;
       case 'addAdminRequest':     data = addAdminRequest(body); break;
@@ -673,6 +674,89 @@ function seedMembers(members, actor) {
   _ensurePinColumnText(sheet);
   logAction('seedMembers', actor || '', `added ${added}`);
   return { added, total: members.length };
+}
+
+// ── bulkSyncMembers: full roster reconciliation (super-admin only) ──
+// Upserts existing rows (name, shortName, rank, role, csc, syndicate — never
+// pin / isAdmin flags) and soft-deletes any row whose id isn't in the input.
+// Preserves PINs so existing users can still log in with their custom PINs.
+function bulkSyncMembers(body) {
+  if (body.actor !== SUPER_ADMIN_ID) return { ok: false, error: 'Unauthorized — super admin only' };
+  const newRoster = Array.isArray(body.members) ? body.members : [];
+  if (!newRoster.length) return { ok: false, error: 'Empty roster — refuse to wipe sheet' };
+
+  const sheet = getOrCreateSheet(SHEETS.MEMBERS);
+  _ensurePinColumnText(sheet);
+  const rows = sheet.getDataRange().getValues();
+  const headers = rows[0];
+  const now = new Date().toISOString();
+
+  const col = {
+    id:        headers.indexOf('id'),
+    name:      headers.indexOf('name'),
+    shortName: headers.indexOf('shortName'),
+    rank:      headers.indexOf('rank'),
+    role:      headers.indexOf('role'),
+    csc:       headers.indexOf('csc'),
+    syndicate: headers.indexOf('syndicate'),
+    pin:       headers.indexOf('pin'),
+    isAdmin:   headers.indexOf('isAdmin'),
+    isDeleted: headers.indexOf('isDeleted'),
+    createdAt: headers.indexOf('createdAt'),
+    updatedAt: headers.indexOf('updatedAt')
+  };
+
+  const existingById = {};
+  for (let i = 1; i < rows.length; i++) {
+    const id = rows[i][col.id];
+    if (id) existingById[id] = i + 1;    // 1-indexed row number
+  }
+  const newIds = new Set(newRoster.map(m => m.id).filter(Boolean));
+
+  let updated = 0, added = 0, softDeleted = 0, restored = 0;
+
+  newRoster.forEach(m => {
+    const rowNum = existingById[m.id];
+    if (rowNum) {
+      // Existing — update fields but keep pin + isAdmin + createdAt
+      const r = rows[rowNum - 1];
+      const currentIsDeleted = String(r[col.isDeleted]) === 'true' || r[col.isDeleted] === true;
+      if (col.name      >= 0) sheet.getRange(rowNum, col.name      + 1).setValue(m.name      || r[col.name]);
+      if (col.shortName >= 0) sheet.getRange(rowNum, col.shortName + 1).setValue(m.shortName || r[col.shortName]);
+      if (col.rank      >= 0) sheet.getRange(rowNum, col.rank      + 1).setValue(m.rank      || r[col.rank]);
+      if (col.role      >= 0) sheet.getRange(rowNum, col.role      + 1).setValue(m.role      || r[col.role]);
+      if (col.csc       >= 0) sheet.getRange(rowNum, col.csc       + 1).setValue(m.csc       || r[col.csc]);
+      if (col.syndicate >= 0) sheet.getRange(rowNum, col.syndicate + 1).setValue(m.syndicate || r[col.syndicate]);
+      if (currentIsDeleted && col.isDeleted >= 0) {
+        sheet.getRange(rowNum, col.isDeleted + 1).setValue('false');
+        restored++;
+      }
+      if (col.updatedAt >= 0) sheet.getRange(rowNum, col.updatedAt + 1).setValue(now);
+      updated++;
+    } else {
+      // New member — full row
+      sheet.appendRow([m.id, m.name || '', m.shortName || m.name || '', m.rank || '',
+                       m.role || 'Member', m.csc || '', m.syndicate || '',
+                       _padPin(m.pin), m.isAdmin || 'false', 'false', now, now]);
+      added++;
+    }
+  });
+
+  // Soft-delete anything in the sheet but not in the new roster
+  Object.keys(existingById).forEach(id => {
+    if (newIds.has(id)) return;
+    const rowNum = existingById[id];
+    const currentIsDeleted = String(rows[rowNum - 1][col.isDeleted]) === 'true' || rows[rowNum - 1][col.isDeleted] === true;
+    if (!currentIsDeleted && col.isDeleted >= 0) {
+      sheet.getRange(rowNum, col.isDeleted + 1).setValue('true');
+      if (col.updatedAt >= 0) sheet.getRange(rowNum, col.updatedAt + 1).setValue(now);
+      softDeleted++;
+    }
+  });
+
+  _ensurePinColumnText(sheet);
+  logAction('bulkSyncMembers', body.actor, `+${added} ~${updated} -${softDeleted} restored=${restored}`);
+  return { ok: true, added, updated, softDeleted, restored, totalInRoster: newRoster.length };
 }
 
 // ── Telegram relay ───────────────────────────────────────────

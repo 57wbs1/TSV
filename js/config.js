@@ -71,9 +71,9 @@ const CONFIG = {
 
   // Admin member IDs — can edit calendar, manage members, send Telegram reports
   adminIds: ['caspar', 'dominic', 'kenny', 'kj', 'jayzee',
-             'grace', 'umbra',
+             'grace', 'peh_mh',
              'alvin', 'liwen',
-             'hod', 'pds', 'jon_quek'],
+             'hod', 'pds', 'jon_quek', 'alfred_ang', 'michelle', 'tsv_ao'],
 
   // Super-admin — only this id can approve/decline admin-rights requests
   superAdminId: 'caspar',
