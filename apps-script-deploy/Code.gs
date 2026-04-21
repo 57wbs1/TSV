@@ -256,12 +256,14 @@ function updateTransportState(body) {
       v.remarks   = body.remarks || '';
       break;
     case 'dropped':
-      // Bus is freed — clear boarded list, return to idle
+      // Bus is freed — clear boarded list + boarding notes, return to idle.
+      // Use this between rounds to reset for the next boarding cycle.
       v.status    = 'idle';
       v.boardedSyns = [];
       v.lastDroppedBy = body.actorName || '';
       v.lastDroppedAt = now;
       delete v.pushedBy; delete v.pushedAt; delete v.remarks;
+      delete v.boardingRemarks; delete v.boardingUpdatedBy; delete v.boardingUpdatedAt;
       break;
     case 'reset':
       v.status = 'idle';

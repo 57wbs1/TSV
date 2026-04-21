@@ -3225,10 +3225,13 @@ function _redrawTransport(container) {
           onclick="transportSendSitrep('${veh.id}')">📤 Send Sitrep</button>
       </div>` : '';
 
+    const hasState = status !== 'idle' || boarded.length > 0;
     const boardBtn = status === 'idle' ? `<button class="btn btn-sm" style="background:#eff6ff;color:#0369a1;border:1px solid #7dd3fc;font-size:13px" onclick="openTransportBoarding('${veh.id}',false)">${boarded.length ? '➕ Continue Boarding' : '🔲 Boarding?'}</button>` : '';
     const pushBtn  = canAdmin && status === 'idle' && allBoarded ? `<button class="btn btn-sm" style="background:#2563eb;color:#fff;font-size:13px" onclick="transportAction('pushing','${veh.id}')">🚌 Mark Pushing</button>` : '';
-    const dropBtn  = canAdmin && pushing ? `<button class="btn btn-sm" style="background:#16a34a;color:#fff;font-size:13px" onclick="transportAction('dropped','${veh.id}')">✅ Dropped Off</button>` : '';
-    const resetBtn = canAdmin && status !== 'idle' ? `<button class="btn btn-sm btn-outline" style="font-size:12px" onclick="transportAction('reset','${veh.id}')">↺ Reset</button>` : '';
+    // Dropped Off: available whenever there's any boarded state (not just during pushing),
+    // so the bus can be cleared between rounds without first marking Pushing.
+    const dropBtn  = canAdmin && (pushing || boarded.length > 0) ? `<button class="btn btn-sm" style="background:#16a34a;color:#fff;font-size:13px" onclick="transportAction('dropped','${veh.id}')">✅ Dropped Off</button>` : '';
+    const resetBtn = canAdmin && hasState ? `<button class="btn btn-sm btn-outline" style="font-size:12px" onclick="transportAction('reset','${veh.id}')">↺ Reset</button>` : '';
 
     return `
       <div class="transport-bus-card" style="border-left:4px solid ${pushing ? '#2563eb' : allBoarded ? '#16a34a' : '#e2e8f0'}">
