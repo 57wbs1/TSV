@@ -1535,7 +1535,8 @@ function renderHome() {
     const t = formatHeroTimes();
     const bkkVal = e.querySelector('.ht-val-main');
     const sgVal  = e.querySelector('.ht-val-sg');
-    if (bkkVal) bkkVal.textContent = t.bkk + ' K';
+    // Military time zones: UTC+7 (BKK) = Golf (G), UTC+8 (SG) = Hotel (H)
+    if (bkkVal) bkkVal.textContent = t.bkk + ' G';
     if (sgVal)  sgVal.textContent  = t.sg  + ' H';
   }, 1000);
 }
