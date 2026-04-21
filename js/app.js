@@ -4551,30 +4551,25 @@ function _renderTelegramConfig(cfg, fromCache) {
         <div style="font-size:10px;color:var(--text-3)">Default: ${escapeHtml(cfg[k].defaultId)}${cfg[k].chatId !== cfg[k].defaultId ? ' · <b style="color:var(--blue-500)">custom</b>' : ''}</div>
       </div>`).join('')}
     <div style="padding:8px 16px 0;font-size:11px;color:var(--text-3)">
-      💡 <b>Ad-hoc testing:</b> Click <b>🧪 Test</b> to send a test message to the chat using the current (unsaved) value. Use this to verify a chat ID before saving.
+      💡 <b>QC testing:</b> Click <b>🧪 Test</b> to fire the <b>actual message template</b> for that routing key to the chat ID currently in the input (saved or not). Verify the format + destination before saving.
     </div>
   `;
 }
 
-// Send a test message to a chat ID (using the current input value, NOT saved value)
+// Fire the ACTUAL message template for a given routing key to the test chat ID.
+// Lets super-admin QC the real format before committing a chat ID change.
 window.testTelegramChat = async function(key) {
   const input = el(`tgcfg-${key}`);
   const chatId = (input?.value || '').trim();
   if (!chatId) return toast('Chat ID is empty');
-  const user = STATE.currentUser;
-  const who = user?.shortName || user?.name || 'unknown';
-  const now = new Date().toLocaleString('en-GB', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' });
-  const text = `🧪 <b>Test ping</b>\nSent from TSV PWA · routing key <code>${key}</code>\nBy: ${who} · ${now}\n\nIf you see this, this chat is wired up correctly. ✅`;
-  toast('📤 Sending test…');
-  const resp = await API.post('sendTelegram', {
-    chatId: String(chatId),
-    text,
-    parseMode: 'HTML',
-    actor: user?.id || 'system'
+  toast('📤 Firing actual message template…');
+  const resp = await API.post('testRouting', {
+    key, chatId,
+    actor: STATE.currentUser?.id || 'system'
   });
   if (!resp) return toast('❌ No response (offline?)');
-  if (resp.ok === false) return toast('❌ ' + (resp.description || resp.error || 'Send failed'));
-  toast('✅ Test sent — check the Telegram chat');
+  if (resp.error || resp.ok === false) return toast('❌ ' + (resp.error || 'Send failed'));
+  toast('✅ ' + (resp.sent ? resp.sent + ' — QC in Telegram' : 'Sent — check Telegram'));
 };
 
 window.saveTelegramConfig = async function() {

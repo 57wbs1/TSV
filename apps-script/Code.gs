@@ -191,6 +191,7 @@ function doPost(e) {
       case 'deleteEvent':      data = deleteCalendarEvent(body); break;
       case 'updateTransport':  data = updateTransportState(body); break;
       case 'updateTelegramConfig':  data = updateTelegramConfig(body); break;
+      case 'testRouting':           data = testRouting(body); break;
       default: return json({ ok: false, error: 'Unknown action: ' + action });
     }
     return json({ ok: true, data });
@@ -323,6 +324,112 @@ function _tgChatId(channel) {
     const saved = JSON.parse(PropertiesService.getScriptProperties().getProperty('tsvTelegramChats') || '{}');
     return saved[channel] || TG_CHAT_DEFAULTS[channel]?.defaultId || SYN1_CHAT;
   } catch(e) { return TG_CHAT_DEFAULTS[channel]?.defaultId || SYN1_CHAT; }
+}
+
+// ── testRouting: fires the ACTUAL message template for a given routing key ──
+// to a specified chat ID (the one in the settings input, not the saved one).
+// Lets the super-admin QC the real message format before committing a chat ID.
+function testRouting(body) {
+  const key    = String(body.key || '').trim();
+  const chatId = String(body.chatId || '').trim();
+  if (!key || !chatId) return { ok: false, error: 'Missing key or chatId' };
+
+  try {
+    switch (key) {
+      case 'A1_weather':    sendWeatherBriefing(chatId);      return { ok: true, sent: 'A1 weather briefing' };
+      case 'A2_reminder':   sendDailyReminder(null, chatId);  return { ok: true, sent: 'A2 pre-trip reminder' };
+      case 'A3_evening':    sendEveningSitrep(chatId);        return { ok: true, sent: 'A3 evening sitrep' };
+      case 'A4_midnight':   sendMidnightSitrep(chatId);       return { ok: true, sent: 'A4 midnight curfew sitrep' };
+      case 'M1_ir':             _sendSampleM(chatId, 'M1');  return { ok: true, sent: 'M1 incident report sample' };
+      case 'M2_bus_boarding':   _sendSampleM(chatId, 'M2');  return { ok: true, sent: 'M2 bus boarding sample' };
+      case 'M3_bus_pushing':    _sendSampleM(chatId, 'M3');  return { ok: true, sent: 'M3 bus pushing sample' };
+      case 'M4_flight_board':   _sendSampleM(chatId, 'M4');  return { ok: true, sent: 'M4 flight boarding sample' };
+      case 'M5_sitrep':         _sendSampleM(chatId, 'M5');  return { ok: true, sent: 'M5 ad-hoc sitrep sample' };
+      case 'M6_all_back_in':    _sendSampleM(chatId, 'M6');  return { ok: true, sent: 'M6 all-back-in sample' };
+      default: return { ok: false, error: 'Unknown routing key: ' + key };
+    }
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+}
+
+// Sample message builders for M-series (client-triggered messages).
+// These mirror what the PWA actually sends, so the QC is faithful.
+function _sendSampleM(chatId, which) {
+  const now = new Date().toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit', timeZone:'Asia/Bangkok' }).replace(':','');
+  let msg = '<i>[TEST PREVIEW — this is the live format for M-series messages]</i>\n\n';
+  switch (which) {
+    case 'M1': // Incident Report
+      msg += `🚨 <b>INCIDENT REPORT</b>
+
+<b>Type:</b> Medical (minor)
+<b>Who:</b> CPT John Tan (25E)
+<b>What:</b> Mild heat exhaustion during outdoor visit
+<b>Where:</b> True Digital Park, Bangkok
+<b>When:</b> 28 Apr 1430H
+<b>Why:</b> Extended outdoor exposure in high humidity
+<b>How:</b> Hydration + rest in AC area
+
+<b>Buddy:</b> CPT Alex Lim
+<b>Status:</b> Recovered, monitored
+<b>Medical:</b> Onsite first aid, no hospital needed
+
+<b>Actions taken:</b>
+• Moved to shade + air-conditioned area
+• Oral rehydration + electrolytes
+• Monitored 30 min — vitals normal
+• Resumed participation
+
+— End of IR —`;
+      break;
+
+    case 'M2': // Bus Boarding Sitrep
+      msg += `🚌 <b>Boarding Update — Bus 1</b>
+Boarded (75%): Syn 1, 27E, DS1
+Driver: Khun Somsak
+⚠️ Remarks: Dy CC delayed — 5 min away
+🕐 ${now}H`;
+      break;
+
+    case 'M3': // Bus Pushing Sitrep
+      msg += `🚌 <b>Bus 1 is pushing</b>
+Pax: Syn 1, 27E, Dy CC, DS1
+Driver: Khun Somsak (+66 81 234 5678)
+⚠️ Remarks: 1 pax from Syn 1 joining Bus 2 (seating rearrangement)
+🕐 ${now}H`;
+      break;
+
+    case 'M4': // Flight Boarding Sitrep
+      msg += `✈️ <b>Boarding Update — SQ708 · SIN→BKK (0930H)</b>
+Boarded: Syn 1, 27E, Dy CC, DS1, Syn 3, 26E, DS3, DSE, Syn 4, 25E, DS4, CXO, HOD, SO
+⚠️ Remarks: All present at gate. Boarding commenced 0900H.
+🕐 ${now}H`;
+      break;
+
+    case 'M5': // Ad-hoc Sitrep / Parade State
+      msg += `<b>ADHOC SITREP</b>
+${now}H
+
+In Hotel
+57 SYN 1: 10/11 (91%) ⚠️
+
+Refer to TSV App for Details`;
+      break;
+
+    case 'M6': // All-Back-In Confirmation
+      msg += `<b>ALL BACK IN — 57 SYN 1</b>
+${now}H
+
+57 SYN 1: 11/11 (100%) ✅
+All members accounted for in hotel.
+
+Refer to TSV App for Details`;
+      break;
+
+    default:
+      msg += '(Unknown M-series key)';
+  }
+  tgSend(msg, chatId);
 }
 
 // ────────────────────────────────────────────────────────────
@@ -1331,20 +1438,28 @@ See everyone at the gate! 👋`
 };
 
 // Pass `forceDate` (e.g. '2026-04-26') to test any day regardless of today's date.
-function sendDailyReminder(forceDate) {
+function sendDailyReminder(forceDate, overrideChatId) {
   const bkk = bkkNow();
   const tmr = forceDate
     ? new Date(forceDate + 'T00:00:00+07:00')
     : new Date(bkk.getTime() + 24*60*60*1000);
   const tmrDate = forceDate || Utilities.formatDate(tmr, 'Asia/Bangkok', 'yyyy-MM-dd');
 
-  const msg = DAILY_PREVIEWS[tmrDate];
+  let msg = DAILY_PREVIEWS[tmrDate];
   if (!msg) {
-    logAction('reminder_skip', 'server', 'not trip day: ' + tmrDate);
-    return 'Not a trip-eve day: ' + tmrDate;
+    // For test / QC: if it's not a trip-eve day, pick the nearest upcoming preview
+    if (overrideChatId) {
+      const keys = Object.keys(DAILY_PREVIEWS).sort();
+      const upcoming = keys.find(k => k >= Utilities.formatDate(bkk, 'Asia/Bangkok', 'yyyy-MM-dd')) || keys[0];
+      if (upcoming) msg = '<b>[TEST PREVIEW — ' + upcoming + ']</b>\n\n' + DAILY_PREVIEWS[upcoming];
+    }
+    if (!msg) {
+      logAction('reminder_skip', 'server', 'not trip day: ' + tmrDate);
+      return 'Not a trip-eve day: ' + tmrDate;
+    }
   }
 
-  tgSend(msg, _tgChatId('A2_reminder'));
+  tgSend(msg, overrideChatId || _tgChatId('A2_reminder'));
   logAction('reminder_sent', 'server', tmrDate);
   return 'Sent reminder for ' + tmrDate;
 }
@@ -1445,24 +1560,24 @@ function _buildSitrepMessage(data, header, dateLabel) {
 }
 
 // ── 2300H SITREP: all syndicates, actual status ──
-function sendEveningSitrep() {
+function sendEveningSitrep(overrideChatId) {
   const bkk = bkkNow();
   const dateLabel = Utilities.formatDate(bkk, 'Asia/Bangkok', 'd MMM EEE').toUpperCase();
   const data = _buildSitrepData([]);   // no forced all-in
   const msg = _buildSitrepMessage(data, '2300H SITREP', dateLabel);
-  tgSend(msg, _tgChatId('A3_evening'));
+  tgSend(msg, overrideChatId || _tgChatId('A3_evening'));
   logAction('sitrep_2300', 'server', data.totals.inC + '/' + data.totals.total);
   return 'Sent 2300H';
 }
 
 // ── 0200H SITREP: all syndicates, but Syn 1 forced all-in per curfew spec ──
-function sendMidnightSitrep() {
+function sendMidnightSitrep(overrideChatId) {
   const bkk = bkkNow();
   const yesterday = new Date(bkk.getTime() - 24*60*60*1000);
   const yLabel = Utilities.formatDate(yesterday, 'Asia/Bangkok', 'd MMM EEE').toUpperCase();
   const data = _buildSitrepData(['57 CSC Syn 1']);   // force Syn 1 all-in only
   const msg = _buildSitrepMessage(data, '0200H SITREP', yLabel);
-  tgSend(msg, _tgChatId('A4_midnight'));
+  tgSend(msg, overrideChatId || _tgChatId('A4_midnight'));
   logAction('sitrep_0200', 'server', data.totals.inC + '/' + data.totals.total);
   return 'Sent 0200H';
 }
@@ -1545,7 +1660,7 @@ function _psiBand(v, label) {
 // ── 0600H: Bangkok weather briefing (to announce chat) ──
 // Pulls the day's forecast from Open-Meteo (free, no key) and builds a
 // briefing with tailored advice based on max temp + humidity + rain.
-function sendWeatherBriefing() {
+function sendWeatherBriefing(overrideChatId) {
   const bkk = bkkNow();
   const dateLabel = Utilities.formatDate(bkk, 'Asia/Bangkok', 'EEEE, d MMM');
   const today = Utilities.formatDate(bkk, 'Asia/Bangkok', 'yyyy-MM-dd');
@@ -1591,7 +1706,7 @@ function sendWeatherBriefing() {
     }
   } catch (e) {
     logAction('weather_fail', 'server', e.message);
-    tgSend('<b>☀️ Weather briefing</b>\nCouldn\'t reach the weather service — defaulting: stay hydrated, wear light layers, bring rain cover.', _tgChatId('A1_weather'));
+    tgSend('<b>☀️ Weather briefing</b>\nCouldn\'t reach the weather service — defaulting: stay hydrated, wear light layers, bring rain cover.', overrideChatId || _tgChatId('A1_weather'));
     return 'Weather fetch failed';
   }
 
@@ -1764,7 +1879,7 @@ function sendWeatherBriefing() {
   msg += '\n<b>Today\'s tips</b>\n' + tips.map(t => '• ' + t).join('\n');
   msg += '\n\nStay sharp 🇹🇭';
 
-  tgSend(msg, _tgChatId('A1_weather'));
+  tgSend(msg, overrideChatId || _tgChatId('A1_weather'));
   const aqiTag = bkkAqi ? 'BKK' + bkkAqi.value : '';
   logAction('weather_0600', 'server', (tMax||'?') + '°C ' + wc[1] + (aqiTag ? ' · ' + aqiTag : ''));
   return 'Sent weather ' + today + (aqiTag ? ' (' + aqiTag + ')' : '');
