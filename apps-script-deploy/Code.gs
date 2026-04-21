@@ -190,7 +190,6 @@ function doPost(e) {
       case 'addEvent':         data = addCalendarEvent(body); break;
       case 'deleteEvent':      data = deleteCalendarEvent(body); break;
       case 'updateTransport':  data = updateTransportState(body); break;
-      case 'generateReflectionAI': data = generateReflectionAI(body); break;
       case 'updateTelegramConfig':  data = updateTelegramConfig(body); break;
       default: return json({ ok: false, error: 'Unknown action: ' + action });
     }
@@ -243,8 +242,12 @@ function updateTransportState(body) {
       v.boardedSyns = v.boardedSyns.filter(s => s !== body.synLabel);
       break;
     case 'boardBatch':
-      // Replace entire boardedSyns list with the provided array
+      // Replace entire boardedSyns list with the provided array + optional remarks.
+      // Used both for "Save Progress" (partial) and "Send SITREP" (complete).
       v.boardedSyns = Array.isArray(body.synLabels) ? body.synLabels : [];
+      if (body.remarks !== undefined) v.boardingRemarks = body.remarks || '';
+      v.boardingUpdatedBy = body.actorName || '';
+      v.boardingUpdatedAt = now;
       break;
     case 'pushing':
       v.status    = 'pushing';
@@ -277,64 +280,6 @@ function updateTransportState(body) {
   return state;
 }
 
-// ── Reflection AI draft (Claude Haiku via Anthropic API) ──────
-function generateReflectionAI(body) {
-  const props = PropertiesService.getScriptProperties();
-  const CLAUDE_KEY = props.getProperty('CLAUDE_API_KEY');
-  if (!CLAUDE_KEY) return { ok: false, error: 'CLAUDE_API_KEY not set in Script Properties' };
-
-  const day     = body.day || '';
-  const field   = body.field || 'obs';
-  const context = (body.context || '').slice(0, 300);
-
-  const DAY_THEMES = {
-    '1': 'Smart Nation, digitalisation & start-up ecosystem',
-    '2': 'Technology parks, innovation hubs & defence-tech',
-    '3': 'Cultural heritage, urban planning & community resilience',
-    '4': 'Military-to-military exchange with Royal Thai Army CGSC',
-    '5': 'Diplomatic engagement & Singapore Embassy Bangkok'
-  };
-  const theme = DAY_THEMES[String(day)] || 'Thailand Study Visit';
-
-  const FIELD_PROMPTS = {
-    obs:      'What key things did we observe today?',
-    impl:     'What does this mean for Singapore and the SAF?',
-    ahha:     'What is the key takeaway or "Ah-Ha" moment?',
-    followup: 'What follow-up questions should we ask?'
-  };
-
-  const fieldPrompt = FIELD_PROMPTS[field] || FIELD_PROMPTS.obs;
-  const userMsg = `You are helping a Singapore Armed Forces officer at a Thailand Study Visit write a concise daily reflection.
-
-Day ${day} theme: ${theme}
-
-Question to answer: "${fieldPrompt}"
-${context ? `\nContext / notes already written: "${context}"` : ''}
-
-Write 2–3 focused bullet points. Be analytical and connect observations to SAF/Singapore context. First-person plural (we, our). No headers. Use • bullets. Max 80 words. Avoid generic statements.`;
-
-  try {
-    const resp = UrlFetchApp.fetch('https://api.anthropic.com/v1/messages', {
-      method: 'post',
-      headers: {
-        'x-api-key': CLAUDE_KEY,
-        'anthropic-version': '2023-06-01',
-        'content-type': 'application/json'
-      },
-      payload: JSON.stringify({
-        model: 'claude-3-5-haiku-20241022',
-        max_tokens: 200,
-        messages: [{ role: 'user', content: userMsg }]
-      }),
-      muteHttpExceptions: true
-    });
-    const json = JSON.parse(resp.getContentText());
-    if (json.error) return { ok: false, error: json.error.message };
-    return { ok: true, text: (json.content?.[0]?.text || '').trim() };
-  } catch (e) {
-    return { ok: false, error: e.message };
-  }
-}
 
 // ── Telegram chat routing config (stored in ScriptProperties) ──
 // TG_CHAT_DEFAULTS is defined after MAIN_CHAT/SYN1_CHAT constants (see line ~994).
@@ -985,14 +930,19 @@ const MAIN_CHAT   = '-1003468474144';
 const SYN1_CHAT   = '-5257572976';
 
 // ── Telegram chat routing defaults ──────────────────────────
+// A-series: server-scheduled broadcasts (0600H/1900H/2300H/0200H)
+// M-series: client-triggered ad-hoc messages from the PWA
 const TG_CHAT_DEFAULTS = {
-  A1_weather:   { label: 'A1 · 0600H Weather Briefing',        defaultId: MAIN_CHAT  },
-  A2_reminder:  { label: 'A2 · 1900H Pre-trip Reminder',       defaultId: MAIN_CHAT  },
-  A3_evening:   { label: 'A3 · 2300H Evening Sitrep',          defaultId: SYN1_CHAT  },
-  A4_midnight:  { label: 'A4 · 0200H Midnight Curfew Report',  defaultId: SYN1_CHAT  },
-  M1_ir:        { label: 'M1 · Incident Report (IR)',          defaultId: SYN1_CHAT  },
-  M2_transport: { label: 'M2 · Transport Boarding Sitrep',     defaultId: SYN1_CHAT  },
-  M3_sitrep:    { label: 'M3 · Ad-hoc Sitrep / Parade State',  defaultId: SYN1_CHAT  }
+  A1_weather:       { label: 'A1 · 0600H Weather Briefing',         defaultId: MAIN_CHAT  },
+  A2_reminder:      { label: 'A2 · 1900H Pre-trip Reminder',        defaultId: MAIN_CHAT  },
+  A3_evening:       { label: 'A3 · 2300H Evening Sitrep',           defaultId: SYN1_CHAT  },
+  A4_midnight:      { label: 'A4 · 0200H Midnight Curfew Report',   defaultId: SYN1_CHAT  },
+  M1_ir:            { label: 'M1 · Incident Report (IR)',           defaultId: SYN1_CHAT  },
+  M2_bus_boarding:  { label: 'M2 · Bus Boarding Sitrep',            defaultId: SYN1_CHAT  },
+  M3_bus_pushing:   { label: 'M3 · Bus Pushing Sitrep',             defaultId: SYN1_CHAT  },
+  M4_flight_board:  { label: 'M4 · Flight Boarding Sitrep',         defaultId: SYN1_CHAT  },
+  M5_sitrep:        { label: 'M5 · Ad-hoc Sitrep / Parade State',   defaultId: SYN1_CHAT  },
+  M6_all_back_in:   { label: 'M6 · All-Back-In Confirmation',       defaultId: SYN1_CHAT  }
 };
 
 function tgSend(text, chatId) {
@@ -1514,27 +1464,44 @@ function sendMidnightSitrep() {
 }
 
 // ── Air quality helpers ──
-// Singapore PSI from data.gov.sg (no key). Returns { value, label, band, emoji, source } or null.
+// Singapore PSI from data.gov.sg (no key).
+// Tries the v2 open API first (2024+ endpoint), falls back to legacy v1.
+// Returns { value, label, band, emoji, source, pm25 } or null.
 function _fetchSgPsi() {
+  function _parseItem(item) {
+    if (!item) return null;
+    const psi  = (item.readings && item.readings.psi_twenty_four_hourly)  || {};
+    const pm25 = (item.readings && item.readings.pm25_twenty_four_hourly) || {};
+    const v = psi.national != null ? psi.national : null;
+    if (v == null) return null;
+    return Object.assign(_psiBand(v, 'PSI'), {
+      value: v, source: 'NEA · SG (24h)',
+      pm25: pm25.national != null ? pm25.national : null,
+      updatedAt: item.update_timestamp || item.timestamp
+    });
+  }
   try {
-    const res = UrlFetchApp.fetch('https://api.data.gov.sg/v1/environment/psi', {
+    // v2 endpoint (api-open.data.gov.sg — current as of 2024)
+    let res = UrlFetchApp.fetch('https://api-open.data.gov.sg/v2/real-time/api/psi', {
+      method: 'get', muteHttpExceptions: true
+    });
+    if (res.getResponseCode() < 400) {
+      const body = JSON.parse(res.getContentText());
+      const item = (body.data && body.data.items && body.data.items[0]) || null;
+      const result = _parseItem(item);
+      if (result) return result;
+    }
+    // Legacy v1 fallback
+    res = UrlFetchApp.fetch('https://api.data.gov.sg/v1/environment/psi', {
       method: 'get', muteHttpExceptions: true
     });
     if (res.getResponseCode() >= 400) return null;
     const body = JSON.parse(res.getContentText());
-    const item = (body.items && body.items[0]) || null;
-    if (!item) return null;
-    const psi  = (item.readings && item.readings.psi_twenty_four_hourly)  || {};
-    const pm25 = (item.readings && item.readings.pm25_twenty_four_hourly) || {};
-    const v = psi.national;
-    if (v == null) return null;
-    return Object.assign(_psiBand(v, 'PSI'), {
-      value: v,
-      source: 'NEA · SG (24h)',
-      pm25: pm25.national,
-      updatedAt: item.update_timestamp || item.timestamp
-    });
-  } catch (e) { return null; }
+    return _parseItem((body.items && body.items[0]) || null);
+  } catch (e) {
+    logAction('psi_fail', 'server', e.message);
+    return null;
+  }
 }
 
 // Bangkok hourly AQI (US scale) from Open-Meteo air-quality API (no key).
@@ -1743,15 +1710,16 @@ function sendWeatherBriefing() {
   const nowTs     = bkk.getTime();
   const inTrip    = (nowTs >= tripStart.getTime() && nowTs <= tripEnd.getTime());
 
-  const sgPsi  = _fetchSgPsi();
-  const bkkAqi = inTrip ? _fetchBkkAqi() : null;   // only pull BKK live AQI in-trip
+  // Air quality: Bangkok AQI is the primary reading for this trip.
+  // SG PSI not shown here — this is a Bangkok weather briefing.
+  const bkkAqi = _fetchBkkAqi();
 
-  // Health advice tied to the most relevant reading
-  const primary = inTrip ? (bkkAqi || sgPsi) : (sgPsi || bkkAqi);
-  if (primary) {
-    if (primary.value > 150)      tips.unshift('😷 <b>' + primary.label + ' ' + primary.value + ' — ' + primary.band + '</b>. Wear an N95, limit outdoor activity, close windows at hotel.');
-    else if (primary.value > 100) tips.unshift('😷 ' + primary.label + ' ' + primary.value + ' — ' + primary.band + '. Sensitive groups (asthma, kids) wear a mask outside.');
-    else if (primary.value > 50)  tips.unshift('🫧 ' + primary.label + ' ' + primary.value + ' — ' + primary.band + '. Fine for everyone; sensitive groups consider a mask for long outdoor stints.');
+  // Mask/health advisory based on Bangkok AQI
+  if (bkkAqi) {
+    if (bkkAqi.value > 200)      tips.unshift('🚨 <b>BKK AQI ' + bkkAqi.value + ' — ' + bkkAqi.band + '</b>. N95 MANDATORY. Avoid all outdoor exposure. Close hotel windows.');
+    else if (bkkAqi.value > 150) tips.unshift('😷 <b>BKK AQI ' + bkkAqi.value + ' — ' + bkkAqi.band + '</b>. Wear N95 outdoors. Limit outdoor time. Keep hotel windows closed.');
+    else if (bkkAqi.value > 100) tips.unshift('😷 <b>🟠 BKK AQI ' + bkkAqi.value + ' — ' + bkkAqi.band + '</b>. Orange — <b>wear a surgical mask outdoors.</b>');
+    else if (bkkAqi.value > 50)  tips.unshift('🫧 BKK AQI ' + bkkAqi.value + ' — ' + bkkAqi.band + '. Moderate — sensitive groups consider a mask outdoors.');
   }
 
   let msg = '☀️ <b>Good morning, TSV!</b>\n';
@@ -1776,11 +1744,13 @@ function sendWeatherBriefing() {
   if (rainProb)       msg += '🌧️ Rain: ' + rainProb + '% · ' + (Math.round(rainSum*10)/10) + 'mm\n';
   if (uvMax != null)  msg += '☀️ UV: ' + Math.round(uvMax) + '/11\n';
 
-  // Air quality block — SG PSI always, BKK AQI when in-trip
-  if (sgPsi || bkkAqi) {
-    msg += '\n<b>Air quality</b>\n';
-    if (sgPsi)  msg += sgPsi.emoji  + ' SG PSI '  + sgPsi.value  + ' · ' + sgPsi.band  + (sgPsi.pm25  != null ? ' · PM2.5 ' + Math.round(sgPsi.pm25)  + '㎍/㎥' : '') + '\n';
-    if (bkkAqi) msg += bkkAqi.emoji + ' BKK AQI ' + bkkAqi.value + ' · ' + bkkAqi.band + (bkkAqi.pm25 != null ? ' · PM2.5 ' + Math.round(bkkAqi.pm25) + '㎍/㎥' : '') + '\n';
+  // Air quality — Bangkok only. This is a BKK weather briefing, SG PSI not relevant.
+  msg += '\n<b>🌬️ Bangkok Air Quality</b>\n';
+  if (bkkAqi) {
+    msg += bkkAqi.emoji + ' AQI ' + bkkAqi.value + ' · ' + bkkAqi.band +
+      (bkkAqi.pm25 != null ? ' · PM2.5 ' + Math.round(bkkAqi.pm25) + '㎍/㎥' : '') + '\n';
+  } else {
+    msg += '⚪ BKK AQI data unavailable — check AirVisual or BMA app\n';
   }
 
   msg += programmeBlock;
@@ -1789,9 +1759,9 @@ function sendWeatherBriefing() {
   msg += '\n\nStay sharp 🇹🇭';
 
   tgSend(msg, _tgChatId('A1_weather'));
-  const psiTag = (sgPsi ? 'SG' + sgPsi.value : '') + (bkkAqi ? ' BKK' + bkkAqi.value : '');
-  logAction('weather_0600', 'server', (tMax||'?') + '°C ' + wc[1] + (psiTag ? ' · ' + psiTag : ''));
-  return 'Sent weather ' + today + (psiTag ? ' (' + psiTag + ')' : '');
+  const aqiTag = bkkAqi ? 'BKK' + bkkAqi.value : '';
+  logAction('weather_0600', 'server', (tMax||'?') + '°C ' + wc[1] + (aqiTag ? ' · ' + aqiTag : ''));
+  return 'Sent weather ' + today + (aqiTag ? ' (' + aqiTag + ')' : '');
 }
 
 // ── Setup: run this ONCE from Apps Script editor ──

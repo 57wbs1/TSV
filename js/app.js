@@ -392,13 +392,20 @@ function renderWeatherStrip() {
   const src = 'https://open-meteo.com/en/docs?latitude=13.7256&longitude=100.5279&hourly=temperature_2m';
   const srcUrl = `https://www.google.com/search?q=bangkok+weather`;
   if (!d) return `<a id="home-weather" class="weather-strip loading" href="${srcUrl}" target="_blank" rel="noopener"><span class="w-label">BKK Weather</span><span class="w-icon">🌤️</span><span class="w-temp">—°</span><span class="w-range">Loading…</span></a>`;
-  const psi = d.psi != null ? `<span class="w-psi"><b>PSI</b> ${d.psi}</span>` : '';
+  // Bangkok US-AQI (equivalent to PSI scale). Flag Orange (>100) with 😷.
+  let aqiBadge = '';
+  if (d.psi != null) {
+    const v = d.psi;
+    const emoji = v <= 50 ? '🟢' : v <= 100 ? '🟡' : v <= 150 ? '🟠' : v <= 200 ? '🟠' : v <= 300 ? '🔴' : '🟣';
+    const warn  = v > 100 ? ' 😷' : '';
+    aqiBadge = `<span class="w-psi" style="${v > 100 ? 'background:#fef3c7;color:#92400e;font-weight:800' : ''}">${emoji} <b>BKK AQI</b> ${v}${warn}</span>`;
+  }
   return `<a id="home-weather" class="weather-strip" href="${srcUrl}" target="_blank" rel="noopener" title="Tap for full forecast">
     <span class="w-label">BKK Weather</span>
     <span class="w-icon">${weatherIcon(d.code)}</span>
     <span class="w-temp">${d.temp}°</span>
     <span class="w-range"><span class="w-hl">H</span> ${d.high}° · <span class="w-hl">L</span> ${d.low}°</span>
-    ${psi}
+    ${aqiBadge}
     <span class="w-cond">${weatherLabel(d.code)}</span>
     <span class="w-ext">↗</span>
   </a>`;
@@ -2909,7 +2916,15 @@ async function refreshTransportState() {
 // Both are stored on STATE dynamically (not in initial STATE declaration)
 
 window.openTransportBoarding = function(vehicleId, isPlane) {
-  STATE.transportModal = { vehicleId, isPlane: !!isPlane, selected: [], step: 'select', remarks: '' };
+  // Preload any in-progress selection + remarks from server state so Save Progress
+  // persists across returns to the modal.
+  const v = (STATE.transport || {})[vehicleId] || {};
+  STATE.transportModal = {
+    vehicleId,
+    isPlane: !!isPlane,
+    selected: Array.isArray(v.boardedSyns) ? v.boardedSyns.slice() : [],
+    remarks:  v.boardingRemarks || ''
+  };
   const body = el('calendar-sub-content');
   if (body) _redrawTransport(body);
 };
@@ -2923,6 +2938,8 @@ window.closeTransportModal = function() {
 window.toggleTransportSyn = function(syn) {
   const m = STATE.transportModal;
   if (!m) return;
+  // Preserve whatever is in the remarks textbox before re-render
+  m.remarks = el('tmod-remarks')?.value ?? m.remarks;
   const idx = m.selected.indexOf(syn);
   if (idx >= 0) m.selected.splice(idx, 1);
   else m.selected.push(syn);
@@ -2930,21 +2947,28 @@ window.toggleTransportSyn = function(syn) {
   if (body) _redrawTransport(body);
 };
 
-window.transportModalNext = function() {
-  if (!STATE.transportModal) return;
-  STATE.transportModal.step = 'remarks';
-  STATE.transportModal.remarks = el('tmod-remarks')?.value || '';
+// Save mid-state: writes current selection + remarks to server, no Telegram.
+window.saveTransportProgress = async function() {
+  const m = STATE.transportModal;
+  if (!m) return;
+  const user = STATE.currentUser;
+  const actorName = user ? (user.shortName || user.name) : 'unknown';
+  const remarks = (el('tmod-remarks')?.value || m.remarks || '').trim();
+  const result = await API.post('updateTransport', {
+    vehicleId: m.vehicleId,
+    action: 'boardBatch',
+    synLabels: m.selected,
+    remarks,
+    actorName
+  });
+  if (result) STATE.transport = result;
+  toast('💾 Progress saved — returns when you reopen');
+  STATE.transportModal = null;
   const body = el('calendar-sub-content');
   if (body) _redrawTransport(body);
 };
 
-window.transportModalBack = function() {
-  if (!STATE.transportModal) return;
-  STATE.transportModal.step = 'select';
-  const body = el('calendar-sub-content');
-  if (body) _redrawTransport(body);
-};
-
+// Send SITREP: saves state + sends Telegram to ops chat
 window.sendTransportBoarding = async function() {
   const m = STATE.transportModal;
   if (!m) return;
@@ -2953,16 +2977,17 @@ window.sendTransportBoarding = async function() {
   const veh = m.isPlane ? null : TRANSPORT_BUSES.find(b => b.id === m.vehicleId);
   const remarks = (el('tmod-remarks')?.value || m.remarks || '').trim();
 
-  // 1. Save to server
+  // 1. Save to server (with remarks)
   const result = await API.post('updateTransport', {
     vehicleId: m.vehicleId,
     action: 'boardBatch',
     synLabels: m.selected,
+    remarks,
     actorName
   });
   if (result) STATE.transport = result;
 
-  // 2. Build Telegram message
+  // 2. Build + send Telegram message
   const selList = m.selected.join(', ') || 'None';
   let msg = '';
   if (m.isPlane) {
@@ -3049,7 +3074,7 @@ function _redrawTransport(container) {
   const expandV  = STATE.transportExpanded || null;
   const modal    = STATE.transportModal;
 
-  // ── MODAL view (boarding selection or remarks) ──
+  // ── MODAL view (single-step boarding: selection + remarks + save/send) ──
   if (modal) {
     const isPlane = modal.isPlane;
     const veh     = isPlane ? null : TRANSPORT_BUSES.find(b => b.id === modal.vehicleId);
@@ -3059,74 +3084,62 @@ function _redrawTransport(container) {
       : (veh?.label || modal.vehicleId);
     const pax     = isPlane ? 'All groups' : (veh?.pax || '');
     const pct     = syns.length ? Math.round(modal.selected.length / syns.length * 100) : 0;
-    const allSelected = isPlane ? modal.selected.length >= 1 : pct >= 100;
+    const canSend = isPlane ? modal.selected.length >= 1 : pct >= 100;
+    const canSave = modal.selected.length >= 1 || (modal.remarks || '').length > 0;
 
-    if (modal.step === 'select') {
-      container.innerHTML = `
-        <div style="padding:0 12px 32px">
-          <div style="display:flex;align-items:center;gap:10px;padding:14px 0 10px">
-            <button class="btn btn-outline btn-sm" onclick="closeTransportModal()">← Cancel</button>
-            <div>
-              <div style="font-weight:800;font-size:16px">${isPlane ? '✈️' : '🚌'} ${escapeHtml(title)}</div>
-              <div style="font-size:12px;color:var(--text-3)">${escapeHtml(pax)}</div>
-            </div>
-          </div>
-
-          <div style="font-size:13px;font-weight:600;color:var(--text-2);margin-bottom:10px">
-            ${isPlane ? 'Select groups / syndicates that have boarded:' : 'Select who is present on this bus:'}
-          </div>
-
-          <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px">
-            ${syns.map(s => {
-              const on = modal.selected.includes(s);
-              return `<button class="btn" style="font-size:14px;padding:10px 16px;${on
-                ? 'background:#2563eb;color:#fff;border-color:#2563eb;font-weight:700'
-                : 'background:var(--card);color:var(--text);border:1px solid var(--border)'}"
-                onclick="toggleTransportSyn('${s}')">
-                ${on ? '✅ ' : ''}${escapeHtml(s)}
-              </button>`;
-            }).join('')}
-          </div>
-
-          ${syns.length > 0 ? `
-          <div style="margin-bottom:16px">
-            <div style="background:#e2e8f0;border-radius:6px;height:10px;overflow:hidden">
-              <div style="height:100%;width:${pct}%;background:${pct>=100?'#16a34a':'#3b82f6'};border-radius:6px;transition:width .2s"></div>
-            </div>
-            <div style="font-size:12px;color:var(--text-3);margin-top:4px">${modal.selected.length}/${syns.length} selected · ${pct}%${pct>=100?' — All present! ✓':''}</div>
-          </div>` : ''}
-
-          <button class="btn btn-primary" style="width:100%;font-size:15px;padding:14px;opacity:${allSelected?1:0.4}"
-            ${allSelected ? '' : 'disabled'}
-            onclick="transportModalNext()">Send SITREP →</button>
-          ${!allSelected && !isPlane ? `<div style="font-size:11px;color:var(--text-3);text-align:center;margin-top:6px">All ${syns.length} groups must be selected to proceed</div>` : ''}
-          ${!allSelected && isPlane ? `<div style="font-size:11px;color:var(--text-3);text-align:center;margin-top:6px">Select at least one group</div>` : ''}
-        </div>`;
-    } else {
-      // step === 'remarks'
-      const selStr = modal.selected.join(', ');
-      const pct2 = syns.length ? Math.round(modal.selected.length / syns.length * 100) : 100;
-      container.innerHTML = `
-        <div style="padding:0 12px 32px">
-          <div style="display:flex;align-items:center;gap:10px;padding:14px 0 10px">
-            <button class="btn btn-outline btn-sm" onclick="transportModalBack()">← Back</button>
+    container.innerHTML = `
+      <div style="padding:0 12px 32px">
+        <div style="display:flex;align-items:center;gap:10px;padding:14px 0 10px">
+          <button class="btn btn-outline btn-sm" onclick="closeTransportModal()">← Cancel</button>
+          <div>
             <div style="font-weight:800;font-size:16px">${isPlane ? '✈️' : '🚌'} ${escapeHtml(title)}</div>
+            <div style="font-size:12px;color:var(--text-3)">${escapeHtml(pax)}</div>
           </div>
+        </div>
 
-          <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:12px 14px;margin-bottom:16px">
-            <div style="font-size:12px;font-weight:700;color:#166534;margin-bottom:4px">✅ Boarding (${pct2}%)</div>
-            <div style="font-size:13px;color:#15803d">${escapeHtml(selStr)}</div>
+        <div style="font-size:13px;font-weight:600;color:var(--text-2);margin-bottom:10px">
+          ${isPlane ? 'Select groups / syndicates that have boarded:' : 'Select who is present on this bus:'}
+        </div>
+
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px">
+          ${syns.map(s => {
+            const on = modal.selected.includes(s);
+            return `<button class="btn" style="font-size:14px;padding:10px 16px;${on
+              ? 'background:#2563eb;color:#fff;border-color:#2563eb;font-weight:700'
+              : 'background:var(--card);color:var(--text);border:1px solid var(--border)'}"
+              onclick="toggleTransportSyn('${s}')">
+              ${on ? '✅ ' : ''}${escapeHtml(s)}
+            </button>`;
+          }).join('')}
+        </div>
+
+        ${syns.length > 0 ? `
+        <div style="margin-bottom:16px">
+          <div style="background:#e2e8f0;border-radius:6px;height:10px;overflow:hidden">
+            <div style="height:100%;width:${pct}%;background:${pct>=100?'#16a34a':'#3b82f6'};border-radius:6px;transition:width .2s"></div>
           </div>
+          <div style="font-size:12px;color:var(--text-3);margin-top:4px">${modal.selected.length}/${syns.length} selected · ${pct}%${pct>=100?' — All present! ✓':''}</div>
+        </div>` : ''}
 
-          <label class="ref-form-label" style="display:block;margin-bottom:6px">Remarks <span style="font-weight:400;opacity:.7">(optional — deviations, late pax, etc.)</span></label>
-          <textarea id="tmod-remarks" class="ref-form-field"
-            style="width:100%;box-sizing:border-box;border:1px solid var(--border);border-radius:8px;padding:10px;font-size:13px;font-family:inherit;min-height:72px"
-            placeholder="e.g. 26E 1 pax joined Bus 1 · Syn 1 short 1 man (at hotel)">${escapeHtml(modal.remarks || '')}</textarea>
+        <label class="ref-form-label" style="display:block;margin-bottom:6px">Remarks <span style="font-weight:400;opacity:.7">(e.g. "1 pax from Syn 1 in Bus 2", "26E short 1 man at hotel")</span></label>
+        <textarea id="tmod-remarks"
+          style="width:100%;box-sizing:border-box;border:1px solid var(--border);border-radius:8px;padding:10px;font-size:13px;font-family:inherit;min-height:64px;background:var(--card);color:var(--text);margin-bottom:12px"
+          placeholder="Optional — any deviations, late pax, or notes">${escapeHtml(modal.remarks || '')}</textarea>
 
-          <button class="btn btn-primary" style="width:100%;font-size:15px;padding:14px;margin-top:12px"
-            onclick="sendTransportBoarding()">📤 Send Boarding Sitrep</button>
-        </div>`;
-    }
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <button class="btn btn-outline" style="font-size:14px;padding:12px;opacity:${canSave?1:0.4}"
+            ${canSave ? '' : 'disabled'}
+            onclick="saveTransportProgress()">💾 Save Progress</button>
+          <button class="btn btn-primary" style="font-size:14px;padding:12px;opacity:${canSend?1:0.4}"
+            ${canSend ? '' : 'disabled'}
+            onclick="sendTransportBoarding()">📤 Send SITREP</button>
+        </div>
+        <div style="font-size:11px;color:var(--text-3);text-align:center;margin-top:8px">
+          <b>Save</b>: keep selection, return later when more board.
+          ${!canSend && !isPlane ? `<br><b>Send SITREP</b> activates when all ${syns.length} are selected.` : ''}
+          ${!canSend && isPlane ? `<br><b>Send SITREP</b> activates after selecting ≥ 1.` : ''}
+        </div>
+      </div>`;
     return;
   }
 
@@ -3212,7 +3225,7 @@ function _redrawTransport(container) {
           onclick="transportSendSitrep('${veh.id}')">📤 Send Sitrep</button>
       </div>` : '';
 
-    const boardBtn = status === 'idle' ? `<button class="btn btn-sm" style="background:#eff6ff;color:#0369a1;border:1px solid #7dd3fc;font-size:13px" onclick="openTransportBoarding('${veh.id}',false)">🔲 Boarding?</button>` : '';
+    const boardBtn = status === 'idle' ? `<button class="btn btn-sm" style="background:#eff6ff;color:#0369a1;border:1px solid #7dd3fc;font-size:13px" onclick="openTransportBoarding('${veh.id}',false)">${boarded.length ? '➕ Continue Boarding' : '🔲 Boarding?'}</button>` : '';
     const pushBtn  = canAdmin && status === 'idle' && allBoarded ? `<button class="btn btn-sm" style="background:#2563eb;color:#fff;font-size:13px" onclick="transportAction('pushing','${veh.id}')">🚌 Mark Pushing</button>` : '';
     const dropBtn  = canAdmin && pushing ? `<button class="btn btn-sm" style="background:#16a34a;color:#fff;font-size:13px" onclick="transportAction('dropped','${veh.id}')">✅ Dropped Off</button>` : '';
     const resetBtn = canAdmin && status !== 'idle' ? `<button class="btn btn-sm btn-outline" style="font-size:12px" onclick="transportAction('reset','${veh.id}')">↺ Reset</button>` : '';
@@ -3230,6 +3243,7 @@ function _redrawTransport(container) {
         ${driverSection}
         ${bar}
         <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:8px">${synChips}</div>
+        ${v.boardingRemarks ? `<div style="margin-top:8px;background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:6px 10px;font-size:12px;color:#92400e"><b>📝 Note:</b> ${escapeHtml(v.boardingRemarks)}</div>` : ''}
         <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">
           ${boardBtn}${pushBtn}${dropBtn}${resetBtn}
         </div>
@@ -3308,26 +3322,18 @@ function renderReflectionsSubTab() {
       <div class="ref-form-field">
         <label class="ref-form-label">🔍 What did we observe?</label>
         <textarea id="ref-obs" rows="3" placeholder="• Observation 1&#10;• Observation 2"></textarea>
-        <button class="btn btn-sm" style="margin-top:4px;font-size:11px;background:linear-gradient(135deg,#7c3aed,#4f46e5);color:#fff;border:none"
-          onclick="generateRefAI('ref-obs','obs')">✨ Help me write</button>
       </div>
       <div class="ref-form-field">
         <label class="ref-form-label">🇸🇬 What does it mean for Singapore / SAF?</label>
         <textarea id="ref-impl" rows="3" placeholder="• Implication 1&#10;• Implication 2"></textarea>
-        <button class="btn btn-sm" style="margin-top:4px;font-size:11px;background:linear-gradient(135deg,#7c3aed,#4f46e5);color:#fff;border:none"
-          onclick="generateRefAI('ref-impl','impl')">✨ Help me write</button>
       </div>
       <div class="ref-form-field">
         <label class="ref-form-label">💡 Key Takeaway / Ah-Ha:</label>
         <textarea id="ref-ahha" rows="2" placeholder="• Key insight"></textarea>
-        <button class="btn btn-sm" style="margin-top:4px;font-size:11px;background:linear-gradient(135deg,#7c3aed,#4f46e5);color:#fff;border:none"
-          onclick="generateRefAI('ref-ahha','ahha')">✨ Help me write</button>
       </div>
       <div class="ref-form-field">
         <label class="ref-form-label" style="opacity:.8">❓ Follow-up questions <span style="font-weight:400">(optional)</span></label>
         <textarea id="ref-followup" rows="2" placeholder="• Question for further inquiry"></textarea>
-        <button class="btn btn-sm" style="margin-top:4px;font-size:11px;background:linear-gradient(135deg,#7c3aed,#4f46e5);color:#fff;border:none"
-          onclick="generateRefAI('ref-followup','followup')">✨ Help me write</button>
       </div>
 
       <div class="compose-toolbar" style="margin-top:10px">
@@ -3497,24 +3503,6 @@ window.draftForMe = function(visitId) {
     ta.scrollTop = 0;
   }
   toast('✨ Draft inserted — edit freely');
-};
-
-window.generateRefAI = async function(fieldId, fieldType) {
-  const user = STATE.currentUser;
-  if (!user) return toast('Sign in first');
-  const day  = el('reflection-day-select')?.value || '';
-  const existing = (el(fieldId)?.value || '').trim();
-  toast('✨ Generating…');
-  const result = await API.post('generateReflectionAI', {
-    day, field: fieldType, context: existing, actor: user.id
-  });
-  if (!result || result.error) { toast('❌ AI unavailable — ' + (result?.error || 'no response')); return; }
-  const ta = el(fieldId);
-  if (ta) {
-    ta.value = result.text || '';
-    ta.focus();
-  }
-  toast('✨ Draft ready — edit freely');
 };
 
 // ═══════════ REFLECTIONS ═════════════════════════════════════
