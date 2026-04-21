@@ -2908,8 +2908,80 @@ async function refreshTransportState() {
 // Which vehicle picker is open; which bus card is expanded for driver details
 // Both are stored on STATE dynamically (not in initial STATE declaration)
 
-window.openTransportPicker = function(vehicleId) {
-  STATE.transportPickerVehicle = (STATE.transportPickerVehicle === vehicleId) ? null : vehicleId;
+window.openTransportBoarding = function(vehicleId, isPlane) {
+  STATE.transportModal = { vehicleId, isPlane: !!isPlane, selected: [], step: 'select', remarks: '' };
+  const body = el('calendar-sub-content');
+  if (body) _redrawTransport(body);
+};
+
+window.closeTransportModal = function() {
+  STATE.transportModal = null;
+  const body = el('calendar-sub-content');
+  if (body) _redrawTransport(body);
+};
+
+window.toggleTransportSyn = function(syn) {
+  const m = STATE.transportModal;
+  if (!m) return;
+  const idx = m.selected.indexOf(syn);
+  if (idx >= 0) m.selected.splice(idx, 1);
+  else m.selected.push(syn);
+  const body = el('calendar-sub-content');
+  if (body) _redrawTransport(body);
+};
+
+window.transportModalNext = function() {
+  if (!STATE.transportModal) return;
+  STATE.transportModal.step = 'remarks';
+  STATE.transportModal.remarks = el('tmod-remarks')?.value || '';
+  const body = el('calendar-sub-content');
+  if (body) _redrawTransport(body);
+};
+
+window.transportModalBack = function() {
+  if (!STATE.transportModal) return;
+  STATE.transportModal.step = 'select';
+  const body = el('calendar-sub-content');
+  if (body) _redrawTransport(body);
+};
+
+window.sendTransportBoarding = async function() {
+  const m = STATE.transportModal;
+  if (!m) return;
+  const user = STATE.currentUser;
+  const actorName = user ? (user.shortName || user.name) : 'unknown';
+  const veh = m.isPlane ? null : TRANSPORT_BUSES.find(b => b.id === m.vehicleId);
+  const remarks = (el('tmod-remarks')?.value || m.remarks || '').trim();
+
+  // 1. Save to server
+  const result = await API.post('updateTransport', {
+    vehicleId: m.vehicleId,
+    action: 'boardBatch',
+    synLabels: m.selected,
+    actorName
+  });
+  if (result) STATE.transport = result;
+
+  // 2. Build Telegram message
+  const selList = m.selected.join(', ') || 'None';
+  let msg = '';
+  if (m.isPlane) {
+    const flightLabel = m.vehicleId === 'flight_sq708' ? 'SQ708 · SIN→BKK (0930H)' : 'SQ709 · BKK→SIN (1530H)';
+    msg = `✈️ <b>Boarding Update — ${flightLabel}</b>\nBoarded: ${selList}`;
+  } else {
+    const v = (STATE.transport || {})[m.vehicleId] || {};
+    const driver = v.driver || {};
+    const pct = veh ? Math.round(m.selected.length / veh.syns.length * 100) : 0;
+    msg = `🚌 <b>Boarding Update — ${escapeHtml(veh?.label || m.vehicleId)}</b>\nBoarded (${pct}%): ${selList}`;
+    if (driver.name) msg += `\nDriver: ${escapeHtml(driver.name)}`;
+  }
+  if (remarks) msg += `\n⚠️ Remarks: ${escapeHtml(remarks)}`;
+  msg += `\n🕐 ${new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}H`;
+
+  const ok = await TELEGRAM.send(msg, CONFIG.telegram.opsChatId, 'HTML');
+  if (ok) toast('✅ Boarding sitrep sent');
+
+  STATE.transportModal = null;
   const body = el('calendar-sub-content');
   if (body) _redrawTransport(body);
 };
@@ -2953,67 +3025,117 @@ window.transportSendSitrep = async function(vehicleId) {
   if (ok) {
     toast('✅ Sitrep sent to ops chat');
     if (remarksEl) remarksEl.value = '';
-    STATE.transportSitrepSent = STATE.transportSitrepSent || {};
-    STATE.transportSitrepSent[vehicleId] = true;
     const body = el('calendar-sub-content');
     if (body) _redrawTransport(body);
   }
 };
 
-window.transportAction = async function(action, vehicleId, synLabel) {
+window.transportAction = async function(action, vehicleId) {
+  // Only used for pushing / dropped / reset (non-boarding actions)
   const user = STATE.currentUser;
   const actorName = user ? (user.shortName || user.name) : 'unknown';
-  const payload = { action, vehicleId, actorName };
-  if (synLabel) payload.synLabel = synLabel;
-  // For flights: Telegram is sent client-side after server confirms
-  const result = await API.post('updateTransport', payload);
+  const result = await API.post('updateTransport', { action, vehicleId, actorName });
   if (result) STATE.transport = result;
-  STATE.transportPickerVehicle = null; // close picker after any action
-  if (action === 'board' && (vehicleId === 'flight_sq708' || vehicleId === 'flight_sq709')) {
-    const flightLabel = vehicleId === 'flight_sq708'
-      ? 'SQ708 · SIN→BKK (0930H)' : 'SQ709 · BKK→SIN (1530H)';
-    TELEGRAM.send(`✈️ <b>${escapeHtml(synLabel || actorName)}</b> has boarded ${flightLabel}`, CONFIG.telegram.opsChatId, 'HTML');
-  }
   const body = el('calendar-sub-content');
   if (body) _redrawTransport(body);
 };
 
 // ── Synchronous (no API) redraw of the transport sub-tab ──────
 function _redrawTransport(container) {
-  const ts      = STATE.transport || {};
-  const user    = STATE.currentUser;
-  const mySyn   = _mySynLabel(user);
+  const ts       = STATE.transport || {};
+  const user     = STATE.currentUser;
+  const mySyn    = _mySynLabel(user);
   const canAdmin = isAdmin();
-  const pickerV  = STATE.transportPickerVehicle || null;
-  const expandV  = STATE.transportExpanded       || null;
-  const sitrepSent = STATE.transportSitrepSent   || {};
+  const expandV  = STATE.transportExpanded || null;
+  const modal    = STATE.transportModal;
 
-  // ── Flight card ──────────────────────────────────────────
+  // ── MODAL view (boarding selection or remarks) ──
+  if (modal) {
+    const isPlane = modal.isPlane;
+    const veh     = isPlane ? null : TRANSPORT_BUSES.find(b => b.id === modal.vehicleId);
+    const syns    = isPlane ? ALL_TRANSPORT_SYNS : (veh?.syns || []);
+    const title   = isPlane
+      ? (modal.vehicleId === 'flight_sq708' ? 'SQ708 · SIN→BKK' : 'SQ709 · BKK→SIN')
+      : (veh?.label || modal.vehicleId);
+    const pax     = isPlane ? 'All groups' : (veh?.pax || '');
+    const pct     = syns.length ? Math.round(modal.selected.length / syns.length * 100) : 0;
+    const allSelected = isPlane ? modal.selected.length >= 1 : pct >= 100;
+
+    if (modal.step === 'select') {
+      container.innerHTML = `
+        <div style="padding:0 12px 32px">
+          <div style="display:flex;align-items:center;gap:10px;padding:14px 0 10px">
+            <button class="btn btn-outline btn-sm" onclick="closeTransportModal()">← Cancel</button>
+            <div>
+              <div style="font-weight:800;font-size:16px">${isPlane ? '✈️' : '🚌'} ${escapeHtml(title)}</div>
+              <div style="font-size:12px;color:var(--text-3)">${escapeHtml(pax)}</div>
+            </div>
+          </div>
+
+          <div style="font-size:13px;font-weight:600;color:var(--text-2);margin-bottom:10px">
+            ${isPlane ? 'Select groups / syndicates that have boarded:' : 'Select who is present on this bus:'}
+          </div>
+
+          <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px">
+            ${syns.map(s => {
+              const on = modal.selected.includes(s);
+              return `<button class="btn" style="font-size:14px;padding:10px 16px;${on
+                ? 'background:#2563eb;color:#fff;border-color:#2563eb;font-weight:700'
+                : 'background:var(--card);color:var(--text);border:1px solid var(--border)'}"
+                onclick="toggleTransportSyn('${s}')">
+                ${on ? '✅ ' : ''}${escapeHtml(s)}
+              </button>`;
+            }).join('')}
+          </div>
+
+          ${syns.length > 0 ? `
+          <div style="margin-bottom:16px">
+            <div style="background:#e2e8f0;border-radius:6px;height:10px;overflow:hidden">
+              <div style="height:100%;width:${pct}%;background:${pct>=100?'#16a34a':'#3b82f6'};border-radius:6px;transition:width .2s"></div>
+            </div>
+            <div style="font-size:12px;color:var(--text-3);margin-top:4px">${modal.selected.length}/${syns.length} selected · ${pct}%${pct>=100?' — All present! ✓':''}</div>
+          </div>` : ''}
+
+          <button class="btn btn-primary" style="width:100%;font-size:15px;padding:14px;opacity:${allSelected?1:0.4}"
+            ${allSelected ? '' : 'disabled'}
+            onclick="transportModalNext()">Send SITREP →</button>
+          ${!allSelected && !isPlane ? `<div style="font-size:11px;color:var(--text-3);text-align:center;margin-top:6px">All ${syns.length} groups must be selected to proceed</div>` : ''}
+          ${!allSelected && isPlane ? `<div style="font-size:11px;color:var(--text-3);text-align:center;margin-top:6px">Select at least one group</div>` : ''}
+        </div>`;
+    } else {
+      // step === 'remarks'
+      const selStr = modal.selected.join(', ');
+      const pct2 = syns.length ? Math.round(modal.selected.length / syns.length * 100) : 100;
+      container.innerHTML = `
+        <div style="padding:0 12px 32px">
+          <div style="display:flex;align-items:center;gap:10px;padding:14px 0 10px">
+            <button class="btn btn-outline btn-sm" onclick="transportModalBack()">← Back</button>
+            <div style="font-weight:800;font-size:16px">${isPlane ? '✈️' : '🚌'} ${escapeHtml(title)}</div>
+          </div>
+
+          <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:12px 14px;margin-bottom:16px">
+            <div style="font-size:12px;font-weight:700;color:#166534;margin-bottom:4px">✅ Boarding (${pct2}%)</div>
+            <div style="font-size:13px;color:#15803d">${escapeHtml(selStr)}</div>
+          </div>
+
+          <label class="ref-form-label" style="display:block;margin-bottom:6px">Remarks <span style="font-weight:400;opacity:.7">(optional — deviations, late pax, etc.)</span></label>
+          <textarea id="tmod-remarks" class="ref-form-field"
+            style="width:100%;box-sizing:border-box;border:1px solid var(--border);border-radius:8px;padding:10px;font-size:13px;font-family:inherit;min-height:72px"
+            placeholder="e.g. 26E 1 pax joined Bus 1 · Syn 1 short 1 man (at hotel)">${escapeHtml(modal.remarks || '')}</textarea>
+
+          <button class="btn btn-primary" style="width:100%;font-size:15px;padding:14px;margin-top:12px"
+            onclick="sendTransportBoarding()">📤 Send Boarding Sitrep</button>
+        </div>`;
+    }
+    return;
+  }
+
+  // ── NORMAL cards view ──
   function flightCard(vehicleId, flightNum, route, date, depart, arrive, note) {
-    const v      = ts[vehicleId] || { boardedSyns: [] };
+    const v       = ts[vehicleId] || { boardedSyns: [] };
     const boarded = v.boardedSyns || [];
-    const isOpen  = pickerV === vehicleId;
-
-    const chips = boarded.map(s =>
+    const chips   = boarded.map(s =>
       `<span class="transport-boarded-chip" style="background:#dcfce7;color:#166534">✅ ${escapeHtml(s)}</span>`).join('');
-
-    const picker = isOpen ? `
-      <div class="transport-picker">
-        <div style="font-size:11px;color:var(--text-3);margin-bottom:8px">Select your syndicate / group:</div>
-        <div style="display:flex;flex-wrap:wrap;gap:6px">
-          ${ALL_TRANSPORT_SYNS.map(s => {
-            const already = boarded.includes(s);
-            return `<button class="btn btn-sm" style="${already
-              ? 'background:#dcfce7;color:#15803d;border:1px solid #86efac'
-              : 'background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe'}"
-              onclick="transportAction('${already ? 'unboard' : 'board'}','${vehicleId}','${s}')">
-              ${already ? '✅ ' : ''}${escapeHtml(s)}${already ? ' (undo)' : ''}
-            </button>`;
-          }).join('')}
-        </div>
-        <button class="btn btn-sm btn-outline" style="margin-top:8px;width:100%" onclick="openTransportPicker('${vehicleId}')">Close</button>
-      </div>` : '';
-
     return `
       <div class="transport-bus-card" style="border-left:4px solid #3b82f6">
         <div style="display:flex;gap:10px;align-items:flex-start">
@@ -3026,100 +3148,74 @@ function _redrawTransport(container) {
         </div>
         ${boarded.length ? `<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:8px">${chips}</div>` : ''}
         <button class="btn btn-sm" style="margin-top:10px;width:100%;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;font-size:13px"
-          onclick="openTransportPicker('${vehicleId}')">✈️ ${isOpen ? 'Cancel' : 'Confirm Boarded'}</button>
-        ${picker}
+          onclick="openTransportBoarding('${vehicleId}',true)">✈️ Boarding?</button>
       </div>`;
   }
 
-  // ── Bus card ─────────────────────────────────────────────
   function busCard(veh) {
     const v        = ts[veh.id] || { status: 'idle', boardedSyns: [], driver: {} };
     const boarded  = v.boardedSyns || [];
     const status   = v.status || 'idle';
     const driver   = v.driver || {};
-    const isOpen   = pickerV === veh.id;
     const isExpand = expandV === veh.id;
     const pct      = veh.syns.length ? Math.round(boarded.length / veh.syns.length * 100) : 0;
     const allBoarded = pct >= 100;
     const pushing    = status === 'pushing';
+    const barColor   = allBoarded ? '#16a34a' : '#3b82f6';
 
-    // Progress bar
-    const barColor = allBoarded ? '#16a34a' : '#3b82f6';
-    const bar = `
-      <div style="margin:10px 0 4px;background:#e2e8f0;border-radius:6px;height:8px;overflow:hidden">
-        <div style="height:100%;width:${pct}%;background:${barColor};border-radius:6px;transition:width .3s"></div>
-      </div>
-      <div style="font-size:11px;color:var(--text-3)">${boarded.length}/${veh.syns.length} groups confirmed · ${pct}%</div>`;
-
-    // Chips per syn
     const synChips = veh.syns.map(s => {
       const on = boarded.includes(s);
-      return `<span class="transport-boarded-chip" style="${on
-        ? 'background:#dcfce7;color:#166534'
-        : 'background:#fee2e2;color:#991b1b'}">
+      return `<span class="transport-boarded-chip" style="${on ? 'background:#dcfce7;color:#166534' : 'background:#fee2e2;color:#991b1b'}">
         ${on ? '✅' : '⧖'} ${escapeHtml(s)}
       </span>`;
     }).join('');
 
-    // Picker
-    const picker = isOpen ? `
-      <div class="transport-picker">
-        <div style="font-size:11px;color:var(--text-3);margin-bottom:8px">Who is boarding?</div>
-        <div style="display:flex;flex-wrap:wrap;gap:6px">
-          ${veh.syns.map(s => {
-            const on = boarded.includes(s);
-            return `<button class="btn btn-sm" style="font-size:13px;${on
-              ? 'background:#dcfce7;color:#15803d;border:1px solid #86efac'
-              : 'background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe'}"
-              onclick="transportAction('${on ? 'unboard' : 'board'}','${veh.id}','${s}')">
-              ${on ? '✅ ' : '🔲 '}${escapeHtml(s)}
-            </button>`;
-          }).join('')}
-        </div>
-        <button class="btn btn-sm btn-outline" style="margin-top:8px;width:100%" onclick="openTransportPicker('${veh.id}')">Close</button>
-      </div>` : '';
-
-    // Sitrep panel (shown when pushing and sitrep not yet sent)
-    const sitrepPanel = pushing ? `
-      <div class="transport-sitrep-panel">
-        <div style="font-size:12px;font-weight:700;color:#92400e;margin-bottom:6px">📤 Send Pushing Sitrep to Ops Chat</div>
-        <textarea id="tsitrep-remarks-${veh.id}" class="ref-form-field" style="width:100%;box-sizing:border-box;border:1px solid #fcd34d;border-radius:8px;padding:6px 8px;font-size:12px;font-family:inherit;min-height:48px;background:#fefce8;color:var(--text)"
-          placeholder="Optional: e.g. 26E 1 pax joined Bus 1 · Syn 1 short 1 man (at hotel)"></textarea>
-        <button class="btn btn-sm" style="width:100%;margin-top:6px;background:#d97706;color:#fff;font-size:13px"
-          onclick="transportSendSitrep('${veh.id}')">📤 Send Sitrep</button>
-      </div>` : '';
-
-    // Action buttons
-    const boardBtn = status === 'idle' ? `<button class="btn btn-sm" style="background:#eff6ff;color:#0369a1;border:1px solid #7dd3fc;font-size:13px" onclick="openTransportPicker('${veh.id}')">🔲 Boarded?</button>` : '';
-    const pushBtn  = canAdmin && status === 'idle' && allBoarded ? `<button class="btn btn-sm" style="background:#2563eb;color:#fff;font-size:13px" onclick="transportAction('pushing','${veh.id}')">🚌 Mark Pushing</button>` : '';
-    const dropBtn  = canAdmin && pushing ? `<button class="btn btn-sm" style="background:#16a34a;color:#fff;font-size:13px" onclick="transportAction('dropped','${veh.id}')">✅ Dropped Off</button>` : '';
-    const resetBtn = canAdmin && status !== 'idle' ? `<button class="btn btn-sm btn-outline" style="font-size:12px" onclick="transportAction('reset','${veh.id}')">↺ Reset</button>` : '';
+    const bar = `
+      <div style="margin:10px 0 4px;background:#e2e8f0;border-radius:6px;height:8px;overflow:hidden">
+        <div style="height:100%;width:${pct}%;background:${barColor};border-radius:6px"></div>
+      </div>
+      <div style="font-size:11px;color:var(--text-3)">${boarded.length}/${veh.syns.length} groups confirmed · ${pct}%</div>`;
 
     const statusBadge = pushing
       ? `<span style="font-size:11px;background:#dbeafe;color:#1e40af;border:1px solid #bfdbfe;padding:2px 7px;border-radius:10px;font-weight:700;margin-left:6px">🚌 Pushing</span>`
       : (allBoarded ? `<span style="font-size:11px;background:#dcfce7;color:#166534;border:1px solid #bbf7d0;padding:2px 7px;border-radius:10px;font-weight:700;margin-left:6px">All Boarded ✓</span>` : '');
 
-    // Driver section (expanded)
     const driverSection = isExpand ? `
       <div class="transport-driver-section">
-        ${driver.name || driver.phone ? `
-          <div style="font-size:12px;color:var(--text-2);margin-bottom:8px">
-            ${driver.name ? `<b>Driver:</b> ${escapeHtml(driver.name)}` : ''}
-            ${driver.phone ? ` · <a href="tel:${escapeHtml(driver.phone)}" style="color:var(--blue-500)">${escapeHtml(driver.phone)}</a>` : ''}
-          </div>` : ''}
+        ${driver.name || driver.phone ? `<div style="font-size:12px;color:var(--text-2);margin-bottom:8px">
+          ${driver.name ? `<b>Driver:</b> ${escapeHtml(driver.name)}` : ''}
+          ${driver.phone ? ` · <a href="tel:${escapeHtml(driver.phone)}" style="color:var(--blue-500)">${escapeHtml(driver.phone)}</a>` : ''}
+        </div>` : ''}
         ${canAdmin ? `
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
             <div>
               <label class="ref-form-label">Driver Name</label>
-              <input id="tdr-name-${veh.id}" type="text" class="text-input" value="${escapeHtml(driver.name || '')}" placeholder="e.g. Khun Somsak" style="width:100%;box-sizing:border-box;border:1px solid var(--border);border-radius:7px;padding:6px 8px;font-size:12px">
+              <input id="tdr-name-${veh.id}" type="text" value="${escapeHtml(driver.name||'')}" placeholder="e.g. Khun Somsak"
+                style="width:100%;box-sizing:border-box;border:1px solid var(--border);border-radius:7px;padding:6px 8px;font-size:12px;background:var(--card);color:var(--text)">
             </div>
             <div>
               <label class="ref-form-label">Phone</label>
-              <input id="tdr-phone-${veh.id}" type="tel" class="text-input" value="${escapeHtml(driver.phone || '')}" placeholder="+66 8X XXX XXXX" style="width:100%;box-sizing:border-box;border:1px solid var(--border);border-radius:7px;padding:6px 8px;font-size:12px">
+              <input id="tdr-phone-${veh.id}" type="tel" value="${escapeHtml(driver.phone||'')}" placeholder="+66 8X XXX XXXX"
+                style="width:100%;box-sizing:border-box;border:1px solid var(--border);border-radius:7px;padding:6px 8px;font-size:12px;background:var(--card);color:var(--text)">
             </div>
           </div>
           <button class="btn btn-sm btn-primary" style="width:100%" onclick="saveTransportDriver('${veh.id}')">Save Driver Info</button>` : ''}
       </div>` : '';
+
+    const sitrepPanel = pushing ? `
+      <div class="transport-sitrep-panel">
+        <div style="font-size:12px;font-weight:700;color:#92400e;margin-bottom:6px">📤 Send Pushing Sitrep to Ops Chat</div>
+        <textarea id="tsitrep-remarks-${veh.id}"
+          style="width:100%;box-sizing:border-box;border:1px solid #fcd34d;border-radius:8px;padding:6px 8px;font-size:12px;font-family:inherit;min-height:48px;background:#fefce8;color:var(--text)"
+          placeholder="Optional: e.g. 26E 1 pax joined Bus 1 · Syn 1 short 1 man (at hotel)"></textarea>
+        <button class="btn btn-sm" style="width:100%;margin-top:6px;background:#d97706;color:#fff;font-size:13px"
+          onclick="transportSendSitrep('${veh.id}')">📤 Send Sitrep</button>
+      </div>` : '';
+
+    const boardBtn = status === 'idle' ? `<button class="btn btn-sm" style="background:#eff6ff;color:#0369a1;border:1px solid #7dd3fc;font-size:13px" onclick="openTransportBoarding('${veh.id}',false)">🔲 Boarding?</button>` : '';
+    const pushBtn  = canAdmin && status === 'idle' && allBoarded ? `<button class="btn btn-sm" style="background:#2563eb;color:#fff;font-size:13px" onclick="transportAction('pushing','${veh.id}')">🚌 Mark Pushing</button>` : '';
+    const dropBtn  = canAdmin && pushing ? `<button class="btn btn-sm" style="background:#16a34a;color:#fff;font-size:13px" onclick="transportAction('dropped','${veh.id}')">✅ Dropped Off</button>` : '';
+    const resetBtn = canAdmin && status !== 'idle' ? `<button class="btn btn-sm btn-outline" style="font-size:12px" onclick="transportAction('reset','${veh.id}')">↺ Reset</button>` : '';
 
     return `
       <div class="transport-bus-card" style="border-left:4px solid ${pushing ? '#2563eb' : allBoarded ? '#16a34a' : '#e2e8f0'}">
@@ -3127,7 +3223,7 @@ function _redrawTransport(container) {
           <div>
             <span style="font-size:15px;font-weight:800">${escapeHtml(veh.label)}</span>${statusBadge}
             <div style="font-size:11px;color:var(--text-3);margin-top:2px">${escapeHtml(veh.pax)}</div>
-            ${driver.name ? `<div style="font-size:11px;color:var(--text-3)">🚗 ${escapeHtml(driver.name)}${driver.phone ? ' · ' + escapeHtml(driver.phone) : ''}</div>` : ''}
+            ${driver.name ? `<div style="font-size:11px;color:var(--text-3)">🚗 ${escapeHtml(driver.name)}${driver.phone?' · '+escapeHtml(driver.phone):''}</div>` : ''}
           </div>
           <span style="color:var(--text-3);font-size:16px;flex-shrink:0">${isExpand ? '▲' : '▼'}</span>
         </div>
@@ -3137,9 +3233,8 @@ function _redrawTransport(container) {
         <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">
           ${boardBtn}${pushBtn}${dropBtn}${resetBtn}
         </div>
-        ${picker}
         ${sitrepPanel}
-        ${v.pushedAt ? `<div style="font-size:10px;color:var(--text-3);margin-top:4px">Pushed ${new Date(v.pushedAt).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}H${v.pushedBy ? ' by ' + escapeHtml(v.pushedBy) : ''}</div>` : ''}
+        ${v.pushedAt ? `<div style="font-size:10px;color:var(--text-3);margin-top:4px">Pushed ${new Date(v.pushedAt).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}H${v.pushedBy?' by '+escapeHtml(v.pushedBy):''}</div>` : ''}
         ${v.lastDroppedAt ? `<div style="font-size:10px;color:var(--text-3);margin-top:2px">Last dropped ${new Date(v.lastDroppedAt).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}H</div>` : ''}
       </div>`;
   }
@@ -3151,7 +3246,6 @@ function _redrawTransport(container) {
         ${flightCard('flight_sq708','SQ 708','SIN → BKK','Sun 26 Apr','0930H','1100H','Changi T2 · Economy G · 25 kg · Check-in from 0600H')}
         ${flightCard('flight_sq709','SQ 709','BKK → SIN','Thu 30 Apr','1530H','1900H','Economy G · 25 kg · Report to airport by 1300H')}
       </div>
-
       <div class="section-title" style="margin:20px 12px 8px">🚌 Ground Transport</div>
       <div style="display:flex;flex-direction:column;gap:10px;margin:0 12px">
         ${TRANSPORT_BUSES.map(b => busCard(b)).join('')}
@@ -3160,10 +3254,14 @@ function _redrawTransport(container) {
 }
 
 async function renderTransportSubTab(container) {
-  container.innerHTML = `<div style="padding:28px;text-align:center;color:var(--text-3)">Loading transport…</div>`;
-  const data = await API.get('getTransport');
-  if (data && typeof data === 'object') STATE.transport = data;
+  // Render immediately with cached state — no spinner flash
   _redrawTransport(container);
+  // Refresh from server in background
+  const data = await API.get('getTransport');
+  if (data && typeof data === 'object') {
+    STATE.transport = data;
+    _redrawTransport(container);
+  }
 }
 
 function renderReflectionsSubTab() {
@@ -3191,17 +3289,13 @@ function renderReflectionsSubTab() {
 
   return `
     <div class="learn-intro">
-      <h3>📝 Daily Reflections</h3>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+        <h4 style="margin:0;font-size:15px;font-weight:800">📝 Daily Reflections</h4>
+        <a class="sheet-link" href="${extSheetUrl}" target="_blank" rel="noopener" style="font-size:11px;padding:4px 8px;white-space:nowrap">
+          📋 Learning IC ↗
+        </a>
+      </div>
       <p>End-of-day syndicate reflections. Fill in each field below and tap Post — your response is visible to all and synced to the Learning IC sheet.</p>
-    </div>
-
-    <div style="display:flex;gap:8px;margin:0 12px 12px;flex-wrap:wrap">
-      <a class="sheet-link" href="${sheetUrl}#gid=Reflections" target="_blank" rel="noopener" style="flex:1;min-width:140px">
-        <span>📊</span> View Reflections Sheet <span class="sheet-link-arrow">↗</span>
-      </a>
-      <a class="sheet-link" href="${extSheetUrl}" target="_blank" rel="noopener" style="flex:1;min-width:140px">
-        <span>📋</span> Learning IC Workbook <span class="sheet-link-arrow">↗</span>
-      </a>
     </div>
 
     ${user ? `
@@ -3214,18 +3308,26 @@ function renderReflectionsSubTab() {
       <div class="ref-form-field">
         <label class="ref-form-label">🔍 What did we observe?</label>
         <textarea id="ref-obs" rows="3" placeholder="• Observation 1&#10;• Observation 2"></textarea>
+        <button class="btn btn-sm" style="margin-top:4px;font-size:11px;background:linear-gradient(135deg,#7c3aed,#4f46e5);color:#fff;border:none"
+          onclick="generateRefAI('ref-obs','obs')">✨ Help me write</button>
       </div>
       <div class="ref-form-field">
         <label class="ref-form-label">🇸🇬 What does it mean for Singapore / SAF?</label>
         <textarea id="ref-impl" rows="3" placeholder="• Implication 1&#10;• Implication 2"></textarea>
+        <button class="btn btn-sm" style="margin-top:4px;font-size:11px;background:linear-gradient(135deg,#7c3aed,#4f46e5);color:#fff;border:none"
+          onclick="generateRefAI('ref-impl','impl')">✨ Help me write</button>
       </div>
       <div class="ref-form-field">
         <label class="ref-form-label">💡 Key Takeaway / Ah-Ha:</label>
         <textarea id="ref-ahha" rows="2" placeholder="• Key insight"></textarea>
+        <button class="btn btn-sm" style="margin-top:4px;font-size:11px;background:linear-gradient(135deg,#7c3aed,#4f46e5);color:#fff;border:none"
+          onclick="generateRefAI('ref-ahha','ahha')">✨ Help me write</button>
       </div>
       <div class="ref-form-field">
         <label class="ref-form-label" style="opacity:.8">❓ Follow-up questions <span style="font-weight:400">(optional)</span></label>
         <textarea id="ref-followup" rows="2" placeholder="• Question for further inquiry"></textarea>
+        <button class="btn btn-sm" style="margin-top:4px;font-size:11px;background:linear-gradient(135deg,#7c3aed,#4f46e5);color:#fff;border:none"
+          onclick="generateRefAI('ref-followup','followup')">✨ Help me write</button>
       </div>
 
       <div class="compose-toolbar" style="margin-top:10px">
@@ -3395,6 +3497,24 @@ window.draftForMe = function(visitId) {
     ta.scrollTop = 0;
   }
   toast('✨ Draft inserted — edit freely');
+};
+
+window.generateRefAI = async function(fieldId, fieldType) {
+  const user = STATE.currentUser;
+  if (!user) return toast('Sign in first');
+  const day  = el('reflection-day-select')?.value || '';
+  const existing = (el(fieldId)?.value || '').trim();
+  toast('✨ Generating…');
+  const result = await API.post('generateReflectionAI', {
+    day, field: fieldType, context: existing, actor: user.id
+  });
+  if (!result || result.error) { toast('❌ AI unavailable — ' + (result?.error || 'no response')); return; }
+  const ta = el(fieldId);
+  if (ta) {
+    ta.value = result.text || '';
+    ta.focus();
+  }
+  toast('✨ Draft ready — edit freely');
 };
 
 // ═══════════ REFLECTIONS ═════════════════════════════════════
@@ -4319,6 +4439,12 @@ function renderSettings() {
           </div>
           <span style="font-size:22px">👑</span>
         </div>
+        <div class="settings-row">
+          <div class="sr-label">Database
+            <div class="sr-value">Raw Google Sheet — TSV master DB</div>
+          </div>
+          <a class="btn btn-outline btn-sm" href="https://docs.google.com/spreadsheets/d/${CONFIG.sheetId}/edit" target="_blank" rel="noopener">View DB ↗</a>
+        </div>
         <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:8px">
           <div class="sr-label">View as…
             <div class="sr-value">Declutter the app by hiding admin-only controls</div>
@@ -4354,6 +4480,17 @@ function renderSettings() {
         </div>` : ''}
     </div>
 
+    ${isSuperAdmin ? `
+    <div class="settings-section">
+      <div class="settings-section-header">📡 Telegram Chat Routing</div>
+      <div id="tg-config-container">
+        <div style="padding:12px 16px;color:var(--text-3);font-size:12px">Loading…</div>
+      </div>
+      <div style="padding:0 16px 14px">
+        <button class="btn btn-primary btn-sm" style="width:100%" onclick="saveTelegramConfig()">💾 Save Chat IDs</button>
+      </div>
+    </div>` : ''}
+
     <!-- Session -->
     <div class="settings-section">
       <div class="settings-section-header">🚪 Session</div>
@@ -4365,7 +4502,36 @@ function renderSettings() {
       </div>
     </div>
   `;
+
+  if (isSuperAdmin) {
+    API.get('getTelegramConfig').then(cfg => {
+      const c = el('tg-config-container');
+      if (!c || !cfg) return;
+      const keys = Object.keys(cfg);
+      c.innerHTML = keys.map(k => `
+        <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:4px">
+          <div class="sr-label">${escapeHtml(cfg[k].label)}</div>
+          <input id="tgcfg-${k}" type="text" value="${escapeHtml(cfg[k].chatId)}"
+            style="border:1px solid var(--border);border-radius:7px;padding:6px 10px;font-size:12px;font-family:monospace;background:var(--card);color:var(--text)">
+          <div style="font-size:10px;color:var(--text-3)">Default: ${escapeHtml(cfg[k].defaultId)}</div>
+        </div>`).join('');
+      STATE.telegramConfigKeys = keys;
+    });
+  }
 }
+
+window.saveTelegramConfig = async function() {
+  const keys = STATE.telegramConfigKeys || [];
+  if (!keys.length) return toast('Config not loaded yet');
+  const chats = {};
+  keys.forEach(k => {
+    const v = (el(`tgcfg-${k}`)?.value || '').trim();
+    if (v) chats[k] = v;
+  });
+  const result = await API.post('updateTelegramConfig', { chats, actor: STATE.currentUser?.id });
+  if (result) { toast('✅ Telegram chat IDs saved'); }
+  else toast('❌ Save failed');
+};
 
 window.setAdminView = function(mode) {
   if (mode === 'non-admin') localStorage.setItem('tsv_admin_view_as', 'non-admin');

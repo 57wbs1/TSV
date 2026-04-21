@@ -102,6 +102,7 @@ function doGet(e) {
         break;
       case 'getAdminRequests': data = readSheet(SHEETS.ADMINREQ); break;
       case 'getTransport':    data = getTransportState(); break;
+      case 'getTelegramConfig': data = getTelegramConfig(); break;
       case 'getCalendar':
         // Returns Calendar sheet rows with times normalised and oicsJson → oics
         data = readSheet(SHEETS.CALENDAR)
@@ -189,6 +190,8 @@ function doPost(e) {
       case 'addEvent':         data = addCalendarEvent(body); break;
       case 'deleteEvent':      data = deleteCalendarEvent(body); break;
       case 'updateTransport':  data = updateTransportState(body); break;
+      case 'generateReflectionAI': data = generateReflectionAI(body); break;
+      case 'updateTelegramConfig':  data = updateTelegramConfig(body); break;
       default: return json({ ok: false, error: 'Unknown action: ' + action });
     }
     return json({ ok: true, data });
@@ -239,6 +242,10 @@ function updateTransportState(body) {
     case 'unboard':
       v.boardedSyns = v.boardedSyns.filter(s => s !== body.synLabel);
       break;
+    case 'boardBatch':
+      // Replace entire boardedSyns list with the provided array
+      v.boardedSyns = Array.isArray(body.synLabels) ? body.synLabels : [];
+      break;
     case 'pushing':
       v.status    = 'pushing';
       v.pushedBy  = body.actorName || '';
@@ -268,6 +275,105 @@ function updateTransportState(body) {
   props.setProperty(TRANSPORT_PROP_KEY, JSON.stringify(state));
   logAction('transport_' + body.action, body.actorName || 'unknown', vid);
   return state;
+}
+
+// ── Reflection AI draft (Claude Haiku via Anthropic API) ──────
+function generateReflectionAI(body) {
+  const props = PropertiesService.getScriptProperties();
+  const CLAUDE_KEY = props.getProperty('CLAUDE_API_KEY');
+  if (!CLAUDE_KEY) return { ok: false, error: 'CLAUDE_API_KEY not set in Script Properties' };
+
+  const day     = body.day || '';
+  const field   = body.field || 'obs';
+  const context = (body.context || '').slice(0, 300);
+
+  const DAY_THEMES = {
+    '1': 'Smart Nation, digitalisation & start-up ecosystem',
+    '2': 'Technology parks, innovation hubs & defence-tech',
+    '3': 'Cultural heritage, urban planning & community resilience',
+    '4': 'Military-to-military exchange with Royal Thai Army CGSC',
+    '5': 'Diplomatic engagement & Singapore Embassy Bangkok'
+  };
+  const theme = DAY_THEMES[String(day)] || 'Thailand Study Visit';
+
+  const FIELD_PROMPTS = {
+    obs:      'What key things did we observe today?',
+    impl:     'What does this mean for Singapore and the SAF?',
+    ahha:     'What is the key takeaway or "Ah-Ha" moment?',
+    followup: 'What follow-up questions should we ask?'
+  };
+
+  const fieldPrompt = FIELD_PROMPTS[field] || FIELD_PROMPTS.obs;
+  const userMsg = `You are helping a Singapore Armed Forces officer at a Thailand Study Visit write a concise daily reflection.
+
+Day ${day} theme: ${theme}
+
+Question to answer: "${fieldPrompt}"
+${context ? `\nContext / notes already written: "${context}"` : ''}
+
+Write 2–3 focused bullet points. Be analytical and connect observations to SAF/Singapore context. First-person plural (we, our). No headers. Use • bullets. Max 80 words. Avoid generic statements.`;
+
+  try {
+    const resp = UrlFetchApp.fetch('https://api.anthropic.com/v1/messages', {
+      method: 'post',
+      headers: {
+        'x-api-key': CLAUDE_KEY,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json'
+      },
+      payload: JSON.stringify({
+        model: 'claude-3-5-haiku-20241022',
+        max_tokens: 200,
+        messages: [{ role: 'user', content: userMsg }]
+      }),
+      muteHttpExceptions: true
+    });
+    const json = JSON.parse(resp.getContentText());
+    if (json.error) return { ok: false, error: json.error.message };
+    return { ok: true, text: (json.content?.[0]?.text || '').trim() };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+}
+
+// ── Telegram chat routing config (stored in ScriptProperties) ──
+// TG_CHAT_DEFAULTS is defined after MAIN_CHAT/SYN1_CHAT constants (see line ~994).
+// Functions below reference it after those constants are initialised.
+
+function getTelegramConfig() {
+  const props = PropertiesService.getScriptProperties();
+  let saved = {};
+  try { saved = JSON.parse(props.getProperty('tsvTelegramChats') || '{}'); } catch(e) {}
+  const result = {};
+  Object.keys(TG_CHAT_DEFAULTS).forEach(k => {
+    result[k] = {
+      label:     TG_CHAT_DEFAULTS[k].label,
+      defaultId: TG_CHAT_DEFAULTS[k].defaultId,
+      chatId:    saved[k] || TG_CHAT_DEFAULTS[k].defaultId
+    };
+  });
+  return result;
+}
+
+function updateTelegramConfig(body) {
+  if (body.actor !== SUPER_ADMIN_ID) return { ok: false, error: 'Unauthorized' };
+  const updates = body.chats || {};
+  const props = PropertiesService.getScriptProperties();
+  let saved = {};
+  try { saved = JSON.parse(props.getProperty('tsvTelegramChats') || '{}'); } catch(e) {}
+  Object.keys(updates).forEach(k => {
+    if (TG_CHAT_DEFAULTS[k] && updates[k]) saved[k] = String(updates[k]).trim();
+  });
+  props.setProperty('tsvTelegramChats', JSON.stringify(saved));
+  logAction('updateTelegramConfig', body.actor, 'updated ' + Object.keys(updates).length + ' chats');
+  return getTelegramConfig();
+}
+
+function _tgChatId(channel) {
+  try {
+    const saved = JSON.parse(PropertiesService.getScriptProperties().getProperty('tsvTelegramChats') || '{}');
+    return saved[channel] || TG_CHAT_DEFAULTS[channel]?.defaultId || SYN1_CHAT;
+  } catch(e) { return TG_CHAT_DEFAULTS[channel]?.defaultId || SYN1_CHAT; }
 }
 
 // ────────────────────────────────────────────────────────────
@@ -878,6 +984,17 @@ const BOT_TOKEN   = '8623156706:AAHv8vGrjxr1Kj4s8_k3EoruBlx1l_EhziQ';
 const MAIN_CHAT   = '-1003468474144';
 const SYN1_CHAT   = '-5257572976';
 
+// ── Telegram chat routing defaults ──────────────────────────
+const TG_CHAT_DEFAULTS = {
+  A1_weather:   { label: 'A1 · 0600H Weather Briefing',        defaultId: MAIN_CHAT  },
+  A2_reminder:  { label: 'A2 · 1900H Pre-trip Reminder',       defaultId: MAIN_CHAT  },
+  A3_evening:   { label: 'A3 · 2300H Evening Sitrep',          defaultId: SYN1_CHAT  },
+  A4_midnight:  { label: 'A4 · 0200H Midnight Curfew Report',  defaultId: SYN1_CHAT  },
+  M1_ir:        { label: 'M1 · Incident Report (IR)',          defaultId: SYN1_CHAT  },
+  M2_transport: { label: 'M2 · Transport Boarding Sitrep',     defaultId: SYN1_CHAT  },
+  M3_sitrep:    { label: 'M3 · Ad-hoc Sitrep / Parade State',  defaultId: SYN1_CHAT  }
+};
+
 function tgSend(text, chatId) {
   try {
     UrlFetchApp.fetch('https://api.telegram.org/bot' + BOT_TOKEN + '/sendMessage', {
@@ -1273,7 +1390,7 @@ function sendDailyReminder(forceDate) {
     return 'Not a trip-eve day: ' + tmrDate;
   }
 
-  tgSend(msg, MAIN_CHAT);
+  tgSend(msg, _tgChatId('A2_reminder'));
   logAction('reminder_sent', 'server', tmrDate);
   return 'Sent reminder for ' + tmrDate;
 }
@@ -1379,7 +1496,7 @@ function sendEveningSitrep() {
   const dateLabel = Utilities.formatDate(bkk, 'Asia/Bangkok', 'd MMM EEE').toUpperCase();
   const data = _buildSitrepData([]);   // no forced all-in
   const msg = _buildSitrepMessage(data, '2300H SITREP', dateLabel);
-  tgSend(msg, SYN1_CHAT);
+  tgSend(msg, _tgChatId('A3_evening'));
   logAction('sitrep_2300', 'server', data.totals.inC + '/' + data.totals.total);
   return 'Sent 2300H';
 }
@@ -1391,7 +1508,7 @@ function sendMidnightSitrep() {
   const yLabel = Utilities.formatDate(yesterday, 'Asia/Bangkok', 'd MMM EEE').toUpperCase();
   const data = _buildSitrepData(['57 CSC Syn 1']);   // force Syn 1 all-in only
   const msg = _buildSitrepMessage(data, '0200H SITREP', yLabel);
-  tgSend(msg, SYN1_CHAT);
+  tgSend(msg, _tgChatId('A4_midnight'));
   logAction('sitrep_0200', 'server', data.totals.inC + '/' + data.totals.total);
   return 'Sent 0200H';
 }
@@ -1469,10 +1586,13 @@ function sendWeatherBriefing() {
     + '&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m'
     + '&daily=temperature_2m_max,temperature_2m_min,apparent_temperature_max,'
     +   'uv_index_max,precipitation_sum,precipitation_probability_max,weather_code'
-    + '&forecast_days=1';
+    + '&hourly=temperature_2m,apparent_temperature'
+    + '&forecast_days=2';
 
   let tMax = null, tMin = null, feelsMax = null, uvMax = null, rainSum = 0, rainProb = 0;
   let curT = null, curRH = null, curWind = null, curCode = null, dailyCode = null;
+  let noonT = null, noonFeels = null;
+  let tmrMax = null, tmrMin = null, tmrCode = null;
   try {
     const res = UrlFetchApp.fetch(url, { method: 'get', muteHttpExceptions: true });
     const body = JSON.parse(res.getContentText());
@@ -1490,23 +1610,35 @@ function sendWeatherBriefing() {
       rainSum  = body.daily.precipitation_sum?.[0] || 0;
       rainProb = body.daily.precipitation_probability_max?.[0] || 0;
       dailyCode= body.daily.weather_code?.[0];
+      tmrMax   = body.daily.temperature_2m_max?.[1] ?? null;
+      tmrMin   = body.daily.temperature_2m_min?.[1] ?? null;
+      tmrCode  = body.daily.weather_code?.[1] ?? null;
+    }
+    if (body.hourly) {
+      noonT     = body.hourly.temperature_2m?.[12] ?? null;
+      noonFeels = body.hourly.apparent_temperature?.[12] ?? null;
     }
   } catch (e) {
     logAction('weather_fail', 'server', e.message);
-    tgSend('<b>☀️ Weather briefing</b>\nCouldn\'t reach the weather service — defaulting: stay hydrated, wear light layers, bring rain cover.', MAIN_CHAT);
+    tgSend('<b>☀️ Weather briefing</b>\nCouldn\'t reach the weather service — defaulting: stay hydrated, wear light layers, bring rain cover.', _tgChatId('A1_weather'));
     return 'Weather fetch failed';
   }
 
   // Emoji + description for weather code
   const codeMap = {
     0:['☀️','Clear sky'], 1:['🌤️','Mainly clear'], 2:['⛅','Partly cloudy'], 3:['☁️','Overcast'],
+    4:['🌤️','Mainly clear'], 5:['⛅','Partly cloudy'], 6:['☁️','Overcast'],
     45:['🌫️','Fog'], 48:['🌫️','Rime fog'],
     51:['🌦️','Light drizzle'], 53:['🌦️','Drizzle'], 55:['🌦️','Dense drizzle'],
+    56:['🌧️','Freezing drizzle'], 57:['🌧️','Dense freezing drizzle'],
     61:['🌧️','Light rain'], 63:['🌧️','Rain'], 65:['🌧️','Heavy rain'],
+    66:['🌧️','Freezing rain'], 67:['🌧️','Heavy freezing rain'],
+    71:['🌨️','Light snow'], 73:['🌨️','Snow'], 75:['❄️','Heavy snow'], 77:['🌨️','Snow grains'],
     80:['🌦️','Rain showers'], 81:['🌧️','Heavy showers'], 82:['⛈️','Violent showers'],
+    85:['🌨️','Snow showers'], 86:['❄️','Heavy snow showers'],
     95:['⛈️','Thunderstorm'], 96:['⛈️','Thunder + hail'], 99:['⛈️','Severe thunderstorm']
   };
-  const wc = codeMap[dailyCode] || codeMap[curCode] || ['🌡️','Mixed'];
+  const wc = codeMap[dailyCode] || codeMap[curCode] || ['🌡️','Variable conditions'];
 
   // Advice engine — layered based on actual conditions
   const tips = [];
@@ -1557,14 +1689,49 @@ function sendWeatherBriefing() {
       }
     } catch (e) { logAction('weather_programme_fail','server', e.message); }
   } else {
-    // Pre-trip morning — countdown line instead of programme
-    const tripStart = new Date('2026-04-26T00:00:00+07:00');
-    const tripEnd   = new Date('2026-04-30T23:59:59+07:00');
-    const nowTs = bkk.getTime();
-    if (nowTs < tripStart.getTime()) {
-      const days = Math.ceil((tripStart.getTime() - nowTs) / (24*60*60*1000));
-      programmeBlock = '\n🛫 <b>' + days + ' day' + (days===1?'':'s') + ' to TSV Bangkok</b>\n';
-    } else if (nowTs > tripEnd.getTime()) {
+    // Pre-trip morning — rich countdown block
+    const tripStartPre = new Date('2026-04-26T00:00:00+07:00');
+    const tripEndPre   = new Date('2026-04-30T23:59:59+07:00');
+    const nowTsPre = bkk.getTime();
+    if (nowTsPre < tripStartPre.getTime()) {
+      const daysOut = Math.ceil((tripStartPre.getTime() - nowTsPre) / (24*60*60*1000));
+      programmeBlock = '\n🛫 <b>' + daysOut + ' day' + (daysOut===1?'':'s') + ' to TSV Bangkok</b>\n\n📋 <b>Prep checklist:</b>\n';
+      if (daysOut >= 5) {
+        programmeBlock += '✅ Passport valid ≥6 months?\n';
+        programmeBlock += '✅ Air ticket printed / downloaded?\n';
+        programmeBlock += '✅ Check-in open for SQ708 (0930H, Changi T2)\n';
+        programmeBlock += '✅ Uniform serviceable? Pressed and ready?\n';
+        programmeBlock += '✅ No-4 / smart casual packed?\n';
+        programmeBlock += '✅ Toiletries, medications packed?\n';
+        programmeBlock += '✅ Running shoes + workout gear?\n';
+        programmeBlock += '✅ International data roaming activated?\n';
+        programmeBlock += '✅ SGD/THB exchanged?\n';
+      } else if (daysOut === 4) {
+        programmeBlock += '✅ Passport valid ≥6 months?\n';
+        programmeBlock += '✅ Air ticket printed / downloaded?\n';
+        programmeBlock += '✅ Check-in open for SQ708 (0930H, Changi T2)\n';
+        programmeBlock += '✅ Uniform serviceable? Pressed and ready?\n';
+        programmeBlock += '✅ No-4 / smart casual packed?\n';
+        programmeBlock += '✅ Toiletries, medications packed?\n';
+        programmeBlock += '✅ Running shoes + workout gear?\n';
+        programmeBlock += '✅ International data roaming activated?\n';
+        programmeBlock += '✅ SGD/THB exchanged?\n';
+        programmeBlock += '✅ Bags packed and under 25kg?\n';
+      } else if (daysOut === 3) {
+        programmeBlock += '✅ DO a final bag weight check (25kg limit)\n';
+        programmeBlock += '✅ Valuables: phone, wallet, powerbank, earphones?\n';
+        programmeBlock += '✅ Formal uniform + No4 checked?\n';
+      } else if (daysOut <= 2) {
+        programmeBlock += '✅ Departure day: SQ708 departs 0930H Changi T2\n';
+        programmeBlock += '✅ Check-in closes 0730H — aim to arrive by 0630H\n';
+        programmeBlock += '✅ Have boarding pass ready (app or printed)\n';
+        if (daysOut <= 1) {
+          programmeBlock += '✅ Set alarm! 0500H wake-up recommended\n';
+          programmeBlock += '✅ Full charge phone + powerbank tonight\n';
+        }
+      }
+      // (Tomorrow's forecast intentionally omitted — 0600H briefing covers today only)
+    } else if (nowTsPre > tripEndPre.getTime()) {
       programmeBlock = '\n🏡 <b>Trip complete — welcome home.</b>\n';
     }
   }
@@ -1590,9 +1757,18 @@ function sendWeatherBriefing() {
   let msg = '☀️ <b>Good morning, TSV!</b>\n';
   msg += dateLabel + '\n';
   msg += '\n' + wc[0] + ' <b>' + wc[1] + '</b>\n';
-  if (tMax != null && tMin != null) msg += '🌡️ ' + Math.round(tMin) + '°C → ' + Math.round(tMax) + '°C';
-  if (feelsMax != null)              msg += ' · feels ' + Math.round(feelsMax) + '°C';
-  msg += '\n';
+  if (tMax != null && tMin != null) {
+    msg += '🌡️ Low ' + Math.round(tMin) + '°C';
+    if (noonT != null) msg += ' · Midday ' + Math.round(noonT) + '°C';
+    msg += ' → High ' + Math.round(tMax) + '°C\n';
+    const fPeak = noonFeels != null ? noonFeels : (feelsMax != null ? feelsMax : tMax);
+    const feelsStr = fPeak != null ? Math.round(fPeak) + '°C' : '—';
+    let soWhat = 'Comfortable for outdoor activities.';
+    if (fPeak != null && fPeak >= 38)       soWhat = 'Stay in shade 1100–1500H. Heat stroke risk for extended outdoor exposure.';
+    else if (fPeak != null && fPeak >= 35)  soWhat = 'Limit prolonged direct sun. Keep water within reach at all times.';
+    else if (fPeak != null && fPeak >= 32)  soWhat = 'Hot day — dress light, top up water every 60 min.';
+    msg += '💧 Feels like ' + feelsStr + ' at peak — ' + soWhat + '\n';
+  }
   if (curT != null)   msg += '⏱️ Now: ' + Math.round(curT) + '°C';
   if (curRH != null)  msg += ' · ' + Math.round(curRH) + '% humidity';
   if (curWind != null)msg += ' · ' + Math.round(curWind) + ' km/h';
@@ -1612,7 +1788,7 @@ function sendWeatherBriefing() {
   msg += '\n<b>Today\'s tips</b>\n' + tips.map(t => '• ' + t).join('\n');
   msg += '\n\nStay sharp 🇹🇭';
 
-  tgSend(msg, MAIN_CHAT);
+  tgSend(msg, _tgChatId('A1_weather'));
   const psiTag = (sgPsi ? 'SG' + sgPsi.value : '') + (bkkAqi ? ' BKK' + bkkAqi.value : '');
   logAction('weather_0600', 'server', (tMax||'?') + '°C ' + wc[1] + (psiTag ? ' · ' + psiTag : ''));
   return 'Sent weather ' + today + (psiTag ? ' (' + psiTag + ')' : '');
