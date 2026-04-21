@@ -54,6 +54,7 @@ function doGet(e) {
       case 'testWeather': data = sendWeatherBriefing(); break;
       case 'testEveningSitrep': data = sendEveningSitrep(); break;
       case 'testMidnightSitrep': data = sendMidnightSitrep(); break;
+      case 'testForceSyn1AllIn': data = forceSyn1AllIn(); break;
       case 'installTriggers': data = setupAllTriggers(); break;
       case 'diagnose':     data = diagnose(); break;
       case 'resetGcal':
@@ -1890,7 +1891,7 @@ function sendWeatherBriefing(overrideChatId) {
 function setupAllTriggers() {
   ScriptApp.getProjectTriggers().forEach(t => {
     const fn = t.getHandlerFunction();
-    if (['sendDailyReminder','sendEveningSitrep','sendMidnightSitrep','sendWeatherBriefing','syncFromGoogleCalendar'].indexOf(fn) >= 0) {
+    if (['sendDailyReminder','sendEveningSitrep','sendMidnightSitrep','sendWeatherBriefing','syncFromGoogleCalendar','forceSyn1AllIn'].indexOf(fn) >= 0) {
       ScriptApp.deleteTrigger(t);
     }
   });
@@ -1900,11 +1901,78 @@ function setupAllTriggers() {
     .timeBased().atHour(19).nearMinute(0).everyDays(1).inTimezone('Asia/Bangkok').create();
   ScriptApp.newTrigger('sendEveningSitrep')
     .timeBased().atHour(23).nearMinute(0).everyDays(1).inTimezone('Asia/Bangkok').create();
+  // 0130H BKK: force all Syn 1 members to IN (strict curfew, no exceptions).
+  // Runs BEFORE 0200H midnight sitrep so the sitrep reflects the enforced state.
+  ScriptApp.newTrigger('forceSyn1AllIn')
+    .timeBased().atHour(1).nearMinute(30).everyDays(1).inTimezone('Asia/Bangkok').create();
   ScriptApp.newTrigger('sendMidnightSitrep')
     .timeBased().atHour(2).nearMinute(0).everyDays(1).inTimezone('Asia/Bangkok').create();
   ScriptApp.newTrigger('syncFromGoogleCalendar')
     .timeBased().everyMinutes(15).create();
-  return '✓ 5 triggers: 0600H weather · 1900H reminder · 2300H SITREP · 0200H Curfew · every 15min GCal pull';
+  return '✓ 6 triggers: 0600H weather · 1900H reminder · 2300H SITREP · 0130H Syn1-force-in · 0200H Curfew · every 15min GCal pull';
+}
+
+// ── 0130H BKK: force ALL Syn 1 members to IN status ──
+// Runs nightly BEFORE the 0200H curfew sitrep. Overrides whatever status
+// Syn 1 members last set — they're considered in-hotel no matter what.
+// Rationale: Syn 1 has a 0200H hard curfew and must always report as IN
+// regardless of individual member activity. Status updates are logged.
+function forceSyn1AllIn() {
+  const members = readSheet(SHEETS.MEMBERS).filter(m =>
+    m.isDeleted !== 'true' && m.isDeleted !== true
+  );
+  const syn1Members = members.filter(m => _memberGroupKey(m) === '57 CSC Syn 1');
+  if (!syn1Members.length) {
+    logAction('force_syn1_skip', 'server', 'no Syn 1 members found');
+    return 'No Syn 1 members found';
+  }
+
+  const sheet = getOrCreateSheet(SHEETS.STATUS);
+  const rows = sheet.getDataRange().getValues();
+  const headers = rows[0];
+  const idCol = headers.indexOf('id');
+  const now = new Date().toISOString();
+  const logSheet = getOrCreateSheet(SHEETS.STATUSLOG);
+
+  let forcedCount = 0;
+  syn1Members.forEach(m => {
+    // Find existing row for this member
+    let foundRow = -1;
+    let existingLoc = '', existingLat = '', existingLng = '';
+    for (let i = 1; i < rows.length; i++) {
+      if (rows[i][idCol] === m.id) {
+        foundRow = i + 1;
+        // Preserve existing GPS/location info — just flip status to 'in'
+        existingLoc = rows[i][headers.indexOf('locationText')] || '';
+        existingLat = rows[i][headers.indexOf('lat')] || '';
+        existingLng = rows[i][headers.indexOf('lng')] || '';
+        break;
+      }
+    }
+    const roomNum = (syn1Members.length && foundRow > 0) ? rows[foundRow - 1][headers.indexOf('roomNumber')] : '';
+    const newRow = [
+      m.id,
+      'in',                 // Force status to IN
+      'Hotel (curfew)',     // Override location to hotel
+      '', '',               // Clear GPS (they're in-hotel)
+      '',                   // Clear buddyWith (no longer out with buddies)
+      roomNum || '',
+      now
+    ];
+    if (foundRow > 0) {
+      sheet.getRange(foundRow, 1, 1, headers.length).setValues([newRow]);
+    } else {
+      sheet.appendRow(newRow);
+    }
+    // Audit trail
+    try {
+      logSheet.appendRow([now, m.id, 'in', 'Hotel (curfew)', '', '', '', 'system_0130H_force']);
+    } catch (e) { /* non-blocking */ }
+    forcedCount++;
+  });
+
+  logAction('force_syn1_in', 'system', forcedCount + ' members forced IN');
+  return 'Forced ' + forcedCount + ' Syn 1 members to IN at 0130H';
 }
 
 // Server-side mirror of CALENDAR_SEED from js/data.js. Used to populate

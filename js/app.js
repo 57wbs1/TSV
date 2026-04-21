@@ -1678,9 +1678,9 @@ function renderCalendar() {
     container.innerHTML = `
       <div class="subtab-row" id="calendar-subtabs">
         <button class="subtab-btn" onclick="setCalendarSubTab('schedule')">📅 Calendar</button>
-        <button class="subtab-btn ${sub === 'visits'      ? 'active' : ''}" onclick="setCalendarSubTab('visits')">💡 Visits</button>
-        <button class="subtab-btn ${sub === 'reflections' ? 'active' : ''}" onclick="setCalendarSubTab('reflections')">📝 Reflections</button>
         <button class="subtab-btn ${sub === 'transport'   ? 'active' : ''}" onclick="setCalendarSubTab('transport')">🚌 Transport</button>
+        <button class="subtab-btn ${sub === 'reflections' ? 'active' : ''}" onclick="setCalendarSubTab('reflections')">📝 Reflections</button>
+        <button class="subtab-btn ${sub === 'visits'      ? 'active' : ''}" onclick="setCalendarSubTab('visits')">💡 Visits</button>
       </div>
       <div id="calendar-sub-content"></div>
     `;
@@ -1774,9 +1774,9 @@ function renderCalendar() {
   el('tab-calendar').innerHTML = `
     <div class="subtab-row" id="calendar-subtabs">
       <button class="subtab-btn active" onclick="setCalendarSubTab('schedule')">📅 Calendar</button>
-      <button class="subtab-btn" onclick="setCalendarSubTab('visits')">💡 Visits</button>
-      <button class="subtab-btn" onclick="setCalendarSubTab('reflections')">📝 Reflections</button>
       <button class="subtab-btn" onclick="setCalendarSubTab('transport')">🚌 Transport</button>
+      <button class="subtab-btn" onclick="setCalendarSubTab('reflections')">📝 Reflections</button>
+      <button class="subtab-btn" onclick="setCalendarSubTab('visits')">💡 Visits</button>
     </div>
     <div class="sticky-header">
       <div class="day-tabs-wrap">
