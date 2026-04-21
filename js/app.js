@@ -1417,7 +1417,12 @@ function setupPullToRefresh() {
             syncStatuses(),
             syncCalendar(),
             syncLearnings(),
-            syncReflections()
+            syncReflections(),
+            // Also force-refresh the parade-state + incidents caches so PTR
+            // on those tabs actually pulls fresh server state (was showing
+            // stale localStorage until PTR hit a 30s threshold).
+            new Promise(r => { _loadParadeState({ force: true }); r(); }),
+            new Promise(r => { _loadIncidents({ force: true }); r(); })
           ]);
         });
       } catch {}
@@ -4610,6 +4615,14 @@ function startApp() {
     if (Array.isArray(cached)) STATE.incidents = cached;
   } catch {}
   setTimeout(() => { _loadIncidents({ force: true }); }, 800);
+  // Same pattern for parade state — hydrate from cache then force-refresh.
+  // Without this the Parade sub-tab showed "All Present" defaults on first
+  // open until the user pulled-to-refresh manually.
+  try {
+    const cachedPS = JSON.parse(localStorage.getItem('tsv_parade_state') || 'null');
+    if (cachedPS && typeof cachedPS === 'object') STATE.paradeState = cachedPS;
+  } catch {}
+  setTimeout(() => { _loadParadeState({ force: true }); }, 900);
   setupReportReminders();
   setupSyn1AutoReports();
   setupModalSwipes();
@@ -4726,16 +4739,23 @@ window.addEventListener('load', () => {
 // their OWN status; admins can edit anyone's via the syndicate dropdown.
 // Non-"Present" statuses show a yellow warning chip.
 
-function _loadParadeState() {
-  // Stale-while-revalidate: use cached STATE.paradeState if present, then
-  // refresh from server and re-render.
+// Load parade state from server. Debounced so rapid renders don't spam GAS.
+// Writes the result to localStorage so the next open paints instantly.
+function _loadParadeState(opts) {
   if (!STATE.paradeState) STATE.paradeState = {};
+  const force = !!(opts && opts.force);
+  const now = Date.now();
+  if (!force && STATE._paradeFetchedAt && (now - STATE._paradeFetchedAt) < 30000) return;
+  if (STATE._paradeFetchInflight) return;
+  STATE._paradeFetchInflight = true;
   API.get('getParadeState').then(data => {
     if (data && typeof data === 'object') {
       STATE.paradeState = data;
+      STATE._paradeFetchedAt = Date.now();
+      try { localStorage.setItem('tsv_parade_state', JSON.stringify(data)); } catch {}
       if (STATE.currentTab === 'location' && STATE.trackerView === 'parade') renderParadeState();
     }
-  }).catch(() => {});
+  }).catch(() => {}).finally(() => { STATE._paradeFetchInflight = false; });
 }
 
 function renderParadeState() {
@@ -4743,12 +4763,16 @@ function renderParadeState() {
   if (!wrap) return;
   const user = STATE.currentUser;
   if (!user) { wrap.innerHTML = '<div class="alert alert-orange" style="margin:12px">Sign in first.</div>'; return; }
-  // Trigger a background refresh on every open. On first open STATE.paradeState
-  // is empty so only default "Present" shows until fetch completes.
-  if (!STATE._paradeFetchedOnce) {
-    STATE._paradeFetchedOnce = true;
-    _loadParadeState();
+  // Hydrate from localStorage cache the first time so the initial paint
+  // reflects real data (not "all Present" defaults) — no PTR needed.
+  if (!STATE.paradeState || Object.keys(STATE.paradeState).length === 0) {
+    try {
+      const cached = JSON.parse(localStorage.getItem('tsv_parade_state') || 'null');
+      if (cached && typeof cached === 'object') STATE.paradeState = cached;
+    } catch {}
   }
+  // Fire a background refresh on every render (debounced to 30s inside).
+  _loadParadeState();
 
   const adminMode = hasAdminRights() && localStorage.getItem('tsv_admin_view_as') !== 'non-admin';
 
