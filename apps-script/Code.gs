@@ -2350,7 +2350,9 @@ function _buildParadeStateMessage(options) {
       if (st === 'Present') present++;
       else remarks.push({ gk, name: m.shortName || m.name, status: st, rank: m.rank || '' });
     });
-    msg += `${_formatGroup(gk)}: ${present} / ${grp.length}\n`;
+    // ✅ when fully present, ⚠️ when anyone is non-Present
+    const tick = (present === grp.length) ? '✅' : '⚠️';
+    msg += `${_formatGroup(gk)}: ${present} / ${grp.length} ${tick}\n`;
   });
 
   msg += `\n<b>Remarks</b>\n`;
