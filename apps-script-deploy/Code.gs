@@ -9,7 +9,9 @@ const SHEET_ID = '19IjTK0I_L2NXJ9afqTxf3GkCXbcONio4ORaw-54JOjY';
 const HOTWASH_SHEET_ID = '10gub3Ya6rgq70OnaLxf-yGkt8IrhTPC1f7r2Cj7TuMc';
 // External Reflections workbook — each syndicate has its own tab so the
 // Learning IC can grab their tab and drop into ChatGPT for consolidation.
-const REFLECTIONS_EXT_SHEET_ID = '10zMjWkHqWRhPDAHSzv_WWGpLi96csLflhsuHfBHPfng';
+const REFLECTIONS_EXT_SHEET_ID = '10zMjWkHqWRhPDAHSzv_WWGpLi96csLflhsuHfBHPfng';      // legacy per-syn-tab workbook
+const REFLECTIONS_MATRIX_SHEET_ID = '1ejnk-BgdN1LrVOdpcRo_fyzLtU7tP2QmNjxX1hgk-zg';    // Learning Debrief matrix (native Google Sheet)
+const REFLECTIONS_MATRIX_GID = 0;
 const SPREADSHEET = SpreadsheetApp.openById(SHEET_ID);
 
 // Sheet schemas
@@ -981,21 +983,155 @@ function addReflection(data) {
   const sheet = getOrCreateSheet(SHEETS.REFLECTIONS);
   const id = 'R' + Date.now();
   const nowIso = new Date().toISOString();
+  // Concatenate the 4 fields into a single `content` string for the internal
+  // feed display. Preserves structure for the section parser.
+  const composed = [
+    data.obs      && 'Key Observations:\n'     + data.obs,
+    data.patterns && 'Patterns & Hypothesis:\n' + data.patterns,
+    data.impl     && 'Implications for Singapore:\n' + data.impl,
+    data.ahha     && 'Ah-Ha Moments:\n'        + data.ahha
+  ].filter(Boolean).join('\n\n') || (data.content || '');
+
   sheet.appendRow([
     id,
     data.authorId || '',
     data.authorName || '',
     data.syndicate || '',
     data.day || '',
-    data.content || '',
+    composed,
     nowIso
   ]);
-  // Also write to the external Reflections workbook (Learning IC facing).
-  // Failure to write there never blocks the main save.
-  try { appendReflectionExternal(data, nowIso); }
-  catch (e) { logAction('reflection_ext_fail', 'server', e.message); }
-  logAction('addReflection', data.authorId, (data.content || '').substring(0, 50));
-  return { id };
+  // Best-effort write to the external Learning Debrief matrix sheet.
+  // Fully defensive: any error (permission, file-not-a-native-Sheet, network)
+  // is swallowed so the internal save above always succeeds.
+  let matrixResult = 'skipped';
+  try {
+    matrixResult = appendReflectionMatrix(data, nowIso);
+  } catch (e) {
+    matrixResult = 'error:' + (e && e.message ? e.message : String(e));
+    try { logAction('reflection_matrix_fail', 'server', matrixResult.slice(0, 200)); } catch (_) {}
+  }
+  try { logAction('addReflection', data.authorId, (data.syndicate || '') + ' · matrix=' + matrixResult.slice(0, 40)); } catch (_) {}
+  return { id, matrixResult };
+}
+
+// ── Learning Debrief Matrix ───────────────────────────────────
+// Target layout (single tab):
+//   Row 1 headers: | Learning Debrief | Syn 1 (P) | Syn 3 (M) | Syn 4 (E) | 25E (S) | 26E (I) | 27E (Infra)
+//   Row 2: Key observations ...
+//   Row 3: Patterns & Hypothesis Testing ...
+//   Row 4: Implications for Singapore ...
+//   Row 5: Ah-ha moments ...
+// Each incoming reflection appends its 4 field values to the corresponding
+// (row, syn-col) cells — accumulating author-tagged entries.
+const MATRIX_SYN_COLUMN = {
+  '57 SYN 1':    2,   // B — Political
+  '57 SYN 3':    3,   // C — Military
+  '57 SYN 4':    4,   // D — Economic
+  '25E':         5,   // E — Social
+  '26E':         6,   // F — Information
+  '27E':         7,   // G — Infrastructure
+  // Edge cases — attach to Syn 1 (PMESII Political) for lack of own column
+  'PSO':         2,
+  'Leadership':  2,
+  '57 SYN 9':    2
+};
+const MATRIX_FIELD_ROW = {
+  obs:      2,   // "Key observations"
+  patterns: 3,   // "Patterns & Hypothesis Testing"
+  impl:     4,   // "Implications (if any) for Singapore"
+  ahha:     5    // "Ah-ha moments"
+};
+
+function _matrixSynColumn(syndicate) {
+  const s = String(syndicate || '').trim();
+  if (MATRIX_SYN_COLUMN[s] !== undefined) return MATRIX_SYN_COLUMN[s];
+  // Fuzzy fallback
+  if (/^57\s*SYN\s*1$/i.test(s)) return MATRIX_SYN_COLUMN['57 SYN 1'];
+  if (/^57\s*SYN\s*3$/i.test(s)) return MATRIX_SYN_COLUMN['57 SYN 3'];
+  if (/^57\s*SYN\s*4$/i.test(s)) return MATRIX_SYN_COLUMN['57 SYN 4'];
+  if (/^25\s*E$/i.test(s))       return MATRIX_SYN_COLUMN['25E'];
+  if (/^26\s*E$/i.test(s))       return MATRIX_SYN_COLUMN['26E'];
+  if (/^27\s*E$/i.test(s))       return MATRIX_SYN_COLUMN['27E'];
+  return MATRIX_SYN_COLUMN['57 SYN 1'];   // safe default
+}
+
+// Standard matrix scaffold: 1 header row + 4 prompt rows × 7 columns (label + 6 syns).
+const MATRIX_HEADERS = [
+  'Learning Debrief',
+  'Syn 1 (Political)',
+  'Syn 3 (Military)',
+  'Syn 4 (Economic)',
+  '25E (Social)',
+  '26E (Info)',
+  '27E (Infra)'
+];
+const MATRIX_PROMPT_LABELS = {
+  2: 'Key observations\n\nWhat were the top 2-3 field observations in your PMESII domain?',
+  3: 'Patterns & Hypothesis Testing\n\nHow did the key observations relate to PMESII and the learning hypothesis? Any findings, confirmations, surprises or gaps?',
+  4: 'Implications (if any) for Singapore\n\nAny strategic (Singapore, ASEAN), operational (defence, civil, organisational, etc), or personal (leadership, professional) insights?',
+  5: 'Ah-ha moments\n\nAny significant points to share, cross-PMESII linkages observed, matters to escalate'
+};
+
+// Ensure the matrix scaffold exists: headers on row 1, prompts in column A rows 2-5.
+// Safe to call repeatedly — only writes what's missing.
+function _ensureMatrixScaffold(tab) {
+  // Row 1 headers
+  const headerRange = tab.getRange(1, 1, 1, MATRIX_HEADERS.length);
+  const currentHeaders = headerRange.getValues()[0];
+  const headersMissing = currentHeaders.every(c => !String(c || '').trim());
+  if (headersMissing) {
+    headerRange.setValues([MATRIX_HEADERS])
+      .setFontWeight('bold').setBackground('#1e40af').setFontColor('#ffffff')
+      .setVerticalAlignment('middle').setHorizontalAlignment('center');
+    tab.setFrozenRows(1);
+    tab.setColumnWidth(1, 240);
+    for (let c = 2; c <= MATRIX_HEADERS.length; c++) tab.setColumnWidth(c, 280);
+  }
+  // Column A prompts (rows 2-5)
+  [2, 3, 4, 5].forEach(row => {
+    const cell = tab.getRange(row, 1);
+    if (!String(cell.getValue() || '').trim()) {
+      cell.setValue(MATRIX_PROMPT_LABELS[row])
+          .setFontWeight('bold').setWrap(true).setVerticalAlignment('top')
+          .setBackground('#e0e7ff');
+      tab.setRowHeight(row, 140);
+    }
+  });
+}
+
+function appendReflectionMatrix(data, timestampIso) {
+  const ss = SpreadsheetApp.openById(REFLECTIONS_MATRIX_SHEET_ID);
+  // Prefer the specific gid we want; fall back to first tab
+  const tab = ss.getSheets().find(s => s.getSheetId() === REFLECTIONS_MATRIX_GID)
+           || ss.getSheets()[0];
+  if (!tab) throw new Error('Matrix tab not found in ' + REFLECTIONS_MATRIX_SHEET_ID);
+
+  // Auto-seed headers + prompts if the sheet is blank
+  _ensureMatrixScaffold(tab);
+
+  const col = _matrixSynColumn(data.syndicate);
+  const bkkTs = Utilities.formatDate(new Date(timestampIso), 'Asia/Bangkok', 'd MMM · HH:mm');
+  const author = (data.authorName || data.authorId || 'Anon').toString();
+  const dayLabel = data.day ? `Day ${data.day} · ` : '';
+  const header = `— ${dayLabel}${author} · ${bkkTs}H —`;
+
+  const fields = ['obs', 'patterns', 'impl', 'ahha'];
+  let wrote = 0;
+  fields.forEach(f => {
+    const value = (data[f] || '').toString().trim();
+    if (!value) return;
+    const row = MATRIX_FIELD_ROW[f];
+    const cell = tab.getRange(row, col);
+    const existing = String(cell.getValue() || '').trim();
+    const entry = `${header}\n${value}`;
+    const combined = existing ? `${existing}\n\n${entry}` : entry;
+    cell.setValue(combined);
+    cell.setWrap(true);
+    cell.setVerticalAlignment('top');
+    wrote++;
+  });
+  return `ok · wrote ${wrote} fields to col ${col}`;
 }
 
 // Tabs on the external workbook — one per syndicate for the Learning IC.

@@ -1743,7 +1743,9 @@ function getNextEvent(day, now) {
 
 // ═══════════ CALENDAR TAB ════════════════════════════════════
 function renderCalendar() {
-  // Calendar now hosts three sub-tabs: the schedule (default), Visits, Reflections.
+  // Calendar sub-tabs: Calendar (schedule) · Transport · Reflections.
+  // 'visits' was retired — guard any stale state and fall back to schedule.
+  if (STATE.calendarSubTab === 'visits') STATE.calendarSubTab = 'schedule';
   const sub = STATE.calendarSubTab || 'schedule';
   if (sub !== 'schedule') {
     // Delegate to the Learn-style renderers and inject at the top of tab-calendar.
@@ -1754,7 +1756,6 @@ function renderCalendar() {
         <button class="subtab-btn" onclick="setCalendarSubTab('schedule')">📅 Calendar</button>
         <button class="subtab-btn ${sub === 'transport'   ? 'active' : ''}" onclick="setCalendarSubTab('transport')">🚌 Transport</button>
         <button class="subtab-btn ${sub === 'reflections' ? 'active' : ''}" onclick="setCalendarSubTab('reflections')">📝 Reflections</button>
-        <button class="subtab-btn ${sub === 'visits'      ? 'active' : ''}" onclick="setCalendarSubTab('visits')">💡 Visits</button>
       </div>
       <div id="calendar-sub-content"></div>
     `;
@@ -1851,7 +1852,6 @@ function renderCalendar() {
       <button class="subtab-btn active" onclick="setCalendarSubTab('schedule')">📅 Calendar</button>
       <button class="subtab-btn" onclick="setCalendarSubTab('transport')">🚌 Transport</button>
       <button class="subtab-btn" onclick="setCalendarSubTab('reflections')">📝 Reflections</button>
-      <button class="subtab-btn" onclick="setCalendarSubTab('visits')">💡 Visits</button>
     </div>
     <div class="sticky-header">
       <div class="day-tabs-wrap">
@@ -3460,11 +3460,26 @@ async function renderTransportSubTab(container) {
   }
 }
 
+// Maps a member's syndicate label → the PMESII domain they contribute to
+// in the Learning Debrief matrix sheet.
+const PMESII_BY_SYN = {
+  '57 SYN 1': { domain: 'Political',      letter: 'P' },
+  '57 SYN 3': { domain: 'Military',       letter: 'M' },
+  '57 SYN 4': { domain: 'Economic',       letter: 'E' },
+  '25E':      { domain: 'Social',         letter: 'S' },
+  '26E':      { domain: 'Information',    letter: 'I' },
+  '27E':      { domain: 'Infrastructure', letter: 'Infra' }
+};
+function pmesiiForSyn(synLabel) {
+  return PMESII_BY_SYN[synLabel] || { domain: '—', letter: '—' };
+}
+
 function renderReflectionsSubTab() {
   const user = STATE.currentUser;
   const reflections = STATE.reflections || [];
-  const sheetUrl   = `https://docs.google.com/spreadsheets/d/${CONFIG.sheetId}/edit`;
-  const extSheetUrl = 'https://docs.google.com/spreadsheets/d/10zMjWkHqWRhPDAHSzv_WWGpLi96csLflhsuHfBHPfng/edit';
+  const matrixSheetUrl = 'https://docs.google.com/spreadsheets/d/1ejnk-BgdN1LrVOdpcRo_fyzLtU7tP2QmNjxX1hgk-zg/edit?gid=0#gid=0';
+  const userSynLabel = user ? formatGroupDisplay(memberGroupKey(user)) : '';
+  const userPmesii = pmesiiForSyn(userSynLabel);
 
   const feedHtml = !reflections.length
     ? `<div class="empty-state"><div class="icon">📝</div><p>No reflections posted yet.<br>Be the first to contribute!</p></div>`
@@ -3483,39 +3498,51 @@ function renderReflectionsSubTab() {
           </div>`;
       }).join('')}</div>`;
 
+  const domainBadge = user && PMESII_BY_SYN[userSynLabel]
+    ? `<div style="display:inline-block;background:#003580;color:#fff;font-size:11px;font-weight:800;padding:3px 10px;border-radius:14px;margin-left:6px">${escapeHtml(userPmesii.letter)} · ${escapeHtml(userPmesii.domain)}</div>`
+    : '';
+
   return `
     <div class="learn-intro">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-        <h4 style="margin:0;font-size:15px;font-weight:800">📝 Daily Reflections</h4>
-        <a class="sheet-link" href="${extSheetUrl}" target="_blank" rel="noopener" style="font-size:11px;padding:4px 8px;white-space:nowrap">
-          📋 Learning IC ↗
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;gap:8px">
+        <h4 style="margin:0;font-size:15px;font-weight:800">📝 Daily Learning Debrief</h4>
+        <a class="sheet-link" href="${matrixSheetUrl}" target="_blank" rel="noopener" style="font-size:11px;padding:4px 8px;white-space:nowrap">
+          📋 View Debrief Sheet ↗
         </a>
       </div>
-      <p>End-of-day syndicate reflections. Fill in each field below and tap Post — your response is visible to all and synced to the Learning IC sheet.</p>
+      <p style="font-size:12px;line-height:1.5">
+        Submissions populate the <b>Learning Debrief</b> Google Sheet — your
+        responses append into your syndicate's PMESII column across the 4 prompts.
+      </p>
     </div>
 
     ${user ? `
     <div class="visit-compose" style="background:linear-gradient(135deg,#eef2ff,#e0e7ff);border-color:#818cf8;padding:14px 14px 10px">
       <div class="visit-compose-label" style="color:#3730a3;margin-bottom:12px">
         <span>✍️ Post Your Reflection</span>
-        <span style="font-size:11px;font-weight:400;color:#6d6aac;margin-left:6px">· ${escapeHtml(user.shortName || user.name)} · ${escapeHtml(formatGroupDisplay(memberGroupKey(user)))}</span>
+        <span style="font-size:11px;font-weight:400;color:#6d6aac;margin-left:6px">· ${escapeHtml(user.shortName || user.name)} · ${escapeHtml(userSynLabel)}</span>
+        ${domainBadge}
       </div>
 
       <div class="ref-form-field">
-        <label class="ref-form-label">🔍 What did we observe?</label>
-        <textarea id="ref-obs" rows="3" placeholder="• Observation 1&#10;• Observation 2"></textarea>
+        <label class="ref-form-label">🔍 Key Observations</label>
+        <div style="font-size:11px;color:var(--text-3);margin-bottom:4px">Top 2–3 field observations in your PMESII domain (${escapeHtml(userPmesii.domain)}).</div>
+        <textarea id="ref-obs" rows="3" placeholder="• Observation 1&#10;• Observation 2&#10;• Observation 3"></textarea>
       </div>
       <div class="ref-form-field">
-        <label class="ref-form-label">🇸🇬 What does it mean for Singapore / SAF?</label>
+        <label class="ref-form-label">🧭 Patterns &amp; Hypothesis Testing</label>
+        <div style="font-size:11px;color:var(--text-3);margin-bottom:4px">How did the observations relate to PMESII and the learning hypothesis? Findings, confirmations, surprises, gaps?</div>
+        <textarea id="ref-patterns" rows="3" placeholder="• Pattern 1&#10;• Surprise / gap"></textarea>
+      </div>
+      <div class="ref-form-field">
+        <label class="ref-form-label">🇸🇬 Implications for Singapore</label>
+        <div style="font-size:11px;color:var(--text-3);margin-bottom:4px">Strategic (SG / ASEAN), operational (defence, civil, organisational), or personal (leadership, professional) insights.</div>
         <textarea id="ref-impl" rows="3" placeholder="• Implication 1&#10;• Implication 2"></textarea>
       </div>
       <div class="ref-form-field">
-        <label class="ref-form-label">💡 Key Takeaway / Ah-Ha:</label>
-        <textarea id="ref-ahha" rows="2" placeholder="• Key insight"></textarea>
-      </div>
-      <div class="ref-form-field">
-        <label class="ref-form-label" style="opacity:.8">❓ Follow-up questions <span style="font-weight:400">(optional)</span></label>
-        <textarea id="ref-followup" rows="2" placeholder="• Question for further inquiry"></textarea>
+        <label class="ref-form-label">💡 Ah-Ha Moments</label>
+        <div style="font-size:11px;color:var(--text-3);margin-bottom:4px">Significant points, cross-PMESII linkages, matters to escalate.</div>
+        <textarea id="ref-ahha" rows="2" placeholder="• Key insight / link to another domain"></textarea>
       </div>
 
       <div class="compose-toolbar" style="margin-top:10px">
@@ -3526,11 +3553,11 @@ function renderReflectionsSubTab() {
           </select>
         </label>
         <div style="flex:1"></div>
-        <button class="btn btn-primary btn-sm" onclick="postReflection()">Post Reflection</button>
+        <button class="btn btn-primary btn-sm" onclick="postReflection()">Submit to Debrief Sheet</button>
       </div>
     </div>` : `<div class="alert alert-orange">Sign in to post a reflection.</div>`}
 
-    <div class="section-title" style="margin-top:18px">All Reflections (${reflections.length})</div>
+    <div class="section-title" style="margin-top:18px">Recent submissions (${reflections.length})</div>
     ${feedHtml}
   `;
 }
@@ -3692,31 +3719,33 @@ window.postReflection = async function() {
   const user = STATE.currentUser;
   if (!user) return toast('Sign in first');
   const obs      = (el('ref-obs')?.value      || '').trim();
+  const patterns = (el('ref-patterns')?.value || '').trim();
   const impl     = (el('ref-impl')?.value     || '').trim();
   const ahha     = (el('ref-ahha')?.value     || '').trim();
-  const followup = (el('ref-followup')?.value || '').trim();
-  if (!obs && !impl && !ahha) return toast('Fill in at least one field');
-  // Concatenate into the standard template format so the server-side
-  // section parser (_parseReflectionSections) can split it correctly.
+  if (!obs && !patterns && !impl && !ahha) return toast('Fill in at least one field');
+  // Preview content (for the app feed — separate sections visible on re-open)
   const parts = [];
-  if (obs)      parts.push(`What did we observe?\n${obs}`);
-  if (impl)     parts.push(`What does it mean for Singapore / SAF?\n${impl}`);
-  if (ahha)     parts.push(`Key Takeaway / Ah-Ha:\n${ahha}`);
-  if (followup) parts.push(`Follow-up questions:\n${followup}`);
+  if (obs)      parts.push(`Key Observations:\n${obs}`);
+  if (patterns) parts.push(`Patterns & Hypothesis:\n${patterns}`);
+  if (impl)     parts.push(`Implications for Singapore:\n${impl}`);
+  if (ahha)     parts.push(`Ah-Ha Moments:\n${ahha}`);
   const content = parts.join('\n\n');
   const day = el('reflection-day-select')?.value || '';
   const post = {
-    authorId:  user.id,
+    authorId:   user.id,
     authorName: user.name,
     syndicate:  formatGroupDisplay(memberGroupKey(user)),
     day,
+    // Structured fields — server writes each to the right matrix cell.
+    obs, patterns, impl, ahha,
+    // Composed content for the internal feed (back-compat + legible display)
     content,
     timestamp: new Date().toISOString()
   };
   STATE.reflections.unshift(post);
   // Clear all fields
-  ['ref-obs','ref-impl','ref-ahha','ref-followup'].forEach(id => { const el2 = el(id); if (el2) el2.value = ''; });
-  await withLoader('Posting reflection…', () => API.post('addReflection', post));
+  ['ref-obs','ref-patterns','ref-impl','ref-ahha'].forEach(id => { const el2 = el(id); if (el2) el2.value = ''; });
+  await withLoader('Submitting to Debrief sheet…', () => API.post('addReflection', post));
   toast('✅ Reflection posted');
   renderLearnings();
 };
