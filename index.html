@@ -45,7 +45,28 @@
   <div class="flag-big">🇹🇭</div>
   <div class="spinner"></div>
   <p class="loading-text">Thailand Study Visit 2026</p>
+  <p id="loading-stuck" style="display:none;margin-top:20px;font-size:12px;color:rgba(255,255,255,.7);text-align:center;max-width:280px">
+    Stuck? Tap <a href="#" onclick="event.preventDefault();window.location.reload(true);return false" style="color:#fff;text-decoration:underline">here to hard-reload</a>.
+    If that doesn't work, force-close the app (swipe up) and reopen.
+  </p>
 </div>
+
+<!-- Watchdog: if app.js fails to parse/run, show the stuck-message after 8s
+     so the user has a way to recover without needing console access. -->
+<script>
+  (function() {
+    // If startApp hasn't hidden the loading screen within 8 seconds, show
+    // recovery options. This runs INLINE so it can't be blocked by an
+    // app.js parse error.
+    setTimeout(function() {
+      var l = document.getElementById('loading');
+      if (l && l.style.display !== 'none') {
+        var msg = document.getElementById('loading-stuck');
+        if (msg) msg.style.display = 'block';
+      }
+    }, 8000);
+  })();
+</script>
 
 <!-- ── Login Flow (Syndicate → Name → PIN) ───────────────── -->
 <div id="login-flow" class="hidden">
