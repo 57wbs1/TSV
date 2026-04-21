@@ -25,7 +25,8 @@ const SHEETS = {
   ADMINREQ:  { name: 'AdminReq',  headers: ['id','fromId','fromName','fromGroup','message','timestamp','status','resolvedBy','resolvedAt','reason'] },
   CALENDAR:  { name: 'Calendar',  headers: ['id','day','startTime','endTime','title','location','category','attire','remarks','visitId','synicReport','oicsJson','isDeleted','createdAt','updatedAt'] },
   REFLECTIONS: { name: 'Reflections', headers: ['id','authorId','authorName','syndicate','day','content','timestamp'] },
-  STATUSLOG:   { name: 'StatusLog',   headers: ['timestamp','memberId','status','locationText','lat','lng','buddyWith','actor'] }
+  STATUSLOG:   { name: 'StatusLog',   headers: ['timestamp','memberId','status','locationText','lat','lng','buddyWith','actor'] },
+  PARADE_STATE: { name: 'ParadeState', headers: ['memberId','status','updatedBy','updatedAt'] }
 };
 
 // ── Response helper ──────────────────────────────────────────
@@ -57,6 +58,7 @@ function doGet(e) {
       case 'testEveningSitrep': data = sendEveningSitrep(); break;
       case 'testMidnightSitrep': data = sendMidnightSitrep(); break;
       case 'testForceSyn1AllIn': data = forceSyn1AllIn(); break;
+      case 'testParadeState':    data = sendParadeStateBroadcast(); break;
       case 'installTriggers': data = setupAllTriggers(); break;
       case 'diagnose':     data = diagnose(); break;
       case 'resetGcal':
@@ -106,6 +108,7 @@ function doGet(e) {
       case 'getAdminRequests': data = readSheet(SHEETS.ADMINREQ); break;
       case 'getTransport':    data = getTransportState(); break;
       case 'getForceInConfig': data = getForceInConfig(); break;
+      case 'getParadeState':   data = readParadeState(); break;
       case 'getTelegramConfig': data = getTelegramConfig(); break;
       case 'getCalendar':
         // Returns Calendar sheet rows with times normalised and oicsJson → oics
@@ -144,7 +147,7 @@ const ACTOR_REQUIRED = new Set([
   'updateStatus','addLearning','addReflection','addIncident',
   'addMember','updateMember','deleteMember','seedMembers','bulkSyncMembers',
   'sendPing','addAdminRequest','resolveAdminRequest','postHotwash',
-  'sendTelegram'
+  'sendTelegram','updateParadeStatus','sendAdhocParadeState'
 ]);
 
 function _validateActor(actor) {
@@ -195,6 +198,8 @@ function doPost(e) {
       case 'addEvent':         data = addCalendarEvent(body); break;
       case 'deleteEvent':      data = deleteCalendarEvent(body); break;
       case 'updateTransport':  data = updateTransportState(body); break;
+      case 'updateParadeStatus': data = updateParadeStatus(body); break;
+      case 'sendAdhocParadeState': data = sendAdhocParadeState(body); break;
       case 'seedCalendar':     data = seedCalendarFromServer(); break;
       case 'updateTelegramConfig':  data = updateTelegramConfig(body); break;
       case 'updateForceInConfig':   data = updateForceInConfig(body); break;
@@ -396,12 +401,17 @@ function testRouting(body) {
       case 'A2_reminder':   sendDailyReminder(null, chatId);  return { ok: true, sent: 'A2 pre-trip reminder' };
       case 'A3_evening':    sendEveningSitrep(chatId);        return { ok: true, sent: 'A3 evening sitrep' };
       case 'A4_midnight':   sendMidnightSitrep(chatId);       return { ok: true, sent: 'A4 midnight curfew sitrep' };
+      case 'A5_parade':     sendParadeStateBroadcast(chatId); return { ok: true, sent: 'A5 parade state' };
       case 'M1_ir':             _sendSampleM(chatId, 'M1');  return { ok: true, sent: 'M1 incident report sample' };
       case 'M2_bus_boarding':   _sendSampleM(chatId, 'M2');  return { ok: true, sent: 'M2 bus boarding sample' };
       case 'M3_bus_pushing':    _sendSampleM(chatId, 'M3');  return { ok: true, sent: 'M3 bus pushing sample' };
       case 'M4_flight_board':   _sendSampleM(chatId, 'M4');  return { ok: true, sent: 'M4 flight boarding sample' };
       case 'M5_sitrep':         _sendSampleM(chatId, 'M5');  return { ok: true, sent: 'M5 ad-hoc sitrep sample' };
       case 'M6_all_back_in':    _sendSampleM(chatId, 'M6');  return { ok: true, sent: 'M6 all-back-in sample' };
+      case 'M7_parade':
+        // Fire the REAL parade state template (built from live data) to the test chat
+        tgSend(_buildParadeStateMessage(), chatId);
+        return { ok: true, sent: 'M7 ad-hoc parade state' };
       default: return { ok: false, error: 'Unknown routing key: ' + key };
     }
   } catch (e) {
@@ -1367,12 +1377,14 @@ const TG_CHAT_DEFAULTS = {
   A2_reminder:      { label: 'A2 · 1900H Pre-trip Reminder',        defaultId: MAIN_CHAT,  enabled: true },
   A3_evening:       { label: 'A3 · 2300H Evening Sitrep',           defaultId: SYN1_CHAT,  enabled: true },
   A4_midnight:      { label: 'A4 · 0200H Midnight Curfew Report',   defaultId: SYN1_CHAT,  enabled: true },
+  A5_parade:        { label: 'A5 · 0830H Parade State',             defaultId: SYN1_CHAT,  enabled: true },
   M1_ir:            { label: 'M1 · Incident Report (IR)',           defaultId: SYN1_CHAT,  enabled: true },
   M2_bus_boarding:  { label: 'M2 · Bus Boarding Sitrep',            defaultId: SYN1_CHAT,  enabled: true },
   M3_bus_pushing:   { label: 'M3 · Bus Pushing Sitrep',             defaultId: SYN1_CHAT,  enabled: true },
   M4_flight_board:  { label: 'M4 · Flight Boarding Sitrep',         defaultId: SYN1_CHAT,  enabled: true },
-  M5_sitrep:        { label: 'M5 · Ad-hoc Sitrep / Parade State',   defaultId: SYN1_CHAT,  enabled: true },
-  M6_all_back_in:   { label: 'M6 · All-Back-In Confirmation',       defaultId: SYN1_CHAT,  enabled: true }
+  M5_sitrep:        { label: 'M5 · Ad-hoc Sitrep',                  defaultId: SYN1_CHAT,  enabled: true },
+  M6_all_back_in:   { label: 'M6 · All-Back-In Confirmation',       defaultId: SYN1_CHAT,  enabled: true },
+  M7_parade:        { label: 'M7 · Ad-hoc Parade State',            defaultId: SYN1_CHAT,  enabled: true }
 };
 
 function tgSend(text, chatId) {
@@ -2213,12 +2225,15 @@ function sendWeatherBriefing(overrideChatId) {
 function setupAllTriggers() {
   ScriptApp.getProjectTriggers().forEach(t => {
     const fn = t.getHandlerFunction();
-    if (['sendDailyReminder','sendEveningSitrep','sendMidnightSitrep','sendWeatherBriefing','syncFromGoogleCalendar','forceSyn1AllIn'].indexOf(fn) >= 0) {
+    if (['sendDailyReminder','sendEveningSitrep','sendMidnightSitrep','sendWeatherBriefing','syncFromGoogleCalendar','forceSyn1AllIn','sendParadeStateBroadcast'].indexOf(fn) >= 0) {
       ScriptApp.deleteTrigger(t);
     }
   });
   ScriptApp.newTrigger('sendWeatherBriefing')
     .timeBased().atHour(6).nearMinute(0).everyDays(1).inTimezone('Asia/Bangkok').create();
+  // 0830H BKK: daily parade state broadcast (A5)
+  ScriptApp.newTrigger('sendParadeStateBroadcast')
+    .timeBased().atHour(8).nearMinute(30).everyDays(1).inTimezone('Asia/Bangkok').create();
   ScriptApp.newTrigger('sendDailyReminder')
     .timeBased().atHour(19).nearMinute(0).everyDays(1).inTimezone('Asia/Bangkok').create();
   ScriptApp.newTrigger('sendEveningSitrep')
@@ -2231,7 +2246,7 @@ function setupAllTriggers() {
     .timeBased().atHour(2).nearMinute(0).everyDays(1).inTimezone('Asia/Bangkok').create();
   ScriptApp.newTrigger('syncFromGoogleCalendar')
     .timeBased().everyMinutes(15).create();
-  return '✓ 6 triggers: 0600H weather · 1900H reminder · 2300H SITREP · 0130H Syn1-force-in · 0200H Curfew · every 15min GCal pull';
+  return '✓ 7 triggers: 0600H weather · 0830H Parade · 1900H reminder · 2300H SITREP · 0130H Syn1-force-in · 0200H Curfew · every 15min GCal pull';
 }
 
 // ── 0130H BKK: force selected groups to IN status ──
@@ -2247,6 +2262,119 @@ function _getForceInGroups() {
     if (saved) return JSON.parse(saved);
   } catch (e) { /* fall through */ }
   return ['57 CSC Syn 1'];   // default: only Syn 1
+}
+
+// ════════════════════════════════════════════════════════════
+// PARADE STATE — daily operational status per member
+// Default status is 'Present'. Anyone (self) + admin (others) can edit.
+// ════════════════════════════════════════════════════════════
+
+function readParadeState() {
+  const rows = readSheet(SHEETS.PARADE_STATE);
+  const out = {};
+  rows.forEach(r => {
+    if (r.memberId) out[r.memberId] = {
+      status: r.status || 'Present',
+      updatedBy: r.updatedBy || '',
+      updatedAt: r.updatedAt || ''
+    };
+  });
+  return out;
+}
+
+function updateParadeStatus(body) {
+  const memberId = body.memberId || '';
+  if (!memberId) return { ok: false, error: 'Missing memberId' };
+  const status = String(body.status || 'Present').trim() || 'Present';
+
+  const sheet = getOrCreateSheet(SHEETS.PARADE_STATE);
+  const rows = sheet.getDataRange().getValues();
+  const headers = rows[0];
+  const idCol = headers.indexOf('memberId');
+  const now = new Date().toISOString();
+
+  let foundRow = -1;
+  for (let i = 1; i < rows.length; i++) {
+    if (rows[i][idCol] === memberId) { foundRow = i + 1; break; }
+  }
+  const newRow = [memberId, status, body.actor || body.actorName || '', now];
+  if (foundRow > 0) sheet.getRange(foundRow, 1, 1, headers.length).setValues([newRow]);
+  else               sheet.appendRow(newRow);
+
+  logAction('paradeState', body.actor || '', memberId + ' = ' + status.slice(0, 60));
+  return { ok: true, memberId, status };
+}
+
+// Build the Telegram parade-state message.
+//   Header: PARADE STATE FOR 26 APR (SUN)
+//   Per syndicate: present / total
+//   Remarks: one line per non-Present member
+function _buildParadeStateMessage(options) {
+  const opts = options || {};
+  const members = readSheet(SHEETS.MEMBERS).filter(m =>
+    m.isDeleted !== 'true' && m.isDeleted !== true
+  );
+  const state = readParadeState();
+
+  const byGroup = {};
+  members.forEach(m => {
+    const gk = _memberGroupKey(m);
+    if (!byGroup[gk]) byGroup[gk] = [];
+    byGroup[gk].push(m);
+  });
+  const groups = Object.keys(byGroup).sort((a, b) => _groupPriority(a) - _groupPriority(b));
+
+  const bkk = bkkNow();
+  const dateLabel = Utilities.formatDate(bkk, 'Asia/Bangkok', 'd MMM (EEE)').toUpperCase();
+
+  let msg = `<b>PARADE STATE FOR ${dateLabel}</b>\n\n`;
+
+  const remarks = [];
+  groups.forEach(gk => {
+    const grp = byGroup[gk];
+    let present = 0;
+    grp.forEach(m => {
+      const entry = state[m.id];
+      const st = entry && entry.status ? entry.status : 'Present';
+      if (st === 'Present') present++;
+      else remarks.push({ gk, name: m.shortName || m.name, status: st, rank: m.rank || '' });
+    });
+    msg += `${_formatGroup(gk)}: ${present} / ${grp.length}\n`;
+  });
+
+  msg += `\n<b>Remarks</b>\n`;
+  if (remarks.length === 0) {
+    msg += 'Nil — all personnel present ✅\n';
+  } else {
+    remarks.forEach(r => {
+      const nameWithRank = r.rank ? `${r.rank} ${r.name}` : r.name;
+      msg += `${_formatGroup(r.gk)}: ${nameWithRank} — ${r.status}\n`;
+    });
+  }
+
+  if (opts.remarks) {
+    msg += `\n${String(opts.remarks).trim()}\n`;
+  }
+  msg += `\n<b>END OF PARADE STATE</b>`;
+  return msg;
+}
+
+// Server-scheduled 0830H daily broadcast (A5_parade)
+function sendParadeStateBroadcast(overrideChatId) {
+  const msg = _buildParadeStateMessage();
+  const sr = _tgSendRouted(msg, 'A5_parade', overrideChatId);
+  if (sr === 'disabled') { logAction('parade_disabled', 'server', ''); return 'A5 disabled'; }
+  logAction('parade_0830', 'server', 'sent');
+  return 'Parade State 0830H sent';
+}
+
+// Client-triggered ad-hoc parade state (M7_parade)
+function sendAdhocParadeState(body) {
+  const msg = _buildParadeStateMessage({ remarks: body ? body.remarks : '' });
+  const sr = _tgSendRouted(msg, 'M7_parade');
+  if (sr === 'disabled') return { ok: false, error: 'M7_parade disabled in settings' };
+  logAction('parade_adhoc', body ? (body.actor || '') : '', 'sent');
+  return { ok: true, sent: 'ad-hoc parade state' };
 }
 
 function forceSyn1AllIn() {

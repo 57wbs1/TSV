@@ -547,11 +547,12 @@ function formatHeroTimes() {
 }
 function renderHeroTimeBlock() {
   const t = formatHeroTimes();
+  // Military time zones: UTC+7 (BKK) = Golf (G), UTC+8 (SG) = Hotel (H)
   return `
     <div class="hero-time" id="live-time">
       <div class="ht-primary">
         <span class="ht-city">BKK</span>
-        <span class="ht-val ht-val-main">${t.bkk} K</span>
+        <span class="ht-val ht-val-main">${t.bkk} G</span>
       </div>
       <div class="ht-secondary">
         <span class="ht-city-sg">SG</span>
@@ -2255,10 +2256,12 @@ function _renderLocationImpl() {
 
   el('tab-location').innerHTML = `
     <div class="subtab-row" id="tracker-subtabs">
-      <button class="subtab-btn ${trackerView === 'list'  ? 'active' : ''}" onclick="setTrackerView('list')">📋 List</button>
-      <button class="subtab-btn ${trackerView === 'map'   ? 'active' : ''}" onclick="setTrackerView('map')">🗺️ Map</button>
-      <button class="subtab-btn ${trackerView === 'rooms' ? 'active' : ''}" onclick="setTrackerView('rooms')">🛏️ Rooms</button>
+      <button class="subtab-btn ${trackerView === 'list'   ? 'active' : ''}" onclick="setTrackerView('list')">📋 List</button>
+      <button class="subtab-btn ${trackerView === 'map'    ? 'active' : ''}" onclick="setTrackerView('map')">🗺️ Map</button>
+      <button class="subtab-btn ${trackerView === 'rooms'  ? 'active' : ''}" onclick="setTrackerView('rooms')">🛏️ Rooms</button>
+      <button class="subtab-btn ${trackerView === 'parade' ? 'active' : ''}" onclick="setTrackerView('parade')">📝 Parade</button>
     </div>
+    <div id="tracker-parade-wrap" style="${trackerView === 'parade' ? '' : 'display:none'}"></div>
     <div id="tracker-rooms-wrap" style="${trackerView === 'rooms' ? '' : 'display:none'}"></div>
     <div id="tracker-map-wrap" style="${trackerView === 'map' ? '' : 'display:none'}">
       <div class="map-toolbar">
@@ -2354,6 +2357,9 @@ function _renderLocationImpl() {
     // renderRooms auto-detects tracker-rooms-wrap when it's visible and
     // writes there directly — no mirroring needed anymore.
     setTimeout(() => renderRooms(), 30);
+  }
+  if (trackerView === 'parade') {
+    setTimeout(() => renderParadeState(), 30);
   }
 }
 
@@ -4340,6 +4346,171 @@ window.addEventListener('load', () => {
 });
 
 // ═══════════ ROOMS TAB ═══════════════════════════════════════
+// ═══════════ PARADE STATE ════════════════════════════════════
+// Per-member operational status (default "Present"). Anyone can edit
+// their OWN status; admins can edit anyone's via the syndicate dropdown.
+// Non-"Present" statuses show a yellow warning chip.
+
+function _loadParadeState() {
+  // Stale-while-revalidate: use cached STATE.paradeState if present, then
+  // refresh from server and re-render.
+  if (!STATE.paradeState) STATE.paradeState = {};
+  API.get('getParadeState').then(data => {
+    if (data && typeof data === 'object') {
+      STATE.paradeState = data;
+      if (STATE.currentTab === 'location' && STATE.trackerView === 'parade') renderParadeState();
+    }
+  }).catch(() => {});
+}
+
+function renderParadeState() {
+  const wrap = el('tracker-parade-wrap');
+  if (!wrap) return;
+  const user = STATE.currentUser;
+  if (!user) { wrap.innerHTML = '<div class="alert alert-orange" style="margin:12px">Sign in first.</div>'; return; }
+  // Trigger a background refresh on every open. On first open STATE.paradeState
+  // is empty so only default "Present" shows until fetch completes.
+  if (!STATE._paradeFetchedOnce) {
+    STATE._paradeFetchedOnce = true;
+    _loadParadeState();
+  }
+
+  const adminMode = hasAdminRights() && localStorage.getItem('tsv_admin_view_as') !== 'non-admin';
+
+  // Syndicate selection: admin gets a dropdown, non-admin is locked to their own
+  const myGk = memberGroupKey(user);
+  const allGroups = groupOrder();
+  const viewableGroups = adminMode ? allGroups : [myGk];
+
+  if (!STATE.paradeSyn || !viewableGroups.includes(STATE.paradeSyn)) {
+    STATE.paradeSyn = adminMode ? (STATE.paradeSyn && allGroups.includes(STATE.paradeSyn) ? STATE.paradeSyn : myGk) : myGk;
+  }
+  const selectedGk = STATE.paradeSyn;
+
+  const members = membersInGroup(selectedGk);
+  const ps = STATE.paradeState || {};
+
+  // Count present across ALL viewable groups for the top summary
+  const summary = viewableGroups.map(gk => {
+    const grp = membersInGroup(gk);
+    const pres = grp.filter(m => (ps[m.id]?.status || 'Present') === 'Present').length;
+    return { gk, label: formatGroupDisplay(gk), present: pres, total: grp.length };
+  });
+
+  // Syndicate picker
+  const picker = adminMode ? `
+    <div style="margin:10px 12px 6px;display:flex;gap:8px;align-items:center">
+      <label style="font-size:12px;font-weight:700;color:var(--text-2);white-space:nowrap">Syndicate:</label>
+      <select onchange="setParadeSyn(this.value)"
+        style="flex:1;border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-size:13px;background:var(--card);color:var(--text);font-weight:700">
+        ${allGroups.map(gk => `
+          <option value="${escapeHtml(gk)}" ${gk === selectedGk ? 'selected' : ''}>
+            ${escapeHtml(formatGroupDisplay(gk))} — ${summary.find(s => s.gk === gk)?.present || 0}/${summary.find(s => s.gk === gk)?.total || 0}
+          </option>`).join('')}
+      </select>
+    </div>` : `
+    <div style="margin:10px 12px 6px;font-size:12px;color:var(--text-2)">
+      Showing <b>${escapeHtml(formatGroupDisplay(selectedGk))}</b> (your syndicate)
+    </div>`;
+
+  // Member rows
+  const memberRows = members.map(m => {
+    const state = ps[m.id] || { status: 'Present' };
+    const status = state.status || 'Present';
+    const isPresent = status === 'Present';
+    const canEdit = adminMode || m.id === user.id;
+    const chipStyle = isPresent
+      ? 'background:#dcfce7;color:#166534;border:1px solid #bbf7d0'
+      : 'background:#fef3c7;color:#92400e;border:1px solid #fcd34d';
+    const prefix = isPresent ? '✅' : '⚠️';
+    const labelHtml = `${prefix} ${escapeHtml(status)}`;
+    const editBtn = canEdit ? `
+      <button class="btn btn-sm btn-outline" style="font-size:11px;padding:4px 10px;flex-shrink:0" onclick="editParadeStatus('${escapeHtml(m.id)}')">
+        ✏️ Edit
+      </button>` : '';
+    return `
+      <div style="display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--border-2);background:${isPresent ? 'transparent' : '#fffbeb'}">
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:700;font-size:13px">${escapeHtml(m.rank ? m.rank + ' ' : '')}${escapeHtml(m.shortName || m.name)}</div>
+          <div style="margin-top:4px;display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;${chipStyle}">${labelHtml}</div>
+          ${state.updatedAt ? `<div style="font-size:10px;color:var(--text-3);margin-top:2px">Last: ${new Date(state.updatedAt).toLocaleString('en-GB', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit', timeZone:'Asia/Bangkok' })}${state.updatedBy ? ' · by ' + escapeHtml(state.updatedBy) : ''}</div>` : ''}
+        </div>
+        ${editBtn}
+      </div>`;
+  }).join('');
+
+  const totalPresent = summary.reduce((a, s) => a + s.present, 0);
+  const totalAll = summary.reduce((a, s) => a + s.total, 0);
+
+  wrap.innerHTML = `
+    <div style="margin:8px 12px 0;padding:12px 14px;background:linear-gradient(135deg,#003580,#0056b3);color:#fff;border-radius:12px">
+      <div style="font-size:11px;font-weight:800;letter-spacing:.04em;opacity:.85">📝 PARADE STATE</div>
+      <div style="font-size:22px;font-weight:900;margin-top:2px">${totalPresent} / ${totalAll} Present</div>
+      <div style="font-size:11px;opacity:.85;margin-top:3px">${adminMode ? 'All syndicates · viewing ' + escapeHtml(formatGroupDisplay(selectedGk)) : 'Your syndicate only'}</div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:10px 12px">
+      <button class="btn btn-primary" style="font-size:13px;padding:10px" onclick="sendAdhocParadeStateClick()">📤 Send Parade State</button>
+      <button class="btn btn-outline" style="font-size:13px;padding:10px" onclick="_loadParadeState()">↻ Refresh</button>
+    </div>
+
+    ${picker}
+
+    <div style="margin:6px 12px 24px;border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--card)">
+      ${memberRows || '<div style="padding:16px;color:var(--text-3);font-size:13px;text-align:center">No members in this syndicate.</div>'}
+    </div>
+
+    <div style="font-size:11px;color:var(--text-3);text-align:center;margin:0 12px 24px">
+      Auto-sent daily at 0830H BKK · Default status: Present · Tap ✏️ Edit to change.
+    </div>
+  `;
+}
+
+window.setParadeSyn = function(gk) {
+  STATE.paradeSyn = gk;
+  renderParadeState();
+};
+
+window.editParadeStatus = async function(memberId) {
+  const m = getMemberById(memberId);
+  if (!m) return;
+  const ps = STATE.paradeState || {};
+  const current = ps[memberId]?.status || 'Present';
+  const next = prompt(`Update status for ${m.shortName || m.name}:\n\nExamples:\n• Present\n• Sick in Hotel 26 Apr\n• Hospitalised\n• Absent from Trip UFN`, current);
+  if (next === null) return;   // cancelled
+  const clean = String(next).trim() || 'Present';
+  if (clean === current) return;   // no change
+  // Optimistic update
+  STATE.paradeState = STATE.paradeState || {};
+  STATE.paradeState[memberId] = { status: clean, updatedBy: STATE.currentUser?.shortName || STATE.currentUser?.name || '', updatedAt: new Date().toISOString() };
+  renderParadeState();
+  const resp = await API.postRaw('updateParadeStatus', {
+    memberId, status: clean,
+    actor: STATE.currentUser?.id,
+    actorName: STATE.currentUser?.shortName || STATE.currentUser?.name
+  });
+  if (!resp || resp.ok === false) {
+    toast('❌ Save failed — ' + (resp?.error || 'retry'));
+    _loadParadeState();  // reload real state
+    return;
+  }
+  toast('✅ Status updated');
+};
+
+// Fire the ad-hoc parade state message via Telegram (M7 routing key)
+window.sendAdhocParadeStateClick = async function() {
+  const remarks = prompt('Optional remarks to append (blank for none):', '');
+  if (remarks === null) return;
+  const resp = await withLoader('Sending Parade State…', () =>
+    API.postRaw('sendAdhocParadeState', { remarks: String(remarks).trim(), actor: STATE.currentUser?.id })
+  );
+  if (!resp)                 return toast('❌ No response — retry');
+  if (resp.ok === false)     return toast('❌ ' + (resp.error || 'Send failed'));
+  const inner = resp.data;
+  if (inner && inner.ok === false) return toast('❌ ' + inner.error);
+  toast('✅ Parade State sent to Telegram');
+};
+
 function renderRooms() {
   const user = STATE.currentUser;
   const myStatus = getStatusOf(user?.id || '');
