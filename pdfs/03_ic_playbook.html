@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>TSV App — Syndicate IC Playbook</title>
+<style>
+  @page { size: A4; margin: 22mm 20mm 22mm 20mm; }
+  html, body { margin: 0; padding: 0; color: #1a1a1a; -webkit-font-smoothing: antialiased; }
+  body { font-family: -apple-system, 'SF Pro Text', 'Inter', system-ui, sans-serif; font-size: 11pt; line-height: 1.55; background: #fff; }
+  h1, h2, h3 { font-family: 'Iowan Old Style', 'Palatino', Georgia, serif; font-weight: 500; letter-spacing: -0.01em; }
+  h1 { font-size: 30pt; line-height: 1.05; margin: 0 0 6pt; }
+  h2 { font-size: 17pt; margin: 22pt 0 6pt; page-break-after: avoid; }
+  h3 { font-size: 12pt; margin: 14pt 0 4pt; font-family: -apple-system, sans-serif; font-weight: 700; letter-spacing: 0.02em; }
+  .eyebrow { font-size: 9pt; letter-spacing: 0.15em; text-transform: uppercase; color: #6b6b6b; font-weight: 600; }
+  .ic-badge { font-size: 8pt; letter-spacing: 0.1em; text-transform: uppercase; background: #003580; color: #fff; padding: 2pt 8pt; border-radius: 4pt; font-weight: 800; }
+  .lede { font-family: 'Iowan Old Style', serif; font-size: 14pt; color: #4a4a4a; max-width: 60ch; margin: 10pt 0 14pt; }
+  p { margin: 0 0 10pt; }
+  ol, ul { margin: 6pt 0 14pt; padding-left: 22pt; }
+  li { margin-bottom: 6pt; }
+  .rule { border: 0; border-top: 1px solid #d8d2c4; margin: 18pt 0; }
+  .call { border: 1px solid #d8d2c4; border-radius: 8pt; padding: 10pt 14pt; background: #f7f4ee; margin: 12pt 0; font-size: 10.5pt; }
+  .call.ic { border-color: #cbd8ee; background: #eef3fa; }
+  .call b { color: #003580; }
+  code { font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 10pt; background: #f7f4ee; padding: 1pt 5pt; border-radius: 3pt; }
+  table { width: 100%; border-collapse: collapse; font-size: 10pt; margin: 10pt 0 14pt; }
+  th, td { text-align: left; padding: 6pt 10pt; border-bottom: 1px solid #e8e3d8; vertical-align: top; }
+  th { background: #f7f4ee; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase; font-size: 8.5pt; color: #4a4a4a; }
+  td:first-child { font-weight: 600; width: 22%; }
+  .cover { padding-top: 70pt; page-break-after: always; }
+  .cover h1 { font-size: 42pt; }
+  .cover .lede { font-size: 16pt; margin-top: 18pt; }
+  .flow { counter-reset: step; margin: 12pt 0 16pt; }
+  .flow .s { counter-increment: step; padding: 10pt 12pt 10pt 40pt; position: relative; background: #fff; border: 1px solid #e8e3d8; border-radius: 8pt; margin-bottom: 8pt; font-size: 10.5pt; }
+  .flow .s::before { content: counter(step); position: absolute; left: 12pt; top: 10pt; width: 20pt; height: 20pt; border-radius: 50%; background: #003580; color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 10pt; font-weight: 700; font-family: 'Iowan Old Style', serif; }
+  .flow .s b { font-weight: 700; }
+</style>
+</head>
+<body>
+
+<section class="cover">
+  <div class="eyebrow">TSV App — Syndicate IC edition</div>
+  <h1>The Syndicate IC's playbook.</h1>
+  <p class="lede">The three things a SYN IC does with the app that a regular officer does not — boarding SITREPs on transport, ad-hoc SITREPs from Home, and the full incident-report lifecycle. Read this first if your syndicate has put you in charge.</p>
+  <p style="margin-top: 30pt"><span class="ic-badge">SYN IC ONLY</span></p>
+</section>
+
+<h2>What changes when you're the IC</h2>
+<p>Everything in the officer walkthrough still applies — you still mark your own parade state, still log your own hotel exits, still update your room number. On top of that, three features of the app unlock with elevated capability:</p>
+
+<table>
+  <thead><tr><th>Feature</th><th>Where</th><th>What it lets you do</th></tr></thead>
+  <tbody>
+    <tr><td>Boarding SITREPs</td><td>Calendar → Transport</td><td>Mark your syndicate on/off a bus or flight and fire Telegram messages at each stage.</td></tr>
+    <tr><td>Ad-hoc SITREP from Home</td><td>Home tab</td><td>A <b>📤 Send SITREP</b> button surfaces on Home once you're identified as an IC. One tap sends.</td></tr>
+    <tr><td>Incident Reports</td><td>SOP tab</td><td>File new IRs, post updates, close them out. Every action fires a Telegram message to the command chat.</td></tr>
+  </tbody>
+</table>
+
+<div class="call ic">
+  <b>How the app knows you're an IC.</b> Your admin marks you as IC when your roster is set up. If you think you should have IC features but don't see them, tell the admin through Settings → Report an Issue.
+</div>
+
+<hr class="rule" />
+
+<h2>Boarding SITREP — Transport flow</h2>
+<p>When a bus or flight is due to move your syndicate, the Transport sub-tab is the control panel. The flow has three phases: board, push, drop.</p>
+
+<h3>Phase 1 · Board</h3>
+<div class="flow">
+  <div class="s">Open <b>Calendar → Transport</b>.</div>
+  <div class="s">Tap the bus or flight card assigned to your syndicate.</div>
+  <div class="s">A list of syndicates appears. Tap <b>Board</b> next to each syndicate as they physically step onto the vehicle. You can board multiple syndicates — a single bus often carries two or three.</div>
+  <div class="s">If not everyone is on yet and you need to save progress, tap <b>Save Progress</b>. It records what you've boarded so far without closing the flow.</div>
+  <div class="s">Once the vehicle is full and ready, tap <b>Send SITREP</b>. A 🚌 <b>BOARDING COMPLETE</b> message fires to the ops chat with the syndicate count.</div>
+</div>
+
+<h3>Phase 2 · Push</h3>
+<div class="flow">
+  <div class="s">When the vehicle departs, tap <b>Pushing</b> on the same card.</div>
+  <div class="s">Optional: add remarks such as <code>Departing hotel 0851H, ETA RTAF 0935H</code>.</div>
+  <div class="s">Send. An <b>ON THE MOVE</b> message fires with driver and timing info.</div>
+</div>
+
+<h3>Phase 3 · Drop</h3>
+<div class="flow">
+  <div class="s">On arrival, tap <b>Dropped</b> on the card.</div>
+  <div class="s">The vehicle is freed for the next cycle. Its card returns to the idle state for the next syndicate to use.</div>
+</div>
+
+<div class="call">
+  <b>Why all three.</b> Each phase fires a distinct Telegram message. Command needs to know <i>boarded</i>, <i>moving</i>, and <i>arrived</i> as separate events — the gap between each tells them if something is going wrong mid-journey.
+</div>
+
+<hr class="rule" />
+
+<h2>Ad-hoc SITREP from Home</h2>
+<p>When movement changes during the day — a bus diverts, your syndicate splits, half the group leaves a visit early — a SYN IC can push a fresh SITREP in seconds. The button is on Home so you don't have to drill into Tracker first.</p>
+
+<div class="flow">
+  <div class="s">Open the <b>Home</b> tab.</div>
+  <div class="s">Tap <b>📤 Send SITREP</b> near the top (only visible to ICs).</div>
+  <div class="s">Choose which syndicates to include. The default is your own.</div>
+  <div class="s">Optional remarks — be specific: <code>Syn 3 split at Wat Pho, 8 pax returning with me, 6 pax onward to MBK w/ CPT Zhang</code>.</div>
+  <div class="s">Send. The SITREP lands in the ops chat immediately.</div>
+</div>
+
+<div class="call ic">
+  <b>Regular officers as fallback.</b> If for some reason you're unreachable, any officer in your syndicate can push the same ad-hoc SITREP from the Tracker list view. It goes to the same chat. You cover each other.
+</div>
+
+<hr class="rule" />
+
+<h2>Incident Reports — the full lifecycle</h2>
+<p>Anything that isn't routine gets logged as an IR. Medical, security, missing persons, transport failures, schedule changes that leadership needs to know about. An IR has three states — <b>NEW</b>, <b>UPDATE</b>, and <b>CLOSED</b> — and every state transition posts a new Telegram message.</p>
+
+<h3>Creating a new IR</h3>
+<div class="flow">
+  <div class="s">Open the <b>SOP</b> tab.</div>
+  <div class="s">Tap <b>+ New Incident Report</b> at the top.</div>
+  <div class="s">Fill the form:
+    <ul>
+      <li><b>Nature.</b> Pick from the dropdown (medical, security, transport, welfare, etc.).</li>
+      <li><b>Description.</b> What happened, in one or two sentences.</li>
+      <li><b>When.</b> Time of the incident — e.g. <code>270426 / 0900HRS</code>.</li>
+      <li><b>Where.</b> Location.</li>
+      <li><b>Course / Syn involved.</b> Dropdown of syndicates.</li>
+      <li><b>NOK Informed.</b> Y, N, or N/A.</li>
+    </ul>
+  </div>
+  <div class="s">Tick <b>Send to Telegram</b> (almost always yes).</div>
+  <div class="s">Submit. The server assigns a sequential ID — <code>IR01</code>, <code>IR02</code>, <code>IR03</code> — and a 🚨 <b>IR NEW</b> message lands in the command chat.</div>
+</div>
+
+<h3>Posting an update</h3>
+<p>As the incident progresses, keep the feed current. Every update re-posts the full history so command always sees the complete thread in one message.</p>
+
+<div class="flow">
+  <div class="s">Open the IR from the SOP tab list.</div>
+  <div class="s">Tap <b>➕ Add Update</b>.</div>
+  <div class="s">Type the update — e.g. <code>Officer admitted to BNH Hospital, vitals stable, expected discharge 1800H</code>.</div>
+  <div class="s">Keep <b>Send to Telegram</b> ticked.</div>
+  <div class="s">Submit. A 📝 <b>IR UPDATE #n</b> message fires with the new update plus a copy of the original and all prior updates.</div>
+</div>
+
+<h3>Closing out</h3>
+<p>When the incident is resolved:</p>
+
+<div class="flow">
+  <div class="s">Open the IR. Tap <b>➕ Add Update</b>.</div>
+  <div class="s">Write a final update describing the resolution.</div>
+  <div class="s">Tick the <b>Close Out</b> checkbox.</div>
+  <div class="s">Submit. A ✅ <b>IR CLOSED</b> message fires. The IR stays visible and searchable in the SOP tab for the rest of the trip, but no further updates can be added.</div>
+</div>
+
+<div class="call">
+  <b>If Telegram fails to send.</b> A toast will say <i>Logged but Telegram failed — resend later</i>. Open the IR event and tap the <b>📤 Resend</b> button next to it. That re-sends the exact message without creating a new event.
+</div>
+
+<hr class="rule" />
+
+<h2>Deleting an IR</h2>
+<p>If an IR was created in error — wrong details, duplicate entry, test run — only admins can delete it. You as SYN IC cannot. If you need one deleted, write to the admin through Settings → Report an Issue with the IR number and reason.</p>
+
+<hr class="rule" />
+
+<h2>Three rules for ICs</h2>
+<ol>
+  <li><b>Board → Push → Drop.</b> Every transport cycle, every bus, every flight. Three taps. Don't skip the middle one.</li>
+  <li><b>If the movement changes, fire a SITREP.</b> From Home, one tap, 30 seconds. Command hates surprises; they love timely updates.</li>
+  <li><b>Open an IR earlier than you think.</b> It is cheap to file and easy to close. A fever that turned out to be nothing is a closed IR — it is not an embarrassment. An unreported fever that turned into a hospital admission is an investigation.</li>
+</ol>
+
+<p class="eyebrow" style="margin-top: 30pt;">End · TSV App · Syndicate IC Playbook</p>
+
+</body>
+</html>

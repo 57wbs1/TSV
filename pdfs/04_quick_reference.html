@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>TSV App — Quick Reference</title>
+<style>
+  @page { size: A4; margin: 18mm 18mm 18mm 18mm; }
+  html, body { margin: 0; padding: 0; color: #1a1a1a; -webkit-font-smoothing: antialiased; }
+  body { font-family: -apple-system, 'SF Pro Text', 'Inter', system-ui, sans-serif; font-size: 10.5pt; line-height: 1.5; background: #fff; }
+  h1, h2 { font-family: 'Iowan Old Style', 'Palatino', Georgia, serif; font-weight: 500; letter-spacing: -0.01em; }
+  h1 { font-size: 26pt; line-height: 1.05; margin: 0 0 6pt; }
+  h2 { font-size: 14pt; margin: 16pt 0 6pt; page-break-after: avoid; color: #003580; }
+  .eyebrow { font-size: 9pt; letter-spacing: 0.15em; text-transform: uppercase; color: #6b6b6b; font-weight: 600; margin-bottom: 6pt; }
+  p { margin: 0 0 8pt; }
+  ul { margin: 4pt 0 10pt; padding-left: 18pt; }
+  li { margin-bottom: 3pt; }
+  table { width: 100%; border-collapse: collapse; font-size: 10pt; margin: 8pt 0 10pt; }
+  th, td { text-align: left; padding: 5pt 8pt; border-bottom: 1px solid #e8e3d8; vertical-align: top; }
+  th { background: #f7f4ee; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase; font-size: 8.5pt; color: #4a4a4a; }
+  td:first-child { font-weight: 600; width: 34%; }
+  code { font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 9.5pt; background: #f7f4ee; padding: 1pt 4pt; border-radius: 3pt; }
+  .ic-badge { font-size: 8pt; letter-spacing: 0.1em; text-transform: uppercase; background: #003580; color: #fff; padding: 1pt 6pt; border-radius: 3pt; font-weight: 800; }
+  .faq { background: #f7f4ee; border: 1px solid #e8e3d8; border-radius: 8pt; padding: 10pt 12pt; margin: 8pt 0; }
+  .faq b { display: block; margin-bottom: 4pt; color: #003580; }
+  .two-col { column-count: 2; column-gap: 16pt; column-rule: 1px solid #e8e3d8; }
+  .two-col h2:first-child { margin-top: 0; }
+  .header-row { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 2px solid #1a1a1a; padding-bottom: 8pt; margin-bottom: 12pt; }
+</style>
+</head>
+<body>
+
+<div class="header-row">
+  <div>
+    <div class="eyebrow">TSV App</div>
+    <h1>Quick reference card.</h1>
+  </div>
+  <div style="font-family: 'Iowan Old Style', serif; font-size: 11pt; color: #6b6b6b;">Keep this one nearby.</div>
+</div>
+
+<div class="two-col">
+
+<h2>Common actions</h2>
+<table>
+  <tbody>
+    <tr><td>Update my parade state</td><td>Tracker → Parade → ✏️ Edit on your row</td></tr>
+    <tr><td>Leaving hotel</td><td>Home → 🚶 Leaving Hotel → syndicate → buddies → location</td></tr>
+    <tr><td>Returning</td><td>Home → 🏨 Return to Hotel</td></tr>
+    <tr><td>Send ad-hoc parade state</td><td>Tracker → Parade → 📤 Send Parade State</td></tr>
+    <tr><td>Send ad-hoc SITREP</td><td>Tracker → List → 📤 Send SITREP <br><span class="ic-badge">SYN IC</span> also on Home</td></tr>
+    <tr><td>Board bus / flight</td><td><span class="ic-badge">SYN IC</span> Calendar → Transport → vehicle → Board</td></tr>
+    <tr><td>Send boarding SITREP</td><td><span class="ic-badge">SYN IC</span> Same vehicle card → Send SITREP</td></tr>
+    <tr><td>File new incident</td><td><span class="ic-badge">SYN IC</span> SOP → + New Incident Report</td></tr>
+    <tr><td>Update existing IR</td><td><span class="ic-badge">SYN IC</span> SOP → open IR → ➕ Add Update</td></tr>
+    <tr><td>Close an IR</td><td><span class="ic-badge">SYN IC</span> Add Update → tick Close Out</td></tr>
+    <tr><td>Update my room</td><td>Tracker → Rooms → tap your name</td></tr>
+    <tr><td>See the programme</td><td>Calendar → Calendar</td></tr>
+    <tr><td>Submit reflection</td><td>Calendar → Reflections</td></tr>
+    <tr><td>See visit pins</td><td>Tracker → Map</td></tr>
+    <tr><td>Change PIN</td><td>Settings → PIN</td></tr>
+    <tr><td>Change text size / theme</td><td>Settings → Display</td></tr>
+    <tr><td>Report a bug</td><td>Settings → Report an Issue</td></tr>
+  </tbody>
+</table>
+
+<h2>What fires when</h2>
+<table>
+  <thead><tr><th>Time (BKK)</th><th>Event</th></tr></thead>
+  <tbody>
+    <tr><td>0600H</td><td>Weather + programme preview in Telegram</td></tr>
+    <tr><td>0800H</td><td>Deadline: self-update parade state if not Present</td></tr>
+    <tr><td>0830H</td><td>Parade state goes to command</td></tr>
+    <tr><td>1900H</td><td>Previous-evening trip preview</td></tr>
+    <tr><td>2300H</td><td>Evening SITREP (all officers in/out)</td></tr>
+    <tr><td>0200H</td><td>Curfew SITREP (everyone must be marked IN)</td></tr>
+  </tbody>
+</table>
+
+<h2>Status options</h2>
+<ul>
+  <li><code>Present</code> — the default</li>
+  <li><code>Sick in Hotel 27 Apr</code></li>
+  <li><code>Hospitalised</code></li>
+  <li><code>Absent from Trip UFN</code></li>
+  <li>Anything else — free text</li>
+</ul>
+
+<h2>FAQ</h2>
+
+<div class="faq"><b>Safari won't let me install it.</b>Check you're opening the link in Safari, not Chrome. Only Safari can install PWAs on iOS. Open the page, tap Share, scroll to Add to Home Screen.</div>
+
+<div class="faq"><b>App shows a spinning circle and never loads.</b>Force-quit Safari or the TSV app. Reopen. If it still hangs, kill the app and reopen once more — the service worker recovers on its second boot.</div>
+
+<div class="faq"><b>Why isn't my SITREP or IR button visible on Home?</b>Those surface only for SYN ICs. If you think you should be an IC, message the admin via Settings → Report an Issue.</div>
+
+<div class="faq"><b>Can I leave the hotel without tapping Leaving?</b>Technically yes, but your status stays IN while you're actually OUT, which breaks the roll. Always log it — 15 seconds saves command 15 minutes.</div>
+
+<div class="faq"><b>Is GPS required when I leave?</b>No. It's optional. A text location is enough. GPS only adds a pin on the Map tab.</div>
+
+<div class="faq"><b>I forgot my PIN.</b>Ask the admin to reset it. They can issue a fresh default, then you change it from Settings on first login.</div>
+
+<div class="faq"><b>I marked my buddy OUT by accident.</b>They can open the app and tap Return to Hotel if they're still in the hotel. Or file a correction with your IC.</div>
+
+<div class="faq"><b>I can't see my syndicate members in Parade.</b>Scroll. The default view shows your syn. If your syn is selected at the top but the list is empty, pull-to-refresh on the list.</div>
+
+<div class="faq"><b>My reflection submission showed an error.</b>Your text is still in the form — the fields do not clear on failure. Check your connection, tap Submit again. If it persists, flag via Settings.</div>
+
+<div class="faq"><b>Telegram message didn't arrive after I submitted.</b>Open the IR or the SITREP event. <span class="ic-badge">SYN IC</span> ICs have a 📤 Resend button on each IR event. For SITREPs, just fire another ad-hoc from Home or Tracker.</div>
+
+<div class="faq"><b>The app looks broken after a deploy.</b>Force-reload: pull down on the main screen or close-reopen the app. The service worker auto-updates and the next open should show the new version.</div>
+
+<div class="faq"><b>I'm in a bad network zone and taps don't seem to save.</b>The app queues writes and retries when you're back online. Wait for signal, open the app, give it a few seconds. If the queue indicator is red, pull to refresh.</div>
+
+<h2>Three rules</h2>
+<ol>
+  <li>Mark parade state by 0800H if not Present.</li>
+  <li>Log every hotel exit and tap Return when you come back.</li>
+  <li>Flag problems early — to your SYN IC, or via Settings → Report.</li>
+</ol>
+
+</div>
+
+</body>
+</html>

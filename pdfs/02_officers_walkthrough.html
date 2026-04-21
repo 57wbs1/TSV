@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>TSV App — The Officer's Walkthrough</title>
+<style>
+  @page { size: A4; margin: 22mm 20mm 22mm 20mm; }
+  html, body { margin: 0; padding: 0; color: #1a1a1a; -webkit-font-smoothing: antialiased; }
+  body { font-family: -apple-system, 'SF Pro Text', 'Inter', system-ui, sans-serif; font-size: 11pt; line-height: 1.55; background: #fff; }
+  h1, h2, h3 { font-family: 'Iowan Old Style', 'Palatino', Georgia, serif; font-weight: 500; letter-spacing: -0.01em; }
+  h1 { font-size: 30pt; line-height: 1.05; margin: 0 0 6pt; }
+  h2 { font-size: 17pt; margin: 22pt 0 6pt; page-break-after: avoid; }
+  h3 { font-size: 12pt; margin: 14pt 0 4pt; font-family: -apple-system, sans-serif; font-weight: 700; letter-spacing: 0.02em; }
+  .eyebrow { font-size: 9pt; letter-spacing: 0.15em; text-transform: uppercase; color: #6b6b6b; font-weight: 600; }
+  .lede { font-family: 'Iowan Old Style', serif; font-size: 14pt; color: #4a4a4a; max-width: 60ch; margin: 10pt 0 14pt; }
+  p { margin: 0 0 10pt; }
+  ol, ul { margin: 6pt 0 14pt; padding-left: 22pt; }
+  li { margin-bottom: 6pt; }
+  .rule { border: 0; border-top: 1px solid #d8d2c4; margin: 18pt 0; }
+  .call { border: 1px solid #d8d2c4; border-radius: 8pt; padding: 10pt 14pt; background: #f7f4ee; margin: 12pt 0; font-size: 10.5pt; }
+  .call b { color: #003580; }
+  code, .kbd { font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 10pt; background: #f7f4ee; padding: 1pt 5pt; border-radius: 3pt; }
+  table { width: 100%; border-collapse: collapse; font-size: 10pt; margin: 10pt 0 14pt; }
+  th, td { text-align: left; padding: 6pt 10pt; border-bottom: 1px solid #e8e3d8; vertical-align: top; }
+  th { background: #f7f4ee; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase; font-size: 8.5pt; color: #4a4a4a; }
+  td:first-child { font-weight: 600; width: 22%; }
+  .tab-icon { font-size: 14pt; }
+  .cover { padding-top: 70pt; page-break-after: always; }
+  .cover h1 { font-size: 42pt; }
+  .cover .lede { font-size: 16pt; margin-top: 18pt; }
+  blockquote { margin: 14pt 0; padding: 10pt 14pt; border-left: 3px solid #003580; background: #eef3fa; font-size: 10.5pt; color: #1a1a1a; border-radius: 0 6pt 6pt 0; }
+  .flow { counter-reset: step; margin: 12pt 0 16pt; }
+  .flow .s { counter-increment: step; padding: 10pt 12pt 10pt 40pt; position: relative; background: #fff; border: 1px solid #e8e3d8; border-radius: 8pt; margin-bottom: 8pt; font-size: 10.5pt; }
+  .flow .s::before { content: counter(step); position: absolute; left: 12pt; top: 10pt; width: 20pt; height: 20pt; border-radius: 50%; background: #1a1a1a; color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 10pt; font-weight: 700; font-family: 'Iowan Old Style', serif; }
+  .flow .s b { font-weight: 700; }
+</style>
+</head>
+<body>
+
+<section class="cover">
+  <div class="eyebrow">TSV App — Instruction Manual</div>
+  <h1>The officer's walkthrough.</h1>
+  <p class="lede">Everything a regular officer uses the app for — install, daily status updates, leaving the hotel, returning, calendar, rooms, map, ad-hoc messages, and settings. One read through and you'll know every tap you need.</p>
+</section>
+
+<h2>Installing the app</h2>
+<p>The TSV app is a Progressive Web App. You install it once from Safari; after that, it behaves like any other app on your home screen — own icon, full-screen, works on weak Wi-Fi, remembers your login.</p>
+
+<div class="flow">
+  <div class="s">Open <code>https://57wbs1.github.io/TSV/</code> in <b>Safari</b> on your iPhone. Chrome will not let you install it — only Safari.</div>
+  <div class="s">Tap the <b>Share</b> icon at the bottom of Safari (the square with the arrow).</div>
+  <div class="s">Scroll down in the share sheet and tap <b>Add to Home Screen</b>.</div>
+  <div class="s">Confirm the name and tap <b>Add</b>. The TSV BKK icon appears on your home screen.</div>
+  <div class="s">Open the app from the home screen icon. Sign in with the PIN the admin issued you. You'll be asked to set your own PIN on first login — pick one you'll remember.</div>
+</div>
+
+<h3>If the app won't install</h3>
+<ul>
+  <li>Make sure you're in Safari, not Chrome or Firefox.</li>
+  <li>If you tap Share and don't see Add to Home Screen, scroll further down the share sheet — iOS hides it below the share targets.</li>
+  <li>If the page just shows a spinning circle, force-quit Safari and reopen the link. The app is designed to recover cleanly.</li>
+</ul>
+
+<hr class="rule" />
+
+<h2>The six tabs</h2>
+<p>The app is organised into six tabs along the bottom. Every feature sits inside one of them. Here is what each does and which of them an ordinary officer will actually touch day-to-day.</p>
+
+<table>
+  <thead><tr><th>Tab</th><th>What it does</th><th>How often you'll open it</th></tr></thead>
+  <tbody>
+    <tr><td><span class="tab-icon">🏠</span> Home</td><td>Your status, Leaving Hotel button, Return to Hotel button, your syndicate at a glance.</td><td>Multiple times a day — this is the landing page.</td></tr>
+    <tr><td><span class="tab-icon">📝</span> Tracker</td><td>Parade state, full officer list, map, rooms, movement control.</td><td>Once in the morning for parade state, whenever you need to find someone.</td></tr>
+    <tr><td><span class="tab-icon">📅</span> Calendar</td><td>Daily programme, transport details, reflections form.</td><td>Before each visit to check timings and attire; end of day for reflections.</td></tr>
+    <tr><td><span class="tab-icon">💡</span> Learnings</td><td>Your daily reflections and the wider learning debrief.</td><td>Once per evening.</td></tr>
+    <tr><td><span class="tab-icon">🚨</span> SOP</td><td>Contingency procedures and the incident-report feed.</td><td>Read once on the flight in. Open if something goes wrong.</td></tr>
+    <tr><td><span class="tab-icon">⚙️</span> Settings</td><td>Your PIN, display name, text size, theme, feedback form.</td><td>Once to configure, occasionally to tweak.</td></tr>
+  </tbody>
+</table>
+
+<hr class="rule" />
+
+<h2>Parade state — update yourself by 0800H</h2>
+<p>Every officer defaults to <b>Present</b> each morning. If you are anything else — sick, hospitalised, absent from the trip, having a later start, whatever — you must update it in the app before 0800H. After that, your syndicate IC sees the roll in the command chat.</p>
+
+<h3>How to update</h3>
+<div class="flow">
+  <div class="s">Tap the <b>Tracker</b> tab at the bottom.</div>
+  <div class="s">Tap the <b>Parade</b> sub-tab near the top.</div>
+  <div class="s">Find your row. Your syndicate shows first by default.</div>
+  <div class="s">Tap the <b>✏️ Edit</b> button on your row.</div>
+  <div class="s">A prompt appears. Type your status — e.g. <code>Sick in Hotel 27 Apr</code>, <code>Hospitalised</code>, <code>Absent from Trip UFN</code>. Leave it as <code>Present</code> if nothing has changed.</div>
+  <div class="s">Tap OK. The change saves immediately.</div>
+</div>
+
+<div class="call">
+  <b>Important.</b> The 0830H broadcast shows your status to your syndicate IC and leadership. It is not posted to all officers. Your IC is the person you need to have a correct picture of you.
+</div>
+
+<h3>Ad-hoc parade state — anyone can send</h3>
+<p>If an officer's status changes during the day (back from the clinic, joining late, whatever), anyone can push a fresh parade state to command without waiting for tomorrow's 0830H roll.</p>
+
+<div class="flow">
+  <div class="s">Tracker → Parade → <b>📤 Send Parade State</b>.</div>
+  <div class="s">Choose the syndicates to include, or leave the selection empty for a full roster send.</div>
+  <div class="s">Add optional remarks such as <code>All personnel accounted for</code> or <code>MAJ X back from clinic</code>.</div>
+  <div class="s">Tap Send.</div>
+</div>
+
+<hr class="rule" />
+
+<h2>Leaving the hotel — the buddy flow</h2>
+<p>Every time you step out of the hotel, log it. This is how command knows who is together, where, and how to reach you.</p>
+
+<div class="flow">
+  <div class="s">On the <b>Home</b> tab, tap <b>🚶 Leaving Hotel</b>.</div>
+  <div class="s">A sheet opens. Pick your <b>syndicate</b> from the dropdown.</div>
+  <div class="s">The members of that syndicate appear as chips. Tap each officer you are walking out of the hotel with — they'll highlight as selected. This is the buddy system.</div>
+  <div class="s">At the top of the sheet, type your <b>location</b>. Free-text, as specific as you like — e.g. <code>Asok BTS — dinner</code>, <code>Terminal 21 food court</code>, <code>MBK — shopping</code>.</div>
+  <div class="s">Optional: tap <b>Share GPS</b> if you want your live location on the Map tab for admins. The app will ask for location permission the first time.</div>
+  <div class="s">Tap confirm. Your status flips to <b>OUT</b>, your buddies flip to <b>OUT</b> with your location attached, and the syndicate list updates for everyone.</div>
+</div>
+
+<h3>Buddy rules</h3>
+<ul>
+  <li>Only tap buddies who are physically walking out with you. Not the friend upstairs who might join later.</li>
+  <li>If one of your buddies splits off and heads back to the hotel early, they should tap <b>Return to Hotel</b> on their own phone — don't do it for them.</li>
+  <li>GPS sharing is optional. If you skip it, your text location is still visible on the list view. GPS only adds a pin on the map.</li>
+</ul>
+
+<hr class="rule" />
+
+<h2>Returning to the hotel — by 0200H</h2>
+<p>When you walk back through the hotel lobby, open the app and tap <b>🏨 Return to Hotel</b> on the Home tab. That flips your status back to IN, stops any GPS sharing, and clears your buddy entry.</p>
+
+<div class="call">
+  <b>Why this matters.</b> At 0200H the curfew SITREP fires. If you haven't tapped Return, you'll be listed as OUT and the Duty Officer will call you. Save them the trouble — a single tap when you enter the lobby is enough.
+</div>
+
+<hr class="rule" />
+
+<h2>Ad-hoc SITREP — when movement changes</h2>
+<p>Scheduled SITREPs fire at 2300H and 0200H automatically. If something changes during the day — a bus delays, half your syndicate splits off, an officer leaves a visit early — a Syndicate IC can push a fresh SITREP, and if an IC is not reachable, so can you.</p>
+
+<div class="flow">
+  <div class="s">Tracker tab → <b>List</b> sub-tab (the default view).</div>
+  <div class="s">Tap <b>📤 Send SITREP</b> at the top.</div>
+  <div class="s">Choose the syndicates to include.</div>
+  <div class="s">Optional remarks — e.g. <code>Syn 3 split at Wat Pho, 8 returning, 6 onward to MBK</code>.</div>
+  <div class="s">Send. The SITREP lands in the ops chat.</div>
+</div>
+
+<hr class="rule" />
+
+<h2>Calendar, transport, and reflections</h2>
+
+<h3>Calendar sub-tab</h3>
+<p>Opens the day-by-day programme. Scroll through visits, timings, attire, and locations. Tap any event to expand the details — programme notes, points of contact, what to bring.</p>
+
+<h3>Transport sub-tab</h3>
+<p>Shows your flight and bus allocations. Driver names, bus numbers, timings, pickup points. Everything you need to find the right vehicle.</p>
+
+<h3>Reflections sub-tab</h3>
+<p>The nightly reflection form. Four fields: Key Observations, Patterns &amp; Hypothesis, Implications for Singapore, Ah-Ha Moments. Fill in as many as apply and submit — the form feeds the cohort's learning debrief.</p>
+
+<hr class="rule" />
+
+<h2>Map and Rooms Tracker</h2>
+
+<h3>Map</h3>
+<p>Tracker → Map. Shows visit pins, SCOPE engagement pins, and live GPS for any officer currently sharing. Tap a pin for details.</p>
+
+<h3>Rooms Tracker</h3>
+<p>Tracker → Rooms. Update your hotel room number once. Your syndicate IC needs it to find you physically in an emergency.</p>
+
+<div class="flow">
+  <div class="s">Tracker → Rooms.</div>
+  <div class="s">Find your name in the list.</div>
+  <div class="s">Tap your row and enter your room number — e.g. <code>1408</code>.</div>
+  <div class="s">Save. You are done for the trip.</div>
+</div>
+
+<hr class="rule" />
+
+<h2>Settings</h2>
+<p>All personal controls sit in the Settings tab. Use it for:</p>
+<ul>
+  <li><b>PIN.</b> Rotate the default PIN you were issued. Pick something memorable.</li>
+  <li><b>Display name.</b> Fix typos or decide how you want to appear in SITREPs.</li>
+  <li><b>Text size and theme.</b> Larger text, light or dark theme, layout adjustments for older iPhones.</li>
+  <li><b>Watermarks.</b> Toggle the syndicate watermark on the home screen if you find it distracting.</li>
+  <li><b>Report an issue.</b> Something broken or confusing? Open Settings, tap Report, type it, send. It reaches the admin directly.</li>
+</ul>
+
+<hr class="rule" />
+
+<h2>The three things that matter most</h2>
+<p>If you only remember three things from this document:</p>
+<ol>
+  <li><b>Update parade state by 0800H</b> if you are not Present.</li>
+  <li><b>Log every exit from the hotel</b> with buddies and a location, and tap <b>Return to Hotel</b> on your way back in.</li>
+  <li><b>Use the Settings feedback link</b> to flag anything confusing or broken. The admin can fix it overnight.</li>
+</ol>
+
+<p class="eyebrow" style="margin-top: 30pt;">End · TSV App · Officer Walkthrough</p>
+
+</body>
+</html>
