@@ -1436,6 +1436,18 @@ function setupPullToRefresh() {
 
 // ═══════════ HOME TAB ════════════════════════════════════════
 function renderHome() {
+  const homeSub = STATE.homeSubTab || 'overview';
+  const homeSubBar = `
+    <div class="subtab-row" style="margin-top:6px">
+      <button class="subtab-btn ${homeSub === 'overview' ? 'active' : ''}" onclick="setHomeSubTab('overview')">🏠 Overview</button>
+      <button class="subtab-btn ${homeSub === 'translator' ? 'active' : ''}" onclick="setHomeSubTab('translator')">🗣️ Translator</button>
+    </div>`;
+
+  if (homeSub === 'translator') {
+    el('tab-home').innerHTML = homeSubBar + renderTranslatorSubTab();
+    return;
+  }
+
   const trip = getTripStatus();
   const bkk = bkkNow();
   const inC = inCountDisplay(), outC = outCountDisplay(), total = totalCountDisplay();
@@ -1497,6 +1509,7 @@ function renderHome() {
   }
 
   el('tab-home').innerHTML = `
+    ${homeSubBar}
     ${STATE.apiState === 'offline' ? `<div class="alert alert-orange">📡 Offline — showing last synced data. Pull down to refresh when back online.</div>` : ''}
     ${STATE.apiState === 'error'   ? `<div class="alert alert-orange">⚠️ Couldn't reach the server — showing last synced data.</div>` : ''}
     ${STATE.apiState === 'unconfigured' ? `<div class="alert alert-red">⚙️ API not configured — see config.js</div>` : ''}
@@ -4619,14 +4632,8 @@ function renderSOP() {
   const header = `
     <div class="subtab-row" id="sop-subtabs">
       <button class="subtab-btn ${sub === 'sops' ? 'active' : ''}" onclick="setSopSubTab('sops')">🛡️ SOPs</button>
-      <button class="subtab-btn ${sub === 'translator' ? 'active' : ''}" onclick="setSopSubTab('translator')">🗣️ Translator</button>
       <button class="subtab-btn ${sub === 'ir'   ? 'active' : ''}" onclick="setSopSubTab('ir')">🚨 Incident Report for Syn IC</button>
     </div>`;
-
-  if (sub === 'translator') {
-    el('tab-sop').innerHTML = header + renderTranslatorSubTab();
-    return;
-  }
 
   if (sub === 'ir') {
     if (!canFileIR) {
@@ -4671,6 +4678,11 @@ function renderSOP() {
 window.setSopSubTab = function(sub) {
   STATE.sopSubTab = sub;
   renderSOP();
+};
+
+window.setHomeSubTab = function(sub) {
+  STATE.homeSubTab = sub;
+  renderHome();
 };
 
 // ── Translator sub-tab (offline phrasebook + live MyMemory API) ─────
@@ -4752,19 +4764,28 @@ function renderTranslatorSubTab() {
 
 window.setTranslatorMode = function(mode) {
   STATE.translatorMode = mode;
-  renderSOP();
+  _reRenderTranslatorHost();
 };
 
 window.swapTranslatorDir = function() {
   STATE.translatorDir = (STATE.translatorDir === 'en-th') ? 'th-en' : 'en-th';
   STATE.translatorLast = { input: '', output: '', ts: null };
-  renderSOP();
+  _reRenderTranslatorHost();
 };
 
 window.toggleTranslatorCat = function(cat) {
   STATE.translatorCatOpen = (STATE.translatorCatOpen === cat) ? null : cat;
-  renderSOP();
+  _reRenderTranslatorHost();
 };
+
+// Translator is mounted inside Home (primary) and historically inside SOP —
+// this helper redraws whichever tab is currently showing it so state changes
+// (tab toggle, category expand) reflect without depending on a hardcoded
+// render function.
+function _reRenderTranslatorHost() {
+  if (STATE.currentTab === 'home') renderHome();
+  else if (STATE.currentTab === 'sop') renderSOP();
+}
 
 window.copyPhraseThai = function(thai) {
   // Prefer the Clipboard API; fall back to a hidden textarea on iOS where
