@@ -81,6 +81,7 @@ function doGet(e) {
         if (e.parameter.actor !== SUPER_ADMIN_ID) { data = { error: 'Unauthorized' }; break; }
         data = setBroadcastsLive(e.parameter.on);
         break;
+      case 'getBroadcastSchedule': data = getBroadcastSchedule(); break;
       case 'installTriggers': data = setupAllTriggers(); break;
       case 'diagnose':     data = diagnose(); break;
       case 'resetGcal':
@@ -246,6 +247,7 @@ function doPost(e) {
       case 'sendAdhocParadeState': data = sendAdhocParadeState(body); break;
       case 'seedCalendar':     data = seedCalendarFromServer(); break;
       case 'updateTelegramConfig':  data = updateTelegramConfig(body); break;
+      case 'updateBroadcastSchedule': data = updateBroadcastSchedule(body); break;
       case 'updateForceInConfig':   data = updateForceInConfig(body); break;
       case 'testRouting':           data = testRouting(body); break;
       default: return json({ ok: false, error: 'Unknown action: ' + action });
@@ -2752,32 +2754,110 @@ function _sendWeatherBriefingImpl(overrideChatId) {
   return 'Sent weather ' + today + (aqiTag ? ' (' + aqiTag + ')' : '');
 }
 
-// ── Setup: run this ONCE from Apps Script editor ──
-function setupAllTriggers() {
-  ScriptApp.getProjectTriggers().forEach(t => {
-    const fn = t.getHandlerFunction();
-    if (['sendDailyReminder','sendEveningSitrep','sendMidnightSitrep','sendWeatherBriefing','syncFromGoogleCalendar','forceSyn1AllIn','sendParadeStateBroadcast'].indexOf(fn) >= 0) {
-      ScriptApp.deleteTrigger(t);
-    }
+// ── Broadcast schedule — each A-series cron's time lives here, editable
+// from the PWA admin UI via updateBroadcastSchedule. Defaults take effect
+// if no override saved. Changing a time re-creates that specific trigger.
+// ──────────────────────────────────────────────────────────────────────
+const BROADCAST_SCHEDULE_KEY = 'tsvBroadcastSchedule';
+
+const BROADCAST_DEFAULTS = {
+  A1_weather:   { hour: 6,  minute: 0,  handler: 'sendWeatherBriefing',     label: 'A1 · Weather Briefing' },
+  A5_parade:    { hour: 8,  minute: 30, handler: 'sendParadeStateBroadcast', label: 'A5 · Parade State' },
+  A2_reminder:  { hour: 19, minute: 0,  handler: 'sendDailyReminder',       label: 'A2 · Daily Reminder' },
+  A3_evening:   { hour: 23, minute: 0,  handler: 'sendEveningSitrep',       label: 'A3 · Evening SITREP' },
+  A4_midnight:  { hour: 2,  minute: 0,  handler: 'sendMidnightSitrep',      label: 'A4 · Midnight SITREP' }
+};
+// Non-A-series scheduled handlers — managed by setupAllTriggers but not
+// user-editable (they're implementation details, not broadcasts).
+const INTERNAL_SCHEDULE = {
+  forceSyn1AllIn:         { hour: 1, minute: 30 },
+  syncFromGoogleCalendar: { everyMinutes: 15 }
+};
+
+function _readBroadcastSchedule() {
+  let saved = {};
+  try { saved = JSON.parse(PropertiesService.getScriptProperties().getProperty(BROADCAST_SCHEDULE_KEY) || '{}'); }
+  catch (e) { saved = {}; }
+  const merged = {};
+  Object.keys(BROADCAST_DEFAULTS).forEach(k => {
+    const def = BROADCAST_DEFAULTS[k];
+    const ov  = saved[k] || {};
+    merged[k] = {
+      handler: def.handler,
+      label:   def.label,
+      hour:    Number.isInteger(ov.hour)   ? ov.hour   : def.hour,
+      minute:  Number.isInteger(ov.minute) ? ov.minute : def.minute
+    };
   });
-  ScriptApp.newTrigger('sendWeatherBriefing')
-    .timeBased().atHour(6).nearMinute(0).everyDays(1).inTimezone('Asia/Bangkok').create();
-  // 0830H BKK: daily parade state broadcast (A5)
-  ScriptApp.newTrigger('sendParadeStateBroadcast')
-    .timeBased().atHour(8).nearMinute(30).everyDays(1).inTimezone('Asia/Bangkok').create();
-  ScriptApp.newTrigger('sendDailyReminder')
-    .timeBased().atHour(19).nearMinute(0).everyDays(1).inTimezone('Asia/Bangkok').create();
-  ScriptApp.newTrigger('sendEveningSitrep')
-    .timeBased().atHour(23).nearMinute(0).everyDays(1).inTimezone('Asia/Bangkok').create();
-  // 0130H BKK: force all Syn 1 members to IN (strict curfew, no exceptions).
-  // Runs BEFORE 0200H midnight sitrep so the sitrep reflects the enforced state.
+  return merged;
+}
+
+function getBroadcastSchedule() {
+  return { ok: true, schedule: _readBroadcastSchedule() };
+}
+
+// Update one channel's schedule + recreate its trigger.
+function updateBroadcastSchedule(body) {
+  if (body.actor !== SUPER_ADMIN_ID) return { ok: false, error: 'Unauthorized — super admin only' };
+  const key = String(body.key || '').trim();
+  const def = BROADCAST_DEFAULTS[key];
+  if (!def) return { ok: false, error: 'Unknown broadcast key: ' + key };
+  const hour = parseInt(body.hour, 10);
+  const minute = parseInt(body.minute, 10);
+  if (!(hour >= 0 && hour <= 23)) return { ok: false, error: 'hour must be 0–23' };
+  if (!(minute >= 0 && minute <= 59)) return { ok: false, error: 'minute must be 0–59' };
+
+  // Persist
+  let saved = {};
+  try { saved = JSON.parse(PropertiesService.getScriptProperties().getProperty(BROADCAST_SCHEDULE_KEY) || '{}'); }
+  catch (e) { saved = {}; }
+  saved[key] = { hour, minute };
+  PropertiesService.getScriptProperties().setProperty(BROADCAST_SCHEDULE_KEY, JSON.stringify(saved));
+
+  // Recreate trigger for this handler
+  ScriptApp.getProjectTriggers().forEach(t => {
+    if (t.getHandlerFunction() === def.handler) ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger(def.handler)
+    .timeBased().atHour(hour).nearMinute(minute).everyDays(1).inTimezone('Asia/Bangkok').create();
+
+  const hh = String(hour).padStart(2, '0');
+  const mm = String(minute).padStart(2, '0');
+  logAction('schedule_update', body.actor, key + ' → ' + hh + mm + 'H BKK');
+  return { ok: true, key, hour, minute, label: def.label };
+}
+
+// ── Setup: run this ONCE from Apps Script editor (or from the admin UI). ──
+// Reads the saved schedule (or defaults) and rebuilds every A-series trigger
+// + the internal ones. Idempotent — safe to call repeatedly.
+function setupAllTriggers() {
+  const handled = new Set([
+    ...Object.values(BROADCAST_DEFAULTS).map(d => d.handler),
+    ...Object.keys(INTERNAL_SCHEDULE)
+  ]);
+  ScriptApp.getProjectTriggers().forEach(t => {
+    if (handled.has(t.getHandlerFunction())) ScriptApp.deleteTrigger(t);
+  });
+  const sched = _readBroadcastSchedule();
+  Object.keys(sched).forEach(k => {
+    const s = sched[k];
+    ScriptApp.newTrigger(s.handler)
+      .timeBased().atHour(s.hour).nearMinute(s.minute).everyDays(1).inTimezone('Asia/Bangkok').create();
+  });
+  // Internal handlers (not user-editable)
+  const f = INTERNAL_SCHEDULE.forceSyn1AllIn;
   ScriptApp.newTrigger('forceSyn1AllIn')
-    .timeBased().atHour(1).nearMinute(30).everyDays(1).inTimezone('Asia/Bangkok').create();
-  ScriptApp.newTrigger('sendMidnightSitrep')
-    .timeBased().atHour(2).nearMinute(0).everyDays(1).inTimezone('Asia/Bangkok').create();
+    .timeBased().atHour(f.hour).nearMinute(f.minute).everyDays(1).inTimezone('Asia/Bangkok').create();
   ScriptApp.newTrigger('syncFromGoogleCalendar')
-    .timeBased().everyMinutes(15).create();
-  return '✓ 7 triggers: 0600H weather · 0830H Parade · 1900H reminder · 2300H SITREP · 0130H Syn1-force-in · 0200H Curfew · every 15min GCal pull';
+    .timeBased().everyMinutes(INTERNAL_SCHEDULE.syncFromGoogleCalendar.everyMinutes).create();
+  // Build a summary from the saved schedule so the return value reflects
+  // any user-edited times rather than the hardcoded string.
+  const summary = Object.keys(sched).map(k => {
+    const s = sched[k];
+    return String(s.hour).padStart(2,'0') + String(s.minute).padStart(2,'0') + 'H ' + k;
+  }).join(' · ');
+  return '✓ ' + (Object.keys(sched).length + 2) + ' triggers installed: ' + summary +
+         ' · ' + String(f.hour).padStart(2,'0') + String(f.minute).padStart(2,'0') + 'H force-in · 15-min GCal sync';
 }
 
 // ── 0130H BKK: force selected groups to IN status ──

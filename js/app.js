@@ -5474,6 +5474,15 @@ function renderSettings() {
         _renderKillswitch(live);
       }
     }).catch(() => {});
+    // Load broadcast schedule for the time-editor card
+    fetch(`${CONFIG.apiUrl}?action=getBroadcastSchedule`).then(r => r.json()).then(resp => {
+      if (resp && resp.ok && resp.data && resp.data.schedule) {
+        _renderBroadcastSchedule(resp.data.schedule);
+      } else {
+        const c = el('broadcast-schedule-container');
+        if (c) c.innerHTML = `<div style="padding:12px 16px;color:#b91c1c;font-size:12px">⚠️ Could not load broadcast schedule.</div>`;
+      }
+    }).catch(() => {});
     const cachedTg = (() => { try { return JSON.parse(localStorage.getItem('tsv_tg_config') || 'null'); } catch { return null; } })();
     if (cachedTg) _renderTelegramConfig(cachedTg, true);
     API.get('getTelegramConfig').then(cfg => {
@@ -5681,6 +5690,16 @@ function _renderSettingsAdminTele(user, isSuperAdmin) {
     </div>
 
     <div class="settings-section">
+      <div class="settings-section-header">⏰ Broadcast Schedule</div>
+      <div style="padding:8px 16px 0;font-size:12px;color:var(--text-3);line-height:1.5">
+        When each A-cron fires (Bangkok time). Change a time and tap 💾 — the Apps Script trigger is re-created immediately.
+      </div>
+      <div id="broadcast-schedule-container">
+        <div style="padding:12px 16px;color:var(--text-3);font-size:12px">Loading…</div>
+      </div>
+    </div>
+
+    <div class="settings-section">
       <div class="settings-section-header">📡 Telegram Chat Routing</div>
       <div style="padding:8px 16px 0;font-size:12px;color:var(--text-3);line-height:1.5">
         Each routing key controls a message type. Tick to <b>enable</b>, untick to <b>silence</b>.
@@ -5729,6 +5748,51 @@ window.setKillswitch = async function(on) {
   const live = !!(resp.data && resp.data.live);
   _renderKillswitch(live);
   toast(live ? '🟢 Broadcasts LIVE' : '🔴 Broadcasts BLOCKED');
+};
+
+// Render the schedule rows — one time input per A-cron with its own Save button.
+// Each row writes back to the server independently so the admin can adjust
+// one time without disturbing others.
+function _renderBroadcastSchedule(schedule) {
+  const host = el('broadcast-schedule-container');
+  if (!host) return;
+  const order = ['A1_weather','A2_reminder','A3_evening','A4_midnight','A5_parade'];
+  host.innerHTML = order.filter(k => schedule[k]).map(k => {
+    const s = schedule[k];
+    const hh = String(s.hour).padStart(2, '0');
+    const mm = String(s.minute).padStart(2, '0');
+    return `
+      <div style="display:flex;align-items:center;gap:10px;padding:10px 16px;border-top:1px solid var(--border-2)">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;font-weight:700">${escapeHtml(s.label)}</div>
+          <div style="font-size:11px;color:var(--text-3)">Currently ${hh}${mm}H BKK</div>
+        </div>
+        <input type="time" id="sched-${k}" value="${hh}:${mm}"
+          style="padding:8px 10px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit;background:var(--card);color:var(--text);min-width:110px">
+        <button class="btn btn-primary btn-sm" onclick="saveBroadcastTime('${k}')">💾</button>
+      </div>`;
+  }).join('');
+}
+
+window.saveBroadcastTime = async function(key) {
+  const input = el('sched-' + key);
+  const v = input?.value || '';
+  const m = v.match(/^(\d{1,2}):(\d{1,2})$/);
+  if (!m) return toast('Invalid time — use HH:MM');
+  const hour = parseInt(m[1], 10);
+  const minute = parseInt(m[2], 10);
+  const actor = STATE.currentUser?.id;
+  const resp = await withLoader('Rescheduling ' + key + '…', () =>
+    API.postRaw('updateBroadcastSchedule', { key, hour, minute, actor })
+  );
+  if (!resp || resp.ok === false) return toast('❌ ' + (resp?.error || 'retry'));
+  const inner = resp.data;
+  if (!inner || inner.ok === false) return toast('❌ ' + (inner?.error || 'retry'));
+  toast(`✅ ${key} → ${String(hour).padStart(2,'0')}${String(minute).padStart(2,'0')}H BKK`);
+  // Refresh the display so "Currently …" reflects the new value
+  fetch(`${CONFIG.apiUrl}?action=getBroadcastSchedule`).then(r => r.json()).then(r => {
+    if (r && r.ok && r.data && r.data.schedule) _renderBroadcastSchedule(r.data.schedule);
+  }).catch(() => {});
 };
 
 // ── Admin · Others (Access, Force-In, Pending requests) ──
