@@ -3117,18 +3117,28 @@ async function refreshTransportState() {
 // Which vehicle picker is open; which bus card is expanded for driver details
 // Both are stored on STATE dynamically (not in initial STATE declaration)
 
-window.openTransportBoarding = function(vehicleId, isPlane) {
-  // Preload any in-progress selection + remarks from server state so Save Progress
-  // persists across returns to the modal.
+// mode: 'board' (default) or 'checkin'. Check-in is flights-only — it mirrors
+// the boarding flow (select syns / remarks / save-progress / send-sitrep) but
+// writes to an independent state field (v.checkedInSyns) so both phases can
+// be tracked separately as the syndicate moves through the airport.
+window.openTransportBoarding = function(vehicleId, isPlane, mode) {
+  const m = mode === 'checkin' ? 'checkin' : 'board';
   const v = (STATE.transport || {})[vehicleId] || {};
+  const srcSyns = m === 'checkin' ? v.checkedInSyns : v.boardedSyns;
+  const srcRem  = m === 'checkin' ? v.checkinRemarks : v.boardingRemarks;
   STATE.transportModal = {
     vehicleId,
     isPlane: !!isPlane,
-    selected: Array.isArray(v.boardedSyns) ? v.boardedSyns.slice() : [],
-    remarks:  v.boardingRemarks || ''
+    mode: m,
+    selected: Array.isArray(srcSyns) ? srcSyns.slice() : [],
+    remarks:  srcRem || ''
   };
   const body = el('calendar-sub-content');
   if (body) _redrawTransport(body);
+};
+// Convenience wrapper for the Check-In button on flight cards.
+window.openTransportCheckin = function(vehicleId) {
+  return window.openTransportBoarding(vehicleId, true, 'checkin');
 };
 
 window.closeTransportModal = function() {
@@ -3150,21 +3160,29 @@ window.toggleTransportSyn = function(syn) {
 };
 
 // Save mid-state: writes current selection + remarks to server, no Telegram.
+// Mode-aware — writes to the boarding OR check-in fields based on modal.mode.
 window.saveTransportProgress = async function() {
   const m = STATE.transportModal;
   if (!m) return;
   const user = STATE.currentUser;
   const actorName = user ? (user.shortName || user.name) : 'unknown';
   const remarks = (el('tmod-remarks')?.value || m.remarks || '').trim();
-  // Optimistic update so UI reflects save immediately even if server is slow
+  const isCheckin = m.mode === 'checkin';
+  const op = isCheckin ? 'checkinBatch' : 'boardBatch';
+  // Optimistic update — write to the correct state field based on mode.
   const priorState = STATE.transport ? JSON.parse(JSON.stringify(STATE.transport)) : {};
   if (!STATE.transport) STATE.transport = {};
   if (!STATE.transport[m.vehicleId]) STATE.transport[m.vehicleId] = { status:'idle', boardedSyns:[], driver:{} };
-  STATE.transport[m.vehicleId].boardedSyns = m.selected.slice();
-  STATE.transport[m.vehicleId].boardingRemarks = remarks;
+  if (isCheckin) {
+    STATE.transport[m.vehicleId].checkedInSyns = m.selected.slice();
+    STATE.transport[m.vehicleId].checkinRemarks = remarks;
+  } else {
+    STATE.transport[m.vehicleId].boardedSyns = m.selected.slice();
+    STATE.transport[m.vehicleId].boardingRemarks = remarks;
+  }
   const resp = await API.postRaw('updateTransport', {
     vehicleId: m.vehicleId,
-    op: 'boardBatch',           // renamed from 'action' (was shadowing outer action)
+    op,
     synLabels: m.selected,
     remarks,
     actorName
@@ -3173,7 +3191,6 @@ window.saveTransportProgress = async function() {
     STATE.transport = resp.data;
     toast('💾 Progress saved');
   } else {
-    // Roll back optimistic update and tell user honestly
     STATE.transport = priorState;
     const err = resp?.error || 'no response (offline?)';
     toast('❌ Save failed — ' + err);
@@ -3183,7 +3200,10 @@ window.saveTransportProgress = async function() {
   if (body) _redrawTransport(body);
 };
 
-// Send SITREP: saves state + sends Telegram to ops chat
+// Send SITREP: saves state + sends Telegram to ops chat. Mode-aware — for
+// flight check-in the Telegram template and state field differ from boarding,
+// though they share the same routing key (M4_flight_board) since both are
+// the same audience (ops chat) and can be distinguished by the 📋 vs ✈️ header.
 window.sendTransportBoarding = async function() {
   const m = STATE.transportModal;
   if (!m) return;
@@ -3191,16 +3211,23 @@ window.sendTransportBoarding = async function() {
   const actorName = user ? (user.shortName || user.name) : 'unknown';
   const veh = m.isPlane ? null : TRANSPORT_BUSES.find(b => b.id === m.vehicleId);
   const remarks = (el('tmod-remarks')?.value || m.remarks || '').trim();
+  const isCheckin = m.mode === 'checkin';
+  const op = isCheckin ? 'checkinBatch' : 'boardBatch';
 
-  // Optimistic update
+  // Optimistic update against the correct state field
   if (!STATE.transport) STATE.transport = {};
   if (!STATE.transport[m.vehicleId]) STATE.transport[m.vehicleId] = { status:'idle', boardedSyns:[], driver:{} };
-  STATE.transport[m.vehicleId].boardedSyns = m.selected.slice();
-  STATE.transport[m.vehicleId].boardingRemarks = remarks;
-  // 1. Save to server (with remarks)
+  if (isCheckin) {
+    STATE.transport[m.vehicleId].checkedInSyns = m.selected.slice();
+    STATE.transport[m.vehicleId].checkinRemarks = remarks;
+  } else {
+    STATE.transport[m.vehicleId].boardedSyns = m.selected.slice();
+    STATE.transport[m.vehicleId].boardingRemarks = remarks;
+  }
+  // 1. Save to server
   const result = await API.post('updateTransport', {
     vehicleId: m.vehicleId,
-    op: 'boardBatch',           // renamed from 'action' to avoid outer-action collision
+    op,
     synLabels: m.selected,
     remarks,
     actorName
@@ -3212,7 +3239,9 @@ window.sendTransportBoarding = async function() {
   let msg = '';
   if (m.isPlane) {
     const flightLabel = m.vehicleId === 'flight_sq708' ? 'SQ708 · SIN→BKK (0930H)' : 'SQ709 · BKK→SIN (1530H)';
-    msg = `✈️ <b>Boarding Update — ${flightLabel}</b>\nBoarded: ${selList}`;
+    msg = isCheckin
+      ? `📋 <b>Check-In Update — ${flightLabel}</b>\nChecked in: ${selList}`
+      : `✈️ <b>Boarding Update — ${flightLabel}</b>\nBoarded: ${selList}`;
   } else {
     const v = (STATE.transport || {})[m.vehicleId] || {};
     const driver = v.driver || {};
@@ -3223,10 +3252,10 @@ window.sendTransportBoarding = async function() {
   if (remarks) msg += `\n⚠️ Remarks: ${escapeHtml(remarks)}`;
   msg += `\n🕐 ${new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}H`;
 
-  // Flight → M4, Bus → M2 (separate routing keys — can be disabled independently)
+  // Flight (check-in or boarding) → M4, Bus → M2
   const routingKey = m.isPlane ? 'M4_flight_board' : 'M2_bus_boarding';
   const ok = await TELEGRAM.sendRouted(routingKey, msg, 'HTML');
-  if (ok) toast('✅ Boarding sitrep sent');
+  if (ok) toast(isCheckin ? '✅ Check-in sitrep sent' : '✅ Boarding sitrep sent');
 
   STATE.transportModal = null;
   const body = el('calendar-sub-content');
@@ -3313,18 +3342,25 @@ function _redrawTransport(container) {
     const canSend = modal.selected.length >= 1 || (modal.remarks || '').length > 0 || (el('tmod-remarks')?.value || '').length > 0;
     const canSave = true;
 
+    const isCheckin = modal.mode === 'checkin';
+    const phaseIcon  = isCheckin ? '📋' : (isPlane ? '✈️' : '🚌');
+    const phaseTitle = isCheckin ? 'Check-In' : 'Boarding';
+    const phasePrompt = isCheckin
+      ? 'Select groups that have checked in at the counter:'
+      : (isPlane ? 'Select groups / syndicates that have boarded:' : 'Select who is present on this bus:');
+
     container.innerHTML = `
       <div style="padding:0 12px 32px">
         <div style="display:flex;align-items:center;gap:10px;padding:14px 0 10px">
           <button class="btn btn-outline btn-sm" onclick="closeTransportModal()">← Cancel</button>
           <div>
-            <div style="font-weight:800;font-size:16px">${isPlane ? '✈️' : '🚌'} ${escapeHtml(title)}</div>
+            <div style="font-weight:800;font-size:16px">${phaseIcon} ${escapeHtml(title)} — ${phaseTitle}</div>
             <div style="font-size:12px;color:var(--text-3)">${escapeHtml(pax)}</div>
           </div>
         </div>
 
         <div style="font-size:13px;font-weight:600;color:var(--text-2);margin-bottom:10px">
-          ${isPlane ? 'Select groups / syndicates that have boarded:' : 'Select who is present on this bus:'}
+          ${phasePrompt}
         </div>
 
         <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px">
@@ -3369,11 +3405,33 @@ function _redrawTransport(container) {
   }
 
   // ── NORMAL cards view ──
+  // Flights have TWO independent tracking phases: check-in (at the counter,
+  // ~3h before departure) and boarding (at the gate). Each has its own
+  // selection, remarks, and sitrep — same modal, mode-switched.
   function flightCard(vehicleId, flightNum, route, date, depart, arrive, note) {
-    const v       = ts[vehicleId] || { boardedSyns: [] };
-    const boarded = v.boardedSyns || [];
-    const chips   = boarded.map(s =>
-      `<span class="transport-boarded-chip" style="background:#dcfce7;color:#166534">✅ ${escapeHtml(s)}</span>`).join('');
+    const v         = ts[vehicleId] || {};
+    const checkedIn = Array.isArray(v.checkedInSyns) ? v.checkedInSyns : [];
+    const boarded   = Array.isArray(v.boardedSyns) ? v.boardedSyns : [];
+
+    const chipRow = (arr, icon, tintBg, tintFg) => arr.length
+      ? `<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px">${
+          arr.map(s => `<span class="transport-boarded-chip" style="background:${tintBg};color:${tintFg}">${icon} ${escapeHtml(s)}</span>`).join('')
+        }</div>`
+      : `<div style="font-size:11px;color:var(--text-3);margin-top:4px;font-style:italic">None yet</div>`;
+
+    const phaseBlock = (label, icon, tintBg, tintFg, arr, btnLabel, onclick, remarks, updatedAt, updatedBy) => `
+      <div style="margin-top:12px;padding:10px 12px;background:${tintBg};border:1px solid ${tintFg}33;border-radius:10px">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+          <div style="font-size:11px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:${tintFg}">${icon} ${escapeHtml(label)}</div>
+          ${arr.length ? `<span style="font-size:11px;color:${tintFg};font-weight:700">${arr.length} group${arr.length===1?'':'s'}</span>` : ''}
+        </div>
+        ${chipRow(arr, icon === '📋' ? '✓' : '✅', '#ffffff', tintFg)}
+        ${remarks ? `<div style="margin-top:6px;font-size:12px;color:#334155;background:#ffffff;border-radius:6px;padding:6px 8px;border:1px solid ${tintFg}33"><b>Remarks:</b> ${escapeHtml(remarks)}</div>` : ''}
+        ${updatedAt ? `<div style="font-size:10px;color:var(--text-3);margin-top:4px">Last ${new Date(updatedAt).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}H${updatedBy?' by '+escapeHtml(updatedBy):''}</div>` : ''}
+        <button class="btn btn-sm" style="margin-top:8px;width:100%;background:${tintFg};color:#fff;font-size:13px;border:0"
+          onclick="${onclick}">${escapeHtml(btnLabel)}</button>
+      </div>`;
+
     return `
       <div class="transport-bus-card" style="border-left:4px solid #3b82f6">
         <div style="display:flex;gap:10px;align-items:flex-start">
@@ -3384,9 +3442,14 @@ function _redrawTransport(container) {
             <div style="font-size:11px;color:var(--text-3)">${escapeHtml(note)}</div>
           </div>
         </div>
-        ${boarded.length ? `<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:8px">${chips}</div>` : ''}
-        <button class="btn btn-sm" style="margin-top:10px;width:100%;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;font-size:13px"
-          onclick="openTransportBoarding('${vehicleId}',true)">✈️ Boarding?</button>
+        ${phaseBlock('Check-In', '📋', '#fef3c7', '#b45309', checkedIn,
+          checkedIn.length ? '➕ Continue Check-In' : '📋 Check-In?',
+          `openTransportCheckin('${vehicleId}')`,
+          v.checkinRemarks, v.checkinUpdatedAt, v.checkinUpdatedBy)}
+        ${phaseBlock('Boarding', '✈️', '#dbeafe', '#1d4ed8', boarded,
+          boarded.length ? '➕ Continue Boarding' : '✈️ Boarding?',
+          `openTransportBoarding('${vehicleId}',true)`,
+          v.boardingRemarks, v.boardingUpdatedAt, v.boardingUpdatedBy)}
       </div>`;
   }
 
@@ -3572,41 +3635,40 @@ function renderReflectionsSubTab() {
     <div class="visit-compose" style="background:linear-gradient(135deg,#eef2ff,#e0e7ff);border-color:#818cf8;padding:14px 14px 10px">
       <div class="visit-compose-label" style="color:#3730a3;margin-bottom:12px">
         <span>✍️ Post Your Reflection</span>
-        <span style="font-size:11px;font-weight:400;color:#6d6aac;margin-left:6px">· ${escapeHtml(user.shortName || user.name)} · ${escapeHtml(userSynLabel)}</span>
+        <span style="font-size:11px;font-weight:400;color:#4338ca;margin-left:6px">· ${escapeHtml(user.shortName || user.name)} · ${escapeHtml(userSynLabel)}</span>
         ${domainBadge}
+      </div>
+
+      <div class="ref-form-field" style="background:rgba(255,255,255,.6);border:1px solid #c7d2fe;border-radius:8px;padding:10px 12px;margin-bottom:14px">
+        <label class="ref-form-label" for="reflection-day-select" style="color:#3730a3;margin-bottom:6px">📅 Which Day is this reflection for?</label>
+        <select id="reflection-day-select" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #c7d2fe;font-size:15px;font-weight:600;background:#fff;color:#1e293b">
+          <option value="">— Select day —</option>
+          ${DAYS.map(d => `<option value="${d.day}">Day ${d.day} · ${d.theme || ''}</option>`).join('')}
+        </select>
       </div>
 
       <div class="ref-form-field">
         <label class="ref-form-label">🔍 Key Observations</label>
-        <div style="font-size:11px;color:var(--text-3);margin-bottom:4px">Top 2–3 field observations in your PMESII domain (${escapeHtml(userPmesii.domain)}).</div>
+        <div style="font-size:11px;color:#4338ca;margin-bottom:4px">Top 2–3 field observations in your PMESII domain (${escapeHtml(userPmesii.domain)}).</div>
         <textarea id="ref-obs" rows="3" placeholder="• Observation 1&#10;• Observation 2&#10;• Observation 3"></textarea>
       </div>
       <div class="ref-form-field">
         <label class="ref-form-label">🧭 Patterns &amp; Hypothesis Testing</label>
-        <div style="font-size:11px;color:var(--text-3);margin-bottom:4px">How did the observations relate to PMESII and the learning hypothesis? Findings, confirmations, surprises, gaps?</div>
+        <div style="font-size:11px;color:#4338ca;margin-bottom:4px">How did the observations relate to PMESII and the learning hypothesis? Findings, confirmations, surprises, gaps?</div>
         <textarea id="ref-patterns" rows="3" placeholder="• Pattern 1&#10;• Surprise / gap"></textarea>
       </div>
       <div class="ref-form-field">
         <label class="ref-form-label">🇸🇬 Implications for Singapore</label>
-        <div style="font-size:11px;color:var(--text-3);margin-bottom:4px">Strategic (SG / ASEAN), operational (defence, civil, organisational), or personal (leadership, professional) insights.</div>
+        <div style="font-size:11px;color:#4338ca;margin-bottom:4px">Strategic (SG / ASEAN), operational (defence, civil, organisational), or personal (leadership, professional) insights.</div>
         <textarea id="ref-impl" rows="3" placeholder="• Implication 1&#10;• Implication 2"></textarea>
       </div>
       <div class="ref-form-field">
         <label class="ref-form-label">💡 Ah-Ha Moments</label>
-        <div style="font-size:11px;color:var(--text-3);margin-bottom:4px">Significant points, cross-PMESII linkages, matters to escalate.</div>
+        <div style="font-size:11px;color:#4338ca;margin-bottom:4px">Significant points, cross-PMESII linkages, matters to escalate.</div>
         <textarea id="ref-ahha" rows="2" placeholder="• Key insight / link to another domain"></textarea>
       </div>
 
-      <div class="compose-toolbar" style="margin-top:10px">
-        <label style="font-size:12px;color:#3730a3;font-weight:700;display:flex;align-items:center;gap:6px">Day
-          <select id="reflection-day-select" style="padding:4px 8px;border-radius:6px;border:1px solid #c7d2fe;font-size:12px">
-            <option value="">—</option>
-            ${DAYS.map(d => `<option value="${d.day}">Day ${d.day}</option>`).join('')}
-          </select>
-        </label>
-        <div style="flex:1"></div>
-        <button class="btn btn-primary btn-sm" onclick="postReflection()">Submit to Debrief Sheet</button>
-      </div>
+      <button class="btn btn-primary" style="width:100%;margin-top:10px;padding:12px;font-size:14px" onclick="postReflection()">Submit to Debrief Sheet</button>
     </div>` : `<div class="alert alert-orange">Sign in to post a reflection.</div>`}
 
     <div class="section-title" style="margin-top:18px">Recent submissions (${reflections.length})</div>

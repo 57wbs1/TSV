@@ -318,6 +318,15 @@ function updateTransportState(body) {
         v.boardingUpdatedBy = body.actorName || '';
         v.boardingUpdatedAt = now;
         break;
+      case 'checkinBatch':
+        // Flight check-in phase — separate from boarding. Independent state.
+        // Used for the airport check-in counter step that happens ~3h before
+        // boarding. Same save-progress / send-sitrep UX as boardBatch.
+        v.checkedInSyns = Array.isArray(body.synLabels) ? body.synLabels : [];
+        if (body.remarks !== undefined) v.checkinRemarks = body.remarks || '';
+        v.checkinUpdatedBy = body.actorName || '';
+        v.checkinUpdatedAt = now;
+        break;
       case 'pushing':
         v.status    = 'pushing';
         v.pushedBy  = body.actorName || '';
