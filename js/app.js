@@ -3544,19 +3544,49 @@ function _redrawTransport(container) {
       </div>`;
   }
 
+  // Collapsible section state — persisted per-device. Officers only need
+  // flights on Day 1 arrival and Day 5 departure, so letting them fold the
+  // whole block away keeps the Transport tab focused on whatever is current.
+  const secState = (() => {
+    try { return JSON.parse(localStorage.getItem('tsv_transport_sections') || '{}'); }
+    catch { return {}; }
+  })();
+  const flightsOpen = secState.flights !== false;  // default open
+  const busesOpen   = secState.buses   !== false;  // default open
+
+  const sectionHeader = (key, label, open) => `
+    <button onclick="toggleTransportSection('${key}')"
+      style="display:flex;align-items:center;gap:8px;width:calc(100% - 24px);margin:12px 12px 8px;padding:10px 12px;background:var(--card);border:1px solid var(--border);border-radius:10px;font-family:inherit;cursor:pointer;text-align:left">
+      <span style="font-size:15px;font-weight:800;flex:1">${label}</span>
+      <span style="color:var(--text-3);font-size:13px;font-weight:600">${open ? 'Hide' : 'Show'}</span>
+      <span style="color:var(--text-3);font-size:14px;transition:transform .2s;${open ? '' : 'transform:rotate(-90deg)'}">▾</span>
+    </button>`;
+
   container.innerHTML = `
     <div style="padding:0 0 32px">
-      <div class="section-title" style="margin:12px 12px 8px">✈️ Flights</div>
+      ${sectionHeader('flights', '✈️ Flights', flightsOpen)}
+      ${flightsOpen ? `
       <div style="display:flex;flex-direction:column;gap:10px;margin:0 12px">
         ${flightCard('flight_sq708','SQ 708','SIN → BKK','Sun 26 Apr','0930H','1100H','Changi T2 · Economy G · 25 kg · Check-in 0630–0840H · Boarding 0900H · Gate closes 0920H')}
         ${flightCard('flight_sq709','SQ 709','BKK → SIN','Thu 30 Apr','1530H','1900H','BKK Suvarnabhumi · Economy G · 25 kg · Check-in 1230–1440H · Boarding 1500H · Gate closes 1520H')}
-      </div>
-      <div class="section-title" style="margin:20px 12px 8px">🚌 Ground Transport</div>
+      </div>` : ''}
+      ${sectionHeader('buses', '🚌 Ground Transport', busesOpen)}
+      ${busesOpen ? `
       <div style="display:flex;flex-direction:column;gap:10px;margin:0 12px">
         ${TRANSPORT_BUSES.map(b => busCard(b)).join('')}
-      </div>
+      </div>` : ''}
     </div>`;
 }
+
+window.toggleTransportSection = function(key) {
+  let state = {};
+  try { state = JSON.parse(localStorage.getItem('tsv_transport_sections') || '{}'); } catch {}
+  const cur = state[key] !== false;  // currently open?
+  state[key] = !cur;
+  localStorage.setItem('tsv_transport_sections', JSON.stringify(state));
+  const body = el('calendar-sub-content');
+  if (body) _redrawTransport(body);
+};
 
 async function renderTransportSubTab(container) {
   // Render immediately with cached state — no spinner flash
