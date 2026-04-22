@@ -624,6 +624,35 @@ const MAP_POIS = [
   { cat: 'market', name: 'Pratunam Market', lat: 13.7525, lng: 100.5401,
     note: 'Wholesale clothing · best in the AM · BTS Chit Lom' },
 
+  // ── Nightlife / Bars / Clubs — where the scene is ──
+  // Mix of area markers (whole nightlife districts) and specific iconic
+  // venues. Coords are orientation-level; exact venue within an area
+  // matters less than knowing which BTS stop to get off at.
+  { cat: 'nightlife', name: 'Thonglor (Sukhumvit 55)', lat: 13.7353, lng: 100.5830,
+    note: 'Upscale nightlife strip · BTS Thong Lo · rooftops, craft cocktails, late-night eats. The main expat party district.' },
+  { cat: 'nightlife', name: 'Octave Rooftop Lounge', lat: 13.7345, lng: 100.5812,
+    note: 'Marriott Sukhumvit 57 · 45th floor · 360° Bangkok skyline · smart casual' },
+  { cat: 'nightlife', name: 'The Iron Fairies', lat: 13.7365, lng: 100.5840,
+    note: 'Thonglor Soi 5 · quirky steampunk speakeasy · live jazz · famous burgers' },
+  { cat: 'nightlife', name: 'Ekkamai (Sukhumvit 63)', lat: 13.7241, lng: 100.5857,
+    note: 'Trendy soi · craft-beer bars, whisky dens, hidden cocktail rooms · BTS Ekkamai' },
+  { cat: 'nightlife', name: 'Sukhumvit Soi 11', lat: 13.7442, lng: 100.5569,
+    note: 'Clubs + rooftops strip · Levels, Above Eleven, Havana Social · BTS Nana' },
+  { cat: 'nightlife', name: 'Above Eleven Rooftop', lat: 13.7434, lng: 100.5558,
+    note: 'Fraser Suites · Peruvian-Japanese bar · rooftop view of Soi 11' },
+  { cat: 'nightlife', name: 'RCA (Royal City Avenue)', lat: 13.7520, lng: 100.5665,
+    note: 'Mainstream club district · Route 66, Onyx, Mustache · busiest Fri/Sat' },
+  { cat: 'nightlife', name: 'Silom Soi 2 / Soi 4', lat: 13.7274, lng: 100.5300,
+    note: 'LGBTQ+ bars + night clubs · walking distance from Pullman · BTS Sala Daeng' },
+  { cat: 'nightlife', name: 'Sky Bar at Lebua', lat: 13.7215, lng: 100.5166,
+    note: 'State Tower · 63rd floor · from The Hangover 2 · strict dress code · walking distance from Pullman' },
+  { cat: 'nightlife', name: 'Moon Bar (Banyan Tree)', lat: 13.7242, lng: 100.5405,
+    note: 'Vertigo Restaurant · 61st floor · open-air rooftop · smart casual' },
+  { cat: 'nightlife', name: 'Mahanakhon SkyBar', lat: 13.7226, lng: 100.5289,
+    note: 'King Power Mahanakhon · 78th floor · glass-floor sky deck · walking distance from Pullman' },
+  { cat: 'nightlife', name: "Maggie Choo's", lat: 13.7260, lng: 100.5244,
+    note: 'Novotel Silom basement · 1930s Shanghai speakeasy · live jazz · close to Pullman' },
+
   // ── Landmarks + Popular Areas ──
   { cat: 'landmark', name: 'Wat Pho (Reclining Buddha)', lat: 13.7465, lng: 100.4926,
     note: 'Historic temple · dress respectfully (cover shoulders/knees)' },
