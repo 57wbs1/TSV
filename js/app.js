@@ -5955,12 +5955,29 @@ window.setTheme = function(t) {
   applyTheme();
   renderSettings();
 };
+// Apply the saved theme. The CSS has both @media (prefers-color-scheme: dark)
+// rules (for OS-auto) AND equivalent html.is-dark rules (for manual override).
+// We decide which is "effective" here and set the class, so the manual toggle
+// actually does something — before this, setTheme set data-theme but nothing
+// in the CSS read it, so dark/light buttons did nothing.
 function applyTheme() {
   const t = localStorage.getItem('tsv_theme') || 'auto';
   document.documentElement.dataset.theme = t;
-  if (t === 'dark') document.documentElement.style.colorScheme = 'dark';
-  else if (t === 'light') document.documentElement.style.colorScheme = 'light';
-  else document.documentElement.style.colorScheme = 'light dark';
+  let isDark;
+  if (t === 'dark') isDark = true;
+  else if (t === 'light') isDark = false;
+  else isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  document.documentElement.classList.toggle('is-dark', isDark);
+  // color-scheme hints native form controls + scrollbars.
+  document.documentElement.style.colorScheme = isDark ? 'dark' : 'light';
+}
+// Track OS changes so 'auto' actually follows the system.
+if (window.matchMedia) {
+  try {
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+      if ((localStorage.getItem('tsv_theme') || 'auto') === 'auto') applyTheme();
+    });
+  } catch (e) { /* old Safari — addListener fallback not critical */ }
 }
 function applySavedSize() {
   const s = localStorage.getItem('tsv_size') || 'md';

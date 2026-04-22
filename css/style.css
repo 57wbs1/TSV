@@ -4111,37 +4111,19 @@ body::after {
 .admin-request-card .arc-info { flex: 1; }
 .admin-request-card .arc-actions { display: flex; gap: 6px; margin-top: 8px; }
 
-/* Text size scaler — only affects text, not layout */
-:root { --text-scale: 1; }
-html.size-sm { --text-scale: 0.9; }
-html.size-md { --text-scale: 1.0; }
-html.size-lg { --text-scale: 1.12; }
+/* Text-size toggle — drives the whole UI up or down. The unused --text-scale
+   variable used to be defined here but nothing consumed it, so the Settings
+   buttons did nothing. `zoom` scales text AND layout proportionally, which
+   is what officers want when they pick "bigger" (bigger everything, not
+   just text floating inside unchanged cards). Supported on iOS Safari and
+   Chrome/Chromium. */
+html.size-sm { zoom: 0.92; }
+html.size-md { zoom: 1.00; }
+html.size-lg { zoom: 1.12; }
 
-/* Scale text on content elements only (card body text, titles, hypothesis
-   blocks, learning posts, detail panels). Layout elements — nav labels,
-   buttons, icons, badges — stay fixed so the app's proportions are stable. */
-.ne-event, .ne-location, .ne-remarks, .ne-attire,
-.visit-title, .visit-sub,
-.learning-post .post-body, .post-author,
-.hero-theme, .hero-date, .hero-day-label,
-.event-item .event-name, .event-item .event-loc, .event-item .event-remarks,
-.cal-event-card .ce-title, .cal-event-card .ce-loc,
-.mgr-name, .mgr-meta,
-.m-name, .m-detail, .m-buddy,
-.card-body p, .card-body li, .card-body span:not(.status-pill):not(.badge),
-.sop-card-body, .sop-card-body h4, .sop-card-body p, .sop-card-body li,
-.sop-card-header .sop-title,
-.settings-section h3, .sr-label, .sr-value,
-.alert, .empty-state p,
-.ir-preview {
-  font-size: calc(1em * var(--text-scale, 1));
-}
-/* NOTE: visit modal elements (.visit-hero h3/.hypothesis-block/.info-block p etc.)
-   are intentionally EXCLUDED — they have carefully-tuned pixel sizes that
-   `calc(1em * scale)` was resetting to ~15px inherited, making the modal look
-   way bigger than intended. */
-/* Paragraphs inside main tab content */
-#main-content p { font-size: calc(1em * var(--text-scale, 1)); }
+/* Historical text-scale rules were replaced by `zoom` on the size classes
+   above — zoom scales both text and layout in one place, so these selective
+   per-element rules are no longer needed. */
 
 /* ══════════════════════════════════════════════════════════
    UTILITIES
@@ -4334,3 +4316,322 @@ html.size-lg { --text-scale: 1.12; }
   .transport-driver-section { border-top-color: rgba(51,65,85,.5); }
   .transport-sitrep-panel { background: #2d2000; border-color: #78350f; }
 }
+
+/* ══════════════════════════════════════════════════════════════
+   Manual dark theme (html.is-dark) — mirrors every @media
+   (prefers-color-scheme: dark) block so the Settings toggle can
+   force dark regardless of OS preference. Auto-generated from
+   the @media blocks above; do not edit by hand.
+   ══════════════════════════════════════════════════════════════ */
+
+  html.is-dark { background: #0b1120; }
+
+  html.is-dark body { background: #0b1120 !important; }
+
+  html.is-dark #main-content { background: #0b1120; }
+
+
+
+  html.is-dark body::after { filter: brightness(var(--bg-brightness, 1)) invert(1) hue-rotate(180deg); }
+
+
+
+  html.is-dark #er-description { background: #0b1120; border-color: #475569; }
+
+
+
+  html.is-dark .install-tab.active { color: #7dd3fc; background: #334155; }
+
+
+
+  html.is-dark #bottom-nav { background: linear-gradient(180deg, rgba(23,33,51,.82) 0%, rgba(15,23,42,.92) 100%);
+    border-top-color: rgba(100,139,196,.18); }
+
+
+
+  html.is-dark #bottom-nav { background: #0b1120;           /* solid — no translucent "gap" below buttons */
+    border-top-color: rgba(51,65,85,.6); }
+
+
+
+  html.is-dark .nav-btn { color: #cbd5e1; }
+   /* light slate on dark — very readable */
+
+
+  html.is-dark .nav-btn.active { color: #7dd3fc; }
+   /* bright cyan-blue on dark */
+
+
+  html.is-dark .sheet-link { background: linear-gradient(135deg, rgba(14,165,233,.15), rgba(59,130,246,.12));
+    border-color: rgba(14,165,233,.4);
+    color: #7dd3fc; }
+
+
+
+  html.is-dark .mini-hint { background: rgba(59,130,246,.12);
+    color: #93c5fd;
+    border-color: rgba(59,130,246,.25); }
+
+
+
+  html.is-dark .weather-strip .w-label, html.is-dark .weather-strip .w-ext { color: #7dd3fc; }
+
+
+
+  html.is-dark .mini-loc.out { color: #f87171; }
+
+
+
+  html.is-dark .fx-card { background: linear-gradient(135deg, rgba(217,119,6,.18), rgba(180,83,9,.15));
+    border-color: rgba(217,119,6,.35);
+    color: #fcd34d; }
+
+  html.is-dark .fx-card .fx-label { color: #fbbf24; }
+
+  html.is-dark .fx-card .fx-pair { color: #fde68a; }
+
+  html.is-dark .fx-card .fx-pair b { color: #fcd34d; }
+
+  html.is-dark .fx-card .fx-sub, html.is-dark .fx-card .fx-ext { color: #fbbf24; }
+
+
+
+  html.is-dark .weather-strip { background: linear-gradient(135deg, rgba(14,165,233,.18), rgba(59,130,246,.12));
+    border-color: rgba(14,165,233,.35);
+    color: #bae6fd; }
+
+  html.is-dark .weather-strip .w-temp { color: #7dd3fc; }
+
+  html.is-dark .weather-strip .w-range, html.is-dark .weather-strip .w-cond { color: #a5e4ff; }
+
+  html.is-dark .weather-strip .w-hl { color: #60a5fa; }
+
+  html.is-dark .weather-strip .w-psi { background: rgba(14,165,233,.2); color: #bae6fd; }
+
+
+
+  html.is-dark .pl-count { background: #334155; color: #e2e8f0; }
+
+  html.is-dark .pl-buddy { color: #93c5fd; }
+
+
+
+  html.is-dark .day-tabs-wrap { background: rgba(15,23,42,.9); }
+
+
+
+  html.is-dark .msc-in { background: rgba(34,197,94,.2);  color: #86efac; }
+
+  html.is-dark .msc-out { background: rgba(220,38,38,.2); color: #fca5a5; }
+
+
+
+  html.is-dark .team-stat { background: #1e293b; border-color: #475569; }
+
+  html.is-dark .team-stat .ts-num.green { color: #4ade80; }
+
+  html.is-dark .team-stat .ts-num.red { color: #f87171; }
+
+  html.is-dark .team-stat .ts-num.blue { color: #93c5fd; }
+
+  html.is-dark .team-stat .ts-label { color: #cbd5e1; }
+
+
+
+  html.is-dark .member-row[data-me="1"] { box-shadow: inset 3px 0 0 #60a5fa; }
+
+
+
+  html.is-dark .you-pill { background: #3b82f6; }
+
+
+
+  html.is-dark .member-row .m-buddy, html.is-dark .member-row .m-info .m-buddy { color: #93c5fd !important; }
+
+  html.is-dark .member-row .m-location { color: #e2e8f0; }
+
+  html.is-dark .pl-buddy { color: #93c5fd; }
+
+
+
+  html.is-dark .filter-chip { color: #cbd5e1; }
+
+
+
+  html.is-dark .map-tool-btn { background: #334155; border-color: #475569; color: #e2e8f0; }
+
+  html.is-dark .map-tool-btn.map-tool-gps { background: rgba(59,130,246,.2);  color: #93c5fd; }
+
+  html.is-dark .map-tool-btn.map-tool-stop { background: rgba(239,68,68,.2);   color: #fca5a5; }
+
+  html.is-dark .map-tool-btn.map-tool-reset { background: rgba(239,68,68,.12);  color: #fca5a5; }
+
+
+
+  html.is-dark .map-filter-btn { background: #1e293b; border-color: #475569; color: #e2e8f0; }
+
+  html.is-dark .map-filter-menu { background: #1e293b; border-color: #475569; }
+
+  html.is-dark .mfd-row:active, html.is-dark .mfd-row:hover { background: #334155; }
+
+  html.is-dark .mfd-check { background: #334155; border-color: #64748b; }
+
+  html.is-dark .mfd-count { background: #334155; color: #cbd5e1; }
+
+
+
+  html.is-dark #map-container { background: #1e293b; }
+
+
+
+  html.is-dark .buddy-group-items { background: rgba(15,23,42,.4); }
+
+
+
+  html.is-dark .mgr-row .mgr-edit-btn { background: linear-gradient(135deg, #3b82f6, #60a5fa); color: #0b1120; box-shadow: 0 2px 8px rgba(59,130,246,.4); }
+
+
+
+  html.is-dark .subtab-row { background: #1e293b; }
+
+
+
+  html.is-dark .subtab-btn { color: #f1f5f9; }
+    /* near-white on dark slate */
+
+
+  html.is-dark .subtab-btn.active { background: #334155;           /* distinct lighter slate (was same as row bg!) */
+    color: #7dd3fc;                /* bright cyan-blue */ }
+
+
+
+  html.is-dark .visit-compose { background: linear-gradient(135deg, rgba(245,158,11,.12), rgba(245,158,11,.06));
+    border-color: rgba(245,158,11,.6); }
+
+
+
+  html.is-dark .cat-chip { color: #cbd5e1; }
+
+
+
+  html.is-dark .cal-event-expand { background: linear-gradient(135deg, rgba(0,86,179,.25), rgba(0,53,128,.2));
+    border-color: var(--blue-400);
+    color: var(--text); }
+
+
+
+  html.is-dark .cal-event-expand .cee-title-row { color: #a8c4ff; border-bottom-color: rgba(168,196,255,.2); }
+
+
+
+  html.is-dark .btn-cee-close { color: #f8fafc; background: rgba(255,255,255,.15); }
+
+
+
+  html.is-dark .room-row[data-me="1"] { box-shadow: inset 3px 0 0 #60a5fa; }
+
+
+
+  html.is-dark .adhoc-row.adhoc-multi.picked { background: #3b82f6; border-color: #3b82f6; color: #fff; }
+
+
+
+  html.is-dark .adhoc-row { background: rgba(74,125,214,.15);
+    border-color: rgba(74,125,214,.3);
+    color: #a8c4ff; }
+
+  html.is-dark .adhoc-row:active { background: rgba(74,125,214,.25); }
+
+
+
+  html.is-dark :root { --bg: linear-gradient(180deg, #0b1120 0%, #0f172a 100%);
+    --card: #1e293b;
+    --text: #f1f5f9;
+    --text-2: #94a3b8;
+    --text-3: #64748b;
+    --border: #1e293b;
+    --border-2: #253042;
+    --n-0: #1e293b;
+    --n-50: #172033;
+    --n-100: #1e293b;
+    --n-200: #334155;
+    --shadow-sm: 0 1px 3px rgba(0,0,0,.4), 0 1px 2px rgba(0,0,0,.2);
+    --shadow-md: 0 6px 20px rgba(0,0,0,.5), 0 3px 8px rgba(0,0,0,.25);
+    --shadow-xs: 0 1px 2px rgba(0,0,0,.3); }
+
+  html.is-dark body::before { background:
+      radial-gradient(circle at 15% 10%, rgba(0,53,128,.15) 0, transparent 50%),
+      radial-gradient(circle at 85% 90%, rgba(220,20,60,.1) 0, transparent 50%); }
+
+  html.is-dark #bottom-nav { background: rgba(15,23,42,.85);
+    border-top-color: rgba(51,65,85,.5); }
+
+  html.is-dark .event-item .time-col { background: linear-gradient(180deg, #172033, #1e293b); }
+
+  html.is-dark .post-header { background: #172033; }
+
+  html.is-dark .ir-preview { background: #0b1120; }
+
+  html.is-dark .current-status-display { background: linear-gradient(135deg, #172033, #1e293b); }
+
+  html.is-dark .toggle-ahha { background: linear-gradient(135deg, #422006, #3a1e04); border-color: #78350f; }
+
+  html.is-dark .toggle-ahha span { color: #fcd34d; }
+
+  html.is-dark .event-item .event-attire { background: #422006; color: #fcd34d; border-color: #78350f; }
+
+
+
+  html.is-dark .btn-outline { color: #93c5fd; border-color: #475569; }
+
+  html.is-dark .btn-outline:hover { color: #93c5fd; border-color: #93c5fd; background: rgba(59,130,246,.12); }
+
+  html.is-dark .app-footer b { color: #93c5fd; }
+
+  html.is-dark .event-item .time-col .time-text { color: #7dd3fc; }
+
+  html.is-dark .buddy-item.selected { color: #93c5fd; border-color: #3b82f6; }
+
+  html.is-dark .info-block .inline-edit { color: #93c5fd; }
+
+  html.is-dark .my-room-display { color: #93c5fd; }
+
+  html.is-dark .room-number { color: #93c5fd; }
+
+  html.is-dark .parade-card .big-num.blue { color: #93c5fd; }
+
+  html.is-dark .size-chooser button.active { color: #93c5fd; border-color: #3b82f6; background: rgba(59,130,246,.15); }
+
+  html.is-dark .theme-chooser button.active { color: #93c5fd; border-color: #3b82f6; background: rgba(59,130,246,.15); }
+
+  html.is-dark .filter-chip.active { color: #fff; background: var(--blue-600); border-color: var(--blue-600); }
+
+  html.is-dark .map-tool-btn.map-tool-gps { background: rgba(59,130,246,.2); color: #93c5fd; border-color: rgba(59,130,246,.4); }
+
+  html.is-dark .alert-red { background: rgba(239,68,68,.15); color: #fca5a5; border-color: rgba(239,68,68,.35); }
+
+  html.is-dark .alert-orange { background: rgba(245,158,11,.15); color: #fcd34d; border-color: rgba(245,158,11,.35); }
+
+  html.is-dark .alert-blue { background: rgba(59,130,246,.15); color: #93c5fd; border-color: rgba(59,130,246,.35); }
+
+  html.is-dark .alert-green { background: rgba(16,185,129,.15); color: #86efac; border-color: rgba(16,185,129,.35); }
+
+
+
+  html.is-dark .ref-form-field textarea { background: #1a2436;
+    border-color: rgba(51,65,85,.7);
+    color: #e2e8f0; }
+
+  html.is-dark .transport-bus-card { background: #1a2436; border-color: rgba(51,65,85,.6); }
+
+  html.is-dark .transport-card { background: #1a2436; border-color: rgba(51,65,85,.6); }
+
+  html.is-dark .transport-row { border-bottom-color: rgba(51,65,85,.5); }
+
+  html.is-dark .transport-picker { background: #0f172a; border-color: rgba(51,65,85,.7); }
+
+  html.is-dark .transport-driver-section { border-top-color: rgba(51,65,85,.5); }
+
+  html.is-dark .transport-sitrep-panel { background: #2d2000; border-color: #78350f; }
+
+
