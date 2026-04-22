@@ -128,6 +128,13 @@ function doGet(e) {
         if (e.parameter.confirm !== 'YES_CLEAR_ALL') { data = { error: 'Missing confirm=YES_CLEAR_ALL' }; break; }
         data = cleanSlateForTrip();
         break;
+      case 'tripPrepReset':
+        // Super-admin only. Clears Status / StatusLog / Log and optionally
+        // renames the spreadsheet. Safer + narrower than cleanSlateForTrip.
+        if (e.parameter.actor !== SUPER_ADMIN_ID) { data = { error: 'Unauthorized' }; break; }
+        if (e.parameter.confirm !== 'YES_RESET') { data = { error: 'Missing confirm=YES_RESET' }; break; }
+        data = tripPrepReset({ rename: e.parameter.rename || '' });
+        break;
       case 'getAdminRequests': data = readSheet(SHEETS.ADMINREQ); break;
       case 'getTransport':    data = getTransportState(); break;
       case 'getForceInConfig': data = getForceInConfig(); break;
@@ -3835,6 +3842,39 @@ function ensureIsAdminColumn() {
 // Pre-trip clean slate — clears every trip-data sheet but KEEPS the
 // roster (Members) and itinerary (Calendar). Run once before the trip.
 // Preserves each sheet's header row; only data rows go.
+// Narrower pre-trip reset — just Status + StatusLog + Log + rename.
+// Used to "refresh" the activity tables without wiping reflections, IRs,
+// pings, admin-requests. Super-admin gated at the doGet dispatcher.
+function tripPrepReset(body) {
+  const summary = [];
+  const targets = [SHEETS.STATUS, SHEETS.STATUSLOG, SHEETS.LOG];
+  targets.forEach(spec => {
+    try {
+      const sheet = SPREADSHEET.getSheetByName(spec.name);
+      if (!sheet) { summary.push(spec.name + ' → not found'); return; }
+      const lastRow = sheet.getLastRow();
+      const dataRows = Math.max(0, lastRow - 1);
+      if (dataRows > 0) sheet.deleteRows(2, dataRows);
+      summary.push(spec.name + ' → ' + dataRows + ' rows cleared');
+    } catch (e) {
+      summary.push(spec.name + ' → FAILED: ' + e.message);
+    }
+  });
+  // Rename the spreadsheet itself if a new name is provided
+  const newName = body && body.rename ? String(body.rename).trim() : '';
+  if (newName) {
+    try {
+      const oldName = SPREADSHEET.getName();
+      SPREADSHEET.rename(newName);
+      summary.push('spreadsheet "' + oldName + '" → "' + newName + '"');
+    } catch (e) {
+      summary.push('rename FAILED: ' + e.message);
+    }
+  }
+  logAction('tripPrepReset', 'server', summary.join(' · '));
+  return { ok: true, summary, ts: new Date().toISOString() };
+}
+
 function cleanSlateForTrip() {
   const TARGET_SHEETS = [
     SHEETS.STATUS,      // current in/out/GPS
