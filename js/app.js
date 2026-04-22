@@ -1440,11 +1440,18 @@ function renderHome() {
   const homeSubBar = `
     <div class="subtab-row" style="margin-top:6px">
       <button class="subtab-btn ${homeSub === 'overview' ? 'active' : ''}" onclick="setHomeSubTab('overview')">🏠 Overview</button>
+      <button class="subtab-btn ${homeSub === 'map' ? 'active' : ''}" onclick="setHomeSubTab('map')">🗺️ Map</button>
       <button class="subtab-btn ${homeSub === 'translator' ? 'active' : ''}" onclick="setHomeSubTab('translator')">🗣️ Translator</button>
     </div>`;
 
   if (homeSub === 'translator') {
     el('tab-home').innerHTML = homeSubBar + renderTranslatorSubTab();
+    return;
+  }
+
+  if (homeSub === 'map') {
+    el('tab-home').innerHTML = homeSubBar + _renderMapWrap();
+    setTimeout(() => initMap(), 100);
     return;
   }
 
@@ -1763,27 +1770,26 @@ function getNextEvent(day, now) {
 
 // ═══════════ CALENDAR TAB ════════════════════════════════════
 function renderCalendar() {
-  // Calendar sub-tabs: Calendar (schedule) · Transport · Reflections.
-  // 'visits' was retired — guard any stale state and fall back to schedule.
-  if (STATE.calendarSubTab === 'visits') STATE.calendarSubTab = 'schedule';
+  // Calendar sub-tabs: Calendar (schedule) · Reflections.
+  // 'visits' retired long ago; 'transport' moved to the Tracker tab — both
+  // stale states fall back to the schedule view silently.
+  if (STATE.calendarSubTab === 'visits' || STATE.calendarSubTab === 'transport') {
+    STATE.calendarSubTab = 'schedule';
+  }
   const sub = STATE.calendarSubTab || 'schedule';
   if (sub !== 'schedule') {
-    // Delegate to the Learn-style renderers and inject at the top of tab-calendar.
     const container = el('tab-calendar');
     if (!container) return;
     container.innerHTML = `
       <div class="subtab-row" id="calendar-subtabs">
         <button class="subtab-btn" onclick="setCalendarSubTab('schedule')">📅 Calendar</button>
-        <button class="subtab-btn ${sub === 'transport'   ? 'active' : ''}" onclick="setCalendarSubTab('transport')">🚌 Transport</button>
         <button class="subtab-btn ${sub === 'reflections' ? 'active' : ''}" onclick="setCalendarSubTab('reflections')">📝 Reflections</button>
       </div>
       <div id="calendar-sub-content"></div>
     `;
     const body = el('calendar-sub-content');
     if (!body) return;
-    if (sub === 'visits')      { body.innerHTML = renderVisitsSubTab(); }
-    else if (sub === 'reflections') { body.innerHTML = renderReflectionsSubTab(); syncReflections(); }
-    else if (sub === 'transport')   { renderTransportSubTab(body); }
+    if (sub === 'reflections') { body.innerHTML = renderReflectionsSubTab(); syncReflections(); }
     return;
   }
 
@@ -1870,7 +1876,6 @@ function renderCalendar() {
   el('tab-calendar').innerHTML = `
     <div class="subtab-row" id="calendar-subtabs">
       <button class="subtab-btn active" onclick="setCalendarSubTab('schedule')">📅 Calendar</button>
-      <button class="subtab-btn" onclick="setCalendarSubTab('transport')">🚌 Transport</button>
       <button class="subtab-btn" onclick="setCalendarSubTab('reflections')">📝 Reflections</button>
     </div>
     <div class="sticky-header">
@@ -2264,78 +2269,21 @@ function _renderLocationImpl() {
       ).join('')
     : '';
 
+  // Map moved from Tracker → Home. Guard any stale cached state silently.
+  if (STATE.trackerView === 'map') STATE.trackerView = 'list';
   const trackerView = STATE.trackerView || 'list';
 
   el('tab-location').innerHTML = `
     <div class="subtab-row" id="tracker-subtabs">
-      <button class="subtab-btn ${trackerView === 'list'   ? 'active' : ''}" onclick="setTrackerView('list')">📡 MOCON</button>
-      <button class="subtab-btn ${trackerView === 'parade' ? 'active' : ''}" onclick="setTrackerView('parade')">📝 Parade</button>
-      <button class="subtab-btn ${trackerView === 'map'    ? 'active' : ''}" onclick="setTrackerView('map')">🗺️ Map</button>
-      <button class="subtab-btn ${trackerView === 'rooms'  ? 'active' : ''}" onclick="setTrackerView('rooms')">🛏️ Rooms</button>
+      <button class="subtab-btn ${trackerView === 'list'      ? 'active' : ''}" onclick="setTrackerView('list')">📡 MOCON</button>
+      <button class="subtab-btn ${trackerView === 'parade'    ? 'active' : ''}" onclick="setTrackerView('parade')">📝 Parade</button>
+      <button class="subtab-btn ${trackerView === 'transport' ? 'active' : ''}" onclick="setTrackerView('transport')">🚌 Transport</button>
+      <button class="subtab-btn ${trackerView === 'rooms'     ? 'active' : ''}" onclick="setTrackerView('rooms')">🛏️ Rooms</button>
     </div>
-    <div id="tracker-parade-wrap" style="${trackerView === 'parade' ? '' : 'display:none'}"></div>
-    <div id="tracker-rooms-wrap" style="${trackerView === 'rooms' ? '' : 'display:none'}"></div>
-    <div id="tracker-map-wrap" style="${trackerView === 'map' ? '' : 'display:none'}">
-      <div class="map-toolbar">
-        ${(() => {
-          const myStatus = user ? getStatusOf(user.id) : {};
-          const sharingGps = !!(myStatus.lat && myStatus.lng);
-          const scopeOn = STATE.showScope !== false;
-          return `
-            ${user ? (sharingGps
-              ? `<button class="map-tool-btn map-tool-stop"  onclick="stopTracking()" title="Stop sharing your GPS">🛑 Stop GPS</button>`
-              : `<button class="map-tool-btn map-tool-gps"   onclick="shareGPS()"    title="Share your current location">📡 Share GPS</button>`) : ''}
-            <button class="map-tool-btn" onclick="locateMe()" title="Pan to my location">📍 Me</button>
-            <button class="map-tool-btn ${scopeOn ? 'active' : ''}" onclick="toggleScopePins()" title="Show / hide SCOPE day venues">⭐ SCOPE pins</button>
-            <button class="map-tool-btn map-tool-reset" onclick="resetMap()" title="If the map is blank, tap to rebuild">🔁 Reset</button>
-          `;
-        })()}
-      </div>
-      ${(() => {
-        if (!(STATE.mapSynFilter instanceof Set)) {
-          STATE.mapSynFilter = new Set(visibleGs);
-        }
-        const set = STATE.mapSynFilter;
-        const allOn = set.size === visibleGs.length;
-        const summary = allOn
-          ? `All ${visibleGs.length} syndicates`
-          : (set.size === 0 ? 'None selected'
-          : [...set].map(g => formatGroupDisplay(g)).slice(0, 3).join(', ') + (set.size > 3 ? ` +${set.size-3}` : ''));
-        return `
-          <div class="map-filter-dd" id="map-filter-dd">
-            <button class="map-filter-btn" onclick="toggleMapFilterDD()">
-              <span class="mfd-icon">🎯</span>
-              <span class="mfd-summary">${escapeHtml(summary)}</span>
-              <span class="mfd-caret">▾</span>
-            </button>
-            <div class="map-filter-menu hidden" id="map-filter-menu">
-              <div class="mfd-row mfd-row-all" onclick="setMapFilterAll()">
-                <span class="mfd-check ${allOn ? 'on' : ''}">${allOn ? '✓' : ''}</span>
-                <span class="mfd-label"><b>All syndicates</b></span>
-              </div>
-              <div class="mfd-divider"></div>
-              ${visibleGs.map(gk => `
-                <div class="mfd-row" onclick="toggleMapSynFilter('${gk.replace(/'/g, "\\'")}')">
-                  <span class="mfd-check ${set.has(gk) ? 'on' : ''}" style="${set.has(gk) ? `background:${synColor(gk)};border-color:${synColor(gk)}` : ''}">${set.has(gk) ? '✓' : ''}</span>
-                  <span class="mfd-swatch" style="background:${synColor(gk)}"></span>
-                  <span class="mfd-label">${formatGroupDisplay(gk)}</span>
-                  <span class="mfd-count">${membersInGroup(gk).length}</span>
-                </div>
-              `).join('')}
-              <div class="mfd-divider"></div>
-              <button class="mfd-close-btn" onclick="toggleMapFilterDD()">Done</button>
-            </div>
-          </div>
-        `;
-      })()}
-      <div id="map-container"><div id="leaflet-map"></div></div>
-      <div class="map-legend" style="margin-top:10px">
-        <div class="legend-item"><div class="legend-dot" style="background:#003580"></div>Hotel</div>
-        <div class="legend-item"><div class="legend-dot" style="background:#22c55e"></div>In Hotel</div>
-        <div class="legend-item"><div class="legend-dot" style="background:#DC143C"></div>Out</div>
-      </div>
-    </div>
-    <div id="tracker-list-wrap" style="${trackerView === 'list' ? '' : 'display:none'}">
+    <div id="tracker-parade-wrap"    style="${trackerView === 'parade' ? '' : 'display:none'}"></div>
+    <div id="tracker-transport-wrap" style="${trackerView === 'transport' ? '' : 'display:none'}"></div>
+    <div id="tracker-rooms-wrap"     style="${trackerView === 'rooms' ? '' : 'display:none'}"></div>
+    <div id="tracker-list-wrap"      style="${trackerView === 'list' ? '' : 'display:none'}">
     ${user ? `
     <div class="my-status-card">
       <div class="msc-row">
@@ -2361,10 +2309,6 @@ function _renderLocationImpl() {
     </div>
   `;
 
-  // Initialize the map if the user is already on Map view
-  if (trackerView === 'map') {
-    setTimeout(() => initMap(), 100);
-  }
   if (trackerView === 'rooms') {
     // renderRooms auto-detects tracker-rooms-wrap when it's visible and
     // writes there directly — no mirroring needed anymore.
@@ -2373,21 +2317,14 @@ function _renderLocationImpl() {
   if (trackerView === 'parade') {
     setTimeout(() => renderParadeState(), 30);
   }
+  if (trackerView === 'transport') {
+    setTimeout(() => renderTransportSubTab(el('tracker-transport-wrap')), 30);
+  }
 }
 
 window.setTrackerView = function(view) {
-  // When moving TO the map, proactively tear down any old Leaflet instance
-  // — renderLocation is about to replace the map container DOM node and
-  // leaving a stale map attached to a detached node is what was painting
-  // everything black.
-  if (view === 'map' && STATE.map) {
-    try { STATE.map.remove(); } catch {}
-    STATE.map = null;
-    STATE.mapMarkers = {};
-  }
   STATE.trackerView = view;
   renderLocation();
-  if (view === 'map') setTimeout(() => initMap(), 100);
 };
 
 // Last-resort recovery for when Leaflet gets into a bad state (zombie
@@ -3199,7 +3136,7 @@ function _mySynLabel(user) {
 async function refreshTransportState() {
   const data = await API.get('getTransport');
   if (data && typeof data === 'object') STATE.transport = data;
-  const body = el('calendar-sub-content');
+  const body = _transportHost();
   if (body && STATE.calendarSubTab === 'transport') _redrawTransport(body);
 }
 
@@ -3210,6 +3147,13 @@ async function refreshTransportState() {
 // the boarding flow (select syns / remarks / save-progress / send-sitrep) but
 // writes to an independent state field (v.checkedInSyns) so both phases can
 // be tracked separately as the syndicate moves through the airport.
+// Transport lives in the Tracker tab now (previously Calendar). Every handler
+// that needs to re-render the transport panel calls this instead of a
+// hardcoded container lookup so relocation doesn't break the state machine.
+function _transportHost() {
+  return document.getElementById('tracker-transport-wrap');
+}
+
 window.openTransportBoarding = function(vehicleId, isPlane, mode) {
   const m = mode === 'checkin' ? 'checkin' : 'board';
   const v = (STATE.transport || {})[vehicleId] || {};
@@ -3222,7 +3166,7 @@ window.openTransportBoarding = function(vehicleId, isPlane, mode) {
     selected: Array.isArray(srcSyns) ? srcSyns.slice() : [],
     remarks:  srcRem || ''
   };
-  const body = el('calendar-sub-content');
+  const body = _transportHost();
   if (body) _redrawTransport(body);
 };
 // Convenience wrapper for the Check-In button on flight cards.
@@ -3232,7 +3176,7 @@ window.openTransportCheckin = function(vehicleId) {
 
 window.closeTransportModal = function() {
   STATE.transportModal = null;
-  const body = el('calendar-sub-content');
+  const body = _transportHost();
   if (body) _redrawTransport(body);
 };
 
@@ -3244,7 +3188,7 @@ window.toggleTransportSyn = function(syn) {
   const idx = m.selected.indexOf(syn);
   if (idx >= 0) m.selected.splice(idx, 1);
   else m.selected.push(syn);
-  const body = el('calendar-sub-content');
+  const body = _transportHost();
   if (body) _redrawTransport(body);
 };
 
@@ -3285,7 +3229,7 @@ window.saveTransportProgress = async function() {
     toast('❌ Save failed — ' + err);
   }
   STATE.transportModal = null;
-  const body = el('calendar-sub-content');
+  const body = _transportHost();
   if (body) _redrawTransport(body);
 };
 
@@ -3347,13 +3291,13 @@ window.sendTransportBoarding = async function() {
   if (ok) toast(isCheckin ? '✅ Check-in sitrep sent' : '✅ Boarding sitrep sent');
 
   STATE.transportModal = null;
-  const body = el('calendar-sub-content');
+  const body = _transportHost();
   if (body) _redrawTransport(body);
 };
 
 window.toggleTransportExpand = function(vehicleId) {
   STATE.transportExpanded = (STATE.transportExpanded === vehicleId) ? null : vehicleId;
-  const body = el('calendar-sub-content');
+  const body = _transportHost();
   if (body) _redrawTransport(body);
 };
 
@@ -3369,7 +3313,7 @@ window.saveTransportDriver = async function(vehicleId) {
   });
   if (result) { STATE.transport = result; toast('✅ Driver info saved'); }
   STATE.transportExpanded = null;
-  const body = el('calendar-sub-content');
+  const body = _transportHost();
   if (body) _redrawTransport(body);
 };
 
@@ -3390,7 +3334,7 @@ window.transportSendSitrep = async function(vehicleId) {
   if (ok) {
     toast('✅ Pushing sitrep sent');
     if (remarksEl) remarksEl.value = '';
-    const body = el('calendar-sub-content');
+    const body = _transportHost();
     if (body) _redrawTransport(body);
   }
 };
@@ -3403,7 +3347,7 @@ window.transportAction = async function(op, vehicleId) {
   const actorName = user ? (user.shortName || user.name) : 'unknown';
   const result = await API.post('updateTransport', { op, vehicleId, actorName });
   if (result) STATE.transport = result;
-  const body = el('calendar-sub-content');
+  const body = _transportHost();
   if (body) _redrawTransport(body);
 };
 
@@ -3673,7 +3617,7 @@ window.toggleTransportSection = function(key) {
   const cur = state[key] !== false;  // currently open?
   state[key] = !cur;
   localStorage.setItem('tsv_transport_sections', JSON.stringify(state));
-  const body = el('calendar-sub-content');
+  const body = _transportHost();
   if (body) _redrawTransport(body);
 };
 
@@ -4681,9 +4625,75 @@ window.setSopSubTab = function(sub) {
 };
 
 window.setHomeSubTab = function(sub) {
+  // Leaving the map sub-tab: tear down Leaflet so the container DOM doesn't
+  // keep a zombie reference that paints black on next visit.
+  if (STATE.homeSubTab === 'map' && sub !== 'map' && STATE.map) {
+    try { STATE.map.remove(); } catch {}
+    STATE.map = null;
+    STATE.mapMarkers = {};
+  }
   STATE.homeSubTab = sub;
   renderHome();
 };
+
+// Map wrap (toolbar + syn filter + leaflet container + legend). Shared
+// between any host tab that wants to show the map. Today that's the Home
+// tab's 🗺️ Map sub-tab; the helper keeps that mount swappable if it moves.
+function _renderMapWrap() {
+  const user = STATE.currentUser;
+  const visibleGs = visibleGroups();
+  const myStatus = user ? getStatusOf(user.id) : {};
+  const sharingGps = !!(myStatus.lat && myStatus.lng);
+  const scopeOn = STATE.showScope !== false;
+  if (!(STATE.mapSynFilter instanceof Set)) STATE.mapSynFilter = new Set(visibleGs);
+  const set = STATE.mapSynFilter;
+  const allOn = set.size === visibleGs.length;
+  const summary = allOn
+    ? `All ${visibleGs.length} syndicates`
+    : (set.size === 0 ? 'None selected'
+    : [...set].map(g => formatGroupDisplay(g)).slice(0, 3).join(', ') + (set.size > 3 ? ` +${set.size-3}` : ''));
+
+  return `
+    <div id="tracker-map-wrap">
+      <div class="map-toolbar">
+        ${user ? (sharingGps
+          ? `<button class="map-tool-btn map-tool-stop"  onclick="stopTracking()" title="Stop sharing your GPS">🛑 Stop GPS</button>`
+          : `<button class="map-tool-btn map-tool-gps"   onclick="shareGPS()"    title="Share your current location">📡 Share GPS</button>`) : ''}
+        <button class="map-tool-btn" onclick="locateMe()" title="Pan to my location">📍 Me</button>
+        <button class="map-tool-btn ${scopeOn ? 'active' : ''}" onclick="toggleScopePins()" title="Show / hide SCOPE day venues">⭐ SCOPE pins</button>
+        <button class="map-tool-btn map-tool-reset" onclick="resetMap()" title="If the map is blank, tap to rebuild">🔁 Reset</button>
+      </div>
+      <div class="map-filter-dd" id="map-filter-dd">
+        <button class="map-filter-btn" onclick="toggleMapFilterDD()">
+          <span class="mfd-icon">🎯</span>
+          <span class="mfd-summary">${escapeHtml(summary)}</span>
+          <span class="mfd-caret">▾</span>
+        </button>
+        <div class="map-filter-menu hidden" id="map-filter-menu">
+          <div class="mfd-row mfd-row-all" onclick="setMapFilterAll()">
+            <span class="mfd-check ${allOn ? 'on' : ''}">${allOn ? '✓' : ''}</span>
+            <span class="mfd-label"><b>All syndicates</b></span>
+          </div>
+          <div class="mfd-divider"></div>
+          ${visibleGs.map(gk => `
+            <div class="mfd-row" onclick="toggleMapSynFilter('${gk.replace(/'/g, "\\'")}')">
+              <span class="mfd-check ${set.has(gk) ? 'on' : ''}" style="${set.has(gk) ? `background:${synColor(gk)};border-color:${synColor(gk)}` : ''}">${set.has(gk) ? '✓' : ''}</span>
+              <span class="mfd-swatch" style="background:${synColor(gk)}"></span>
+              <span class="mfd-label">${formatGroupDisplay(gk)}</span>
+              <span class="mfd-count">${membersInGroup(gk).length}</span>
+            </div>
+          `).join('')}
+          <div class="mfd-divider"></div>
+          <button class="mfd-close-btn" onclick="toggleMapFilterDD()">Done</button>
+        </div>
+      </div>
+      <div id="map-container"><div id="leaflet-map"></div></div>
+      <div class="map-legend" style="margin-top:10px">
+        <div class="legend-item"><div class="legend-dot" style="background:#003580"></div>Hotel</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#DC143C"></div>Officer Out</div>
+      </div>
+    </div>`;
+}
 
 // ── Translator sub-tab (offline phrasebook + live MyMemory API) ─────
 function renderTranslatorSubTab() {
