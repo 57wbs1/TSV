@@ -5750,37 +5750,57 @@ window.setKillswitch = async function(on) {
   toast(live ? '🟢 Broadcasts LIVE' : '🔴 Broadcasts BLOCKED');
 };
 
-// Render the schedule rows — one time input per A-cron with its own Save button.
-// Each row writes back to the server independently so the admin can adjust
-// one time without disturbing others.
+// Render the schedule rows — two native <select> dropdowns per row (hour +
+// minute) instead of <input type="time">. The time input works unreliably in
+// iOS standalone-mode PWAs (sometimes rendering as read-only text), whereas
+// native selects always open the iOS wheel.
 function _renderBroadcastSchedule(schedule) {
   const host = el('broadcast-schedule-container');
   if (!host) return;
   const order = ['A1_weather','A2_reminder','A3_evening','A4_midnight','A5_parade'];
+  const hourOpts = Array.from({length: 24}, (_, i) =>
+    `<option value="${i}">${String(i).padStart(2,'0')}</option>`).join('');
+  // 5-minute step to keep the wheel short (Apps Script nearMinute rounds
+  // anyway, so finer granularity adds no real precision).
+  const minuteOpts = Array.from({length: 12}, (_, i) => {
+    const m = i * 5;
+    return `<option value="${m}">${String(m).padStart(2,'0')}</option>`;
+  }).join('');
+  const selectStyle =
+    'padding:10px 8px;border:1px solid var(--border);border-radius:8px;font-size:16px;font-weight:700;font-family:inherit;background:var(--card);color:var(--text);text-align:center;min-width:64px';
   host.innerHTML = order.filter(k => schedule[k]).map(k => {
     const s = schedule[k];
     const hh = String(s.hour).padStart(2, '0');
     const mm = String(s.minute).padStart(2, '0');
+    // Snap current minute to nearest 5 so the <select> shows a matching option.
+    const mmSnapped = Math.round(s.minute / 5) * 5 % 60;
+    const hourSelect = hourOpts.replace(`value="${s.hour}"`, `value="${s.hour}" selected`);
+    const minSelect  = minuteOpts.replace(`value="${mmSnapped}"`, `value="${mmSnapped}" selected`);
     return `
-      <div style="display:flex;align-items:center;gap:10px;padding:10px 16px;border-top:1px solid var(--border-2)">
-        <div style="flex:1;min-width:0">
+      <div style="padding:12px 16px;border-top:1px solid var(--border-2)">
+        <div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:8px">
           <div style="font-size:13px;font-weight:700">${escapeHtml(s.label)}</div>
           <div style="font-size:11px;color:var(--text-3)">Currently ${hh}${mm}H BKK</div>
         </div>
-        <input type="time" id="sched-${k}" value="${hh}:${mm}"
-          style="padding:8px 10px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit;background:var(--card);color:var(--text);min-width:110px">
-        <button class="btn btn-primary btn-sm" onclick="saveBroadcastTime('${k}')">💾</button>
+        <div style="display:flex;align-items:center;gap:6px">
+          <select id="sched-${k}-h" style="${selectStyle}">${hourSelect}</select>
+          <span style="font-size:18px;font-weight:700;color:var(--text-2)">:</span>
+          <select id="sched-${k}-m" style="${selectStyle}">${minSelect}</select>
+          <div style="flex:1"></div>
+          <button class="btn btn-primary btn-sm" onclick="saveBroadcastTime('${k}')">💾 Save</button>
+        </div>
       </div>`;
   }).join('');
 }
 
 window.saveBroadcastTime = async function(key) {
-  const input = el('sched-' + key);
-  const v = input?.value || '';
-  const m = v.match(/^(\d{1,2}):(\d{1,2})$/);
-  if (!m) return toast('Invalid time — use HH:MM');
-  const hour = parseInt(m[1], 10);
-  const minute = parseInt(m[2], 10);
+  const hEl = el('sched-' + key + '-h');
+  const mEl = el('sched-' + key + '-m');
+  const hour = parseInt(hEl?.value, 10);
+  const minute = parseInt(mEl?.value, 10);
+  if (!(hour >= 0 && hour <= 23) || !(minute >= 0 && minute <= 59)) {
+    return toast('Invalid time');
+  }
   const actor = STATE.currentUser?.id;
   const resp = await withLoader('Rescheduling ' + key + '…', () =>
     API.postRaw('updateBroadcastSchedule', { key, hour, minute, actor })
