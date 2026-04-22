@@ -4619,8 +4619,14 @@ function renderSOP() {
   const header = `
     <div class="subtab-row" id="sop-subtabs">
       <button class="subtab-btn ${sub === 'sops' ? 'active' : ''}" onclick="setSopSubTab('sops')">🛡️ SOPs</button>
+      <button class="subtab-btn ${sub === 'translator' ? 'active' : ''}" onclick="setSopSubTab('translator')">🗣️ Translator</button>
       <button class="subtab-btn ${sub === 'ir'   ? 'active' : ''}" onclick="setSopSubTab('ir')">🚨 Incident Report for Syn IC</button>
     </div>`;
+
+  if (sub === 'translator') {
+    el('tab-sop').innerHTML = header + renderTranslatorSubTab();
+    return;
+  }
 
   if (sub === 'ir') {
     if (!canFileIR) {
@@ -4665,6 +4671,137 @@ function renderSOP() {
 window.setSopSubTab = function(sub) {
   STATE.sopSubTab = sub;
   renderSOP();
+};
+
+// ── Translator sub-tab (offline phrasebook + live MyMemory API) ─────
+function renderTranslatorSubTab() {
+  const mode = STATE.translatorMode || 'phrasebook';
+  const dir  = STATE.translatorDir  || 'en-th';
+  const last = STATE.translatorLast || { input: '', output: '', ts: null };
+
+  const tabBar = `
+    <div style="display:flex;gap:6px;margin:12px;padding:4px;background:var(--card);border:1px solid var(--border);border-radius:10px">
+      <button class="btn btn-sm" style="flex:1;border:0;background:${mode==='phrasebook'?'#003580':'transparent'};color:${mode==='phrasebook'?'#fff':'var(--text-2)'};font-weight:700"
+        onclick="setTranslatorMode('phrasebook')">📖 Phrasebook</button>
+      <button class="btn btn-sm" style="flex:1;border:0;background:${mode==='live'?'#003580':'transparent'};color:${mode==='live'?'#fff':'var(--text-2)'};font-weight:700"
+        onclick="setTranslatorMode('live')">🌐 Live Translate</button>
+    </div>`;
+
+  if (mode === 'live') {
+    const srcLabel = dir === 'en-th' ? '🇬🇧 English' : '🇹🇭 ไทย (Thai)';
+    const tgtLabel = dir === 'en-th' ? '🇹🇭 ไทย (Thai)' : '🇬🇧 English';
+    return tabBar + `
+      <div style="margin:0 12px 16px">
+        <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+            <div style="flex:1;font-size:12px;font-weight:800;color:var(--text-2);letter-spacing:.04em;text-transform:uppercase">From: ${srcLabel}</div>
+            <button class="btn btn-sm btn-outline" style="font-size:13px;padding:6px 10px" onclick="swapTranslatorDir()">⇅ Swap</button>
+          </div>
+          <textarea id="trans-input" rows="3"
+            placeholder="${dir==='en-th' ? 'Type in English…' : 'พิมพ์เป็นภาษาไทย…'}"
+            style="width:100%;box-sizing:border-box;border:1px solid var(--border);border-radius:8px;padding:10px;font-size:15px;font-family:inherit;background:var(--card);color:var(--text);resize:vertical">${escapeHtml(last.input || '')}</textarea>
+          <button class="btn btn-primary" style="width:100%;margin-top:10px;padding:12px;font-size:14px" onclick="doLiveTranslate()">
+            Translate →
+          </button>
+          <div style="margin-top:14px;font-size:12px;font-weight:800;color:var(--text-2);letter-spacing:.04em;text-transform:uppercase">To: ${tgtLabel}</div>
+          <div id="trans-output"
+            style="margin-top:6px;background:var(--bg);border:1px solid var(--border-2);border-radius:8px;padding:12px;min-height:60px;font-size:16px;line-height:1.5;color:var(--text);white-space:pre-wrap;word-break:break-word">
+            ${last.output ? escapeHtml(last.output) : '<span style="color:var(--text-3);font-size:13px">Translation will appear here…</span>'}
+          </div>
+          <div style="margin-top:8px;font-size:11px;color:var(--text-3)">
+            Powered by MyMemory · requires internet · 1,000-word daily cap per IP (shared across hotel)
+          </div>
+        </div>
+      </div>`;
+  }
+
+  // Phrasebook view
+  const phrasebookHtml = (typeof THAI_PHRASES !== 'undefined' ? THAI_PHRASES : []).map((cat, i) => {
+    const open = STATE.translatorCatOpen === cat.category || (STATE.translatorCatOpen == null && i === 0);
+    const rows = cat.phrases.map(p => `
+      <div style="padding:10px 12px;border-top:1px solid var(--border-2);display:flex;gap:10px;align-items:flex-start" onclick="copyPhraseThai('${escapeHtml(p.th)}')">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;color:var(--text-2)">${escapeHtml(p.en)}</div>
+          <div style="font-size:18px;font-weight:700;color:var(--text);margin-top:2px;word-break:break-word">${escapeHtml(p.th)}</div>
+          <div style="font-size:12px;color:#b45309;font-style:italic;margin-top:1px">${escapeHtml(p.rom)}</div>
+        </div>
+        <button class="btn btn-outline btn-sm" style="font-size:11px;padding:4px 8px;flex-shrink:0;margin-top:2px" onclick="event.stopPropagation();copyPhraseThai('${escapeHtml(p.th)}')">📋</button>
+      </div>`).join('');
+    return `
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;margin-bottom:10px;overflow:hidden">
+        <div onclick="toggleTranslatorCat('${escapeHtml(cat.category)}')"
+          style="display:flex;align-items:center;gap:8px;padding:12px 14px;cursor:pointer;background:var(--card)">
+          <span style="font-size:20px">${cat.icon}</span>
+          <span style="flex:1;font-weight:800;font-size:14px">${escapeHtml(cat.category)}</span>
+          <span style="color:var(--text-3);font-size:12px">${cat.phrases.length}</span>
+          <span style="color:var(--text-3);font-size:14px;transition:transform .2s;${open ? '' : 'transform:rotate(-90deg)'}">▾</span>
+        </div>
+        ${open ? `<div>${rows}</div>` : ''}
+      </div>`;
+  }).join('');
+
+  return tabBar + `
+    <div style="padding:0 12px 32px">
+      <div style="font-size:12px;color:var(--text-3);margin:0 4px 10px;line-height:1.5">
+        Tap any phrase to copy the Thai script. Polite particles:
+        <b>ครับ</b> <i>(krap)</i> for men, <b>ค่ะ</b> <i>(ka)</i> for women — add at the end when being polite.
+      </div>
+      ${phrasebookHtml}
+    </div>`;
+}
+
+window.setTranslatorMode = function(mode) {
+  STATE.translatorMode = mode;
+  renderSOP();
+};
+
+window.swapTranslatorDir = function() {
+  STATE.translatorDir = (STATE.translatorDir === 'en-th') ? 'th-en' : 'en-th';
+  STATE.translatorLast = { input: '', output: '', ts: null };
+  renderSOP();
+};
+
+window.toggleTranslatorCat = function(cat) {
+  STATE.translatorCatOpen = (STATE.translatorCatOpen === cat) ? null : cat;
+  renderSOP();
+};
+
+window.copyPhraseThai = function(thai) {
+  // Prefer the Clipboard API; fall back to a hidden textarea on iOS where
+  // navigator.clipboard isn't available in standalone PWA mode.
+  const text = String(thai || '');
+  const done = () => toast('📋 Copied: ' + text);
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(text).then(done).catch(() => {
+      const t = document.createElement('textarea');
+      t.value = text; document.body.appendChild(t); t.select();
+      try { document.execCommand('copy'); done(); } catch {} t.remove();
+    });
+  } else {
+    const t = document.createElement('textarea');
+    t.value = text; document.body.appendChild(t); t.select();
+    try { document.execCommand('copy'); done(); } catch {} t.remove();
+  }
+};
+
+window.doLiveTranslate = async function() {
+  const input = (el('trans-input')?.value || '').trim();
+  if (!input) return toast('Type something first');
+  const dir = STATE.translatorDir || 'en-th';
+  const langpair = dir === 'en-th' ? 'en|th' : 'th|en';
+  const out = el('trans-output');
+  if (out) out.innerHTML = '<span style="color:var(--text-3);font-size:13px">Translating…</span>';
+  try {
+    const url = 'https://api.mymemory.translated.net/get?q=' + encodeURIComponent(input) + '&langpair=' + langpair;
+    const res = await fetch(url);
+    const body = await res.json();
+    const txt = (body?.responseData?.translatedText || '').trim();
+    if (!txt) throw new Error('Empty response');
+    STATE.translatorLast = { input, output: txt, ts: Date.now() };
+    if (out) out.textContent = txt;
+  } catch (e) {
+    if (out) out.innerHTML = '<span style="color:#b91c1c">Translation failed — check internet. Fallback to the Phrasebook tab.</span>';
+  }
 };
 window.toggleSOP = function(id) {
   const b = el(`sop-body-${id}`), a = el(`sop-arrow-${id}`), h = b?.previousElementSibling;

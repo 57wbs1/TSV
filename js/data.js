@@ -721,5 +721,111 @@ Key Takeaway / Ah-Ha:
 Follow-up questions:
 • [Question]`;
 
+// ── Thai phrasebook — offline-first reference card for officers.
+// Each phrase: { en, th, rom } where rom is the romanized pronunciation.
+// Polite particles: male speakers say "krap" / ครับ, female "ka" / ค่ะ
+// at the end of a sentence. The examples below omit them for brevity —
+// tack one on the end when being polite.
+const THAI_PHRASES = [
+  { category: 'Greetings & Basics', icon: '👋', phrases: [
+    { en: 'Hello',                        th: 'สวัสดี',         rom: 'sa-wat-dee' },
+    { en: 'Thank you',                    th: 'ขอบคุณ',         rom: 'khop-khun' },
+    { en: 'Sorry / Excuse me',            th: 'ขอโทษ',          rom: 'kho-thot' },
+    { en: 'Yes',                          th: 'ใช่',            rom: 'chai' },
+    { en: 'No',                           th: 'ไม่',            rom: 'mai' },
+    { en: 'Please',                       th: 'กรุณา',          rom: 'ga-ru-naa' },
+    { en: 'Goodbye',                      th: 'ลาก่อน',         rom: 'laa gon' },
+    { en: 'OK',                           th: 'ได้',            rom: 'dai' },
+    { en: "I don't understand",           th: 'ไม่เข้าใจ',      rom: 'mai khao jai' },
+    { en: 'Do you speak English?',        th: 'พูดอังกฤษได้ไหม', rom: 'poot ang-grit dai mai' },
+    { en: 'Speak slowly, please',         th: 'พูดช้าๆ',        rom: 'poot chaa chaa' }
+  ]},
+  { category: 'Food & Drink', icon: '🍜', phrases: [
+    { en: 'Delicious',                    th: 'อร่อย',          rom: 'a-roi' },
+    { en: 'Not spicy',                    th: 'ไม่เผ็ด',        rom: 'mai phet' },
+    { en: 'A little spicy',               th: 'เผ็ดนิดหน่อย',   rom: 'phet nit noi' },
+    { en: 'Very spicy',                   th: 'เผ็ดมาก',        rom: 'phet mak' },
+    { en: 'Water, please',                th: 'ขอน้ำ',          rom: 'kho nam' },
+    { en: 'Iced',                         th: 'เย็น',           rom: 'yen' },
+    { en: 'Hot (temp)',                   th: 'ร้อน',           rom: 'rawn' },
+    { en: 'Coffee',                       th: 'กาแฟ',           rom: 'gaa-fae' },
+    { en: 'Beer',                         th: 'เบียร์',         rom: 'bia' },
+    { en: 'Check, please',                th: 'เก็บเงินด้วย',   rom: 'keb ngern duai' },
+    { en: 'No pork',                      th: 'ไม่ใส่หมู',      rom: 'mai sai muu' },
+    { en: 'No meat (vegetarian)',         th: 'มังสวิรัติ',     rom: 'mang-sa-wi-rat' },
+    { en: 'No MSG',                       th: 'ไม่ใส่ผงชูรส',   rom: 'mai sai phong choo-rot' },
+    { en: "I'm allergic",                 th: 'ฉันแพ้',         rom: 'chan phae' }
+  ]},
+  { category: 'Taxi & Directions', icon: '🚕', phrases: [
+    { en: 'Where is...?',                 th: '...อยู่ที่ไหน',   rom: '... yoo tee nai' },
+    { en: 'Go to...',                     th: 'ไป...',          rom: 'pai ...' },
+    { en: 'Pullman Silom Hotel',          th: 'โรงแรมพูลแมน สีลม', rom: 'rong-raem Pullman Silom' },
+    { en: 'Use meter, please',            th: 'เปิดมิเตอร์ด้วย', rom: 'pert mi-ter duai' },
+    { en: 'How much?',                    th: 'เท่าไร',         rom: 'tao-rai' },
+    { en: 'Too expensive',                th: 'แพงไป',          rom: 'phaeng pai' },
+    { en: 'Straight',                     th: 'ตรงไป',          rom: 'trong pai' },
+    { en: 'Turn left',                    th: 'เลี้ยวซ้าย',     rom: 'liao saai' },
+    { en: 'Turn right',                   th: 'เลี้ยวขวา',      rom: 'liao khwaa' },
+    { en: 'Stop here',                    th: 'จอดที่นี่',      rom: 'jod tee nee' },
+    { en: 'BTS (Sky Train)',              th: 'รถไฟฟ้า',        rom: 'rot fai faa' },
+    { en: 'MRT (Underground)',            th: 'รถไฟใต้ดิน',     rom: 'rot fai tai din' },
+    { en: 'Airport',                      th: 'สนามบิน',        rom: 'sa-naam bin' }
+  ]},
+  { category: 'Shopping & Bargaining', icon: '🛍️', phrases: [
+    { en: 'How much?',                    th: 'เท่าไร',         rom: 'tao-rai' },
+    { en: 'Too expensive',                th: 'แพงไป',          rom: 'phaeng pai' },
+    { en: 'Discount, please',             th: 'ลดได้ไหม',       rom: 'lot dai mai' },
+    { en: 'Cheaper',                      th: 'ถูกกว่า',        rom: 'took gwaa' },
+    { en: "I'll take it",                 th: 'เอาอันนี้',      rom: 'ao an nee' },
+    { en: "I don't want it",              th: 'ไม่เอา',         rom: 'mai ao' },
+    { en: 'Just looking',                 th: 'ดูเฉยๆ',         rom: 'doo choei choei' },
+    { en: 'Credit card OK?',              th: 'รับบัตรไหม',     rom: 'rap bat mai' },
+    { en: 'Cash only',                    th: 'เงินสดเท่านั้น', rom: 'ngern sot tao-nan' }
+  ]},
+  { category: 'Emergency & Medical', icon: '🚑', phrases: [
+    { en: 'Help!',                        th: 'ช่วยด้วย',       rom: 'chuai duai' },
+    { en: 'Hospital',                     th: 'โรงพยาบาล',      rom: 'rong phayaa-baan' },
+    { en: 'Police',                       th: 'ตำรวจ',          rom: 'tam-ruat' },
+    { en: 'Ambulance',                    th: 'รถพยาบาล',       rom: 'rot phayaa-baan' },
+    { en: "I'm not feeling well",         th: 'ไม่สบาย',        rom: 'mai sa-bai' },
+    { en: 'Stomach ache',                 th: 'ปวดท้อง',        rom: 'puat tong' },
+    { en: 'Headache',                     th: 'ปวดหัว',         rom: 'puat hua' },
+    { en: 'Fever',                        th: 'มีไข้',          rom: 'mee khai' },
+    { en: 'Call the Singapore embassy',   th: 'โทรหาสถานทูตสิงคโปร์', rom: 'toh haa sa-tan-thoot Singapore' },
+    { en: 'I need a doctor',              th: 'ฉันต้องการหมอ',  rom: 'chan tong-gaan maw' }
+  ]},
+  { category: 'Numbers & Time', icon: '🔢', phrases: [
+    { en: '1',                            th: 'หนึ่ง',          rom: 'neung' },
+    { en: '2',                            th: 'สอง',            rom: 'song' },
+    { en: '3',                            th: 'สาม',            rom: 'saam' },
+    { en: '4',                            th: 'สี่',            rom: 'see' },
+    { en: '5',                            th: 'ห้า',            rom: 'haa' },
+    { en: '10',                           th: 'สิบ',            rom: 'sip' },
+    { en: '100',                          th: 'ร้อย',           rom: 'roi' },
+    { en: '1,000',                        th: 'พัน',            rom: 'phan' },
+    { en: 'Today',                        th: 'วันนี้',         rom: 'wan-nee' },
+    { en: 'Tomorrow',                     th: 'พรุ่งนี้',       rom: 'prung-nee' },
+    { en: 'Now',                          th: 'เดี๋ยวนี้',      rom: 'diao-nee' },
+    { en: 'Later',                        th: 'ทีหลัง',         rom: 'tee-lang' }
+  ]},
+  { category: 'Small Talk', icon: '💬', phrases: [
+    { en: "My name is…",                  th: 'ฉันชื่อ…',       rom: 'chan cheu …' },
+    { en: "I'm from Singapore",           th: 'ฉันมาจากสิงคโปร์', rom: 'chan maa jaak Singapore' },
+    { en: 'Nice to meet you',             th: 'ยินดีที่ได้รู้จัก', rom: 'yin-dee tee dai roo-jak' },
+    { en: 'How are you?',                 th: 'สบายดีไหม',      rom: 'sa-bai-dee mai' },
+    { en: "I'm fine",                     th: 'สบายดี',         rom: 'sa-bai-dee' },
+    { en: 'Thailand is beautiful',        th: 'เมืองไทยสวย',    rom: 'mueang thai suai' },
+    { en: 'I love it',                    th: 'ชอบมาก',         rom: 'chop mak' }
+  ]},
+  { category: 'Hotel', icon: '🏨', phrases: [
+    { en: 'My room',                      th: 'ห้องของฉัน',     rom: 'hong kong chan' },
+    { en: 'Room key',                     th: 'กุญแจห้อง',      rom: 'gun-jae hong' },
+    { en: 'Wifi password',                th: 'รหัสไวไฟ',       rom: 'ra-hat Wi-Fi' },
+    { en: 'What time is breakfast?',      th: 'อาหารเช้ากี่โมง', rom: 'ahaan-chao gee mong' },
+    { en: 'Can you call a taxi?',         th: 'เรียกแท็กซี่ได้ไหม', rom: 'riak taxi dai mai' },
+    { en: 'Please clean the room',        th: 'ทำความสะอาดห้อง', rom: 'tam kwaam sa-aat hong' }
+  ]}
+];
+
 // ── Backward-compat SCHEDULE (used by older code paths) ─────
 const SCHEDULE = DAYS.map(d => ({ ...d, events: eventsForDay(d.day) }));
