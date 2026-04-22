@@ -1956,42 +1956,44 @@ Hit your Syn IC with any last-minute questions.
 
 Almost go-time. ✈️`,
 
-  // ── T-2 · sent on 23 Apr (key = 24 Apr) — original entry ──
+  // ── T-2 · sent on 23 Apr (key = 24 Apr) ──
   '2026-04-24':
-`⏳ <b>3 days to TSV Bangkok</b>
+`⏳ <b>2 days to TSV Bangkok</b>
 
-The countdown is on! 🎒
+48 hours out — it's real now. ✈️
 
-A gentle nudge — things worth sorting this week:
+Final pass this evening:
 
-✅ Passport valid through Oct 2026
-✅ Travel insurance confirmed
-✅ No. 3 Uniform pressed and packed
-✅ Smart casual set ready (long pants, collared top, covered shoes)
-✅ Plug adapter (TH uses Type A / B / C)
-✅ Personal meds + any prescriptions
+✅ Bags packed, under 25kg
+✅ No. 3 Uniform + Smart Casual both in the bag
+✅ Toiletries, meds, chargers, powerbank
+✅ Plug adapter (TH = Type A / B / C)
+✅ Online check-in opens tonight — do it before bed
+✅ SGD/THB sorted
 
 —
 
-📱 If you haven't already — install the app on your phone's home screen:
+🏨 <b>Hotel:</b> Pullman Bangkok Hotel G
 
-<b>iPhone:</b> Safari → Share → Add to Home Screen
+✈️ <b>Outbound:</b> SQ 708 · 0930H Sun 26 Apr · Changi T2
 
-<b>Android:</b> Chrome → ⋮ → Install app
+📍 Check-in 0630–<b>0840H</b> · Boarding 0900H · Gate closes 0920H
 
+—
+
+📱 App installed + PIN changed?
 https://57wbs1.github.io/TSV/
 
-Default PIN is <b>0000</b> — change it after first login.
+<b>iPhone:</b> Safari → Share → Add to Home Screen
+<b>Android:</b> Chrome → ⋮ → Install app
 
 —
 
-Any questions, hit your Syn IC.
+Tomorrow is the last full day in SG. Make it count, then rest up. 🌙`,
 
-Let's go! ✈️`,
-
-  // ── T-2 · sent on 24 Apr ──
+  // ── T-1 · sent on 24 Apr ──
   '2026-04-25':
-`⏳ <b>2 days to TSV Bangkok</b>
+`⏳ <b>1 day to TSV Bangkok</b>
 
 Almost there! 🛫
 
