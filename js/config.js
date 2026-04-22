@@ -57,8 +57,11 @@ const CONFIG = {
   hotel: {
     name:    'Pullman Bangkok Hotel G',
     address: '188 Silom Road, Suriyawong, Bang Rak, Bangkok 10500',
-    lat:     13.7256,
-    lng:     100.5279,
+    // Verified via OpenStreetMap Nominatim 22 Apr 2026. Previous (13.7256,
+    // 100.5279) was ~220m east of the actual hotel entrance, so the blue
+    // hotel marker landed on an unrelated office tower.
+    lat:     13.7260,
+    lng:     100.5258,
     phone:   '+66 2 238 1991'
   },
 

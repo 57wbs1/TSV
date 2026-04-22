@@ -2795,11 +2795,15 @@ window.returnToHotel = async function() {
   // toasted "Welcome back!" even when the write didn't land, so the team
   // roster still saw the officer as OUT.
   const prior = STATE.memberStatuses[user.id] ? JSON.parse(JSON.stringify(STATE.memberStatuses[user.id])) : null;
-  STATE.memberStatuses[user.id] = { status:'in_hotel', locationText:'Hotel', lat:CONFIG.hotel.lat, lng:CONFIG.hotel.lng, buddyWith:'', lastUpdated:new Date().toISOString() };
+  // Clear lat/lng on return — in-hotel officers should not appear on the
+  // Map tab. Previously we wrote CONFIG.hotel.lat/lng which stacked every
+  // in-hotel officer on a single dot at the hotel. Map plot now requires
+  // status === 'out' + valid GPS, so empty coords → no pin.
+  STATE.memberStatuses[user.id] = { status:'in_hotel', locationText:'Hotel', lat:'', lng:'', buddyWith:'', lastUpdated:new Date().toISOString() };
   renderLocation();
   renderPinnedActionBar();
   const resp = await withLoader('Marking you back in hotel…', () =>
-    API.post('updateStatus', { memberId:user.id, name:user.name, shortName:user.shortName, role:user.role, syndicate:user.syndicate, status:'in_hotel', locationText:'Hotel', lat:CONFIG.hotel.lat, lng:CONFIG.hotel.lng, buddyWith:'' })
+    API.post('updateStatus', { memberId:user.id, name:user.name, shortName:user.shortName, role:user.role, syndicate:user.syndicate, status:'in_hotel', locationText:'Hotel', lat:'', lng:'', buddyWith:'' })
   );
   if (resp == null) {
     if (prior) STATE.memberStatuses[user.id] = prior;
@@ -3001,25 +3005,55 @@ function updateMapMarkers() {
   if (!STATE.map) return;
   Object.values(STATE.mapMarkers).forEach(m => m.remove());
   STATE.mapMarkers = {};
-  // Only plot members whose syndicate is in the active map filter. If the
-  // filter Set isn't initialised, default to all visible groups (so the
-  // first render shows everyone before the user narrows down).
   const vis = visibleGroups();
   if (!(STATE.mapSynFilter instanceof Set)) STATE.mapSynFilter = new Set(vis);
   const filter = STATE.mapSynFilter;
+
+  // Build the list of candidates BEFORE plotting so we can detect overlaps.
+  // Rules:
+  //   - Syndicate must be in the active map filter.
+  //   - Officer must be status === 'out' AND have real lat/lng. In-hotel
+  //     officers never appear (used to plot at the hotel, stacking 85 dots).
+  //   - No GPS shared (empty lat/lng) → no pin. Map is a live-location view,
+  //     not a list.
+  const candidates = [];
   MEMBERS.forEach(m => {
     const gk = memberGroupKey(m);
     if (!filter.has(gk)) return;
     const st = getStatusOf(m.id);
-    if (!st.lat || !st.lng) return;
-    const isOut = st.status === 'out';
-    const color = isOut ? '#DC143C' : '#22c55e';
+    if (st.status !== 'out') return;
+    const lat = parseFloat(st.lat);
+    const lng = parseFloat(st.lng);
+    if (!isFinite(lat) || !isFinite(lng)) return;
+    candidates.push({ m, st, lat, lng });
+  });
+
+  // Spread overlapping markers in a small circle so everyone is visible
+  // when a syndicate is physically together (e.g. 6 officers at Wat Pho).
+  // Group by 4-dp rounded coord (~11m bucket), then offset in equal angles
+  // around a ~35m-radius circle when the bucket has more than one officer.
+  const buckets = {};
+  candidates.forEach(c => {
+    const key = c.lat.toFixed(4) + ',' + c.lng.toFixed(4);
+    (buckets[key] = buckets[key] || []).push(c);
+  });
+  Object.values(buckets).forEach(group => {
+    if (group.length <= 1) return;
+    const R = 0.00032; // ≈ 35m at Bangkok latitude
+    group.forEach((c, i) => {
+      const ang = (i / group.length) * 2 * Math.PI;
+      c.lat += R * Math.sin(ang);
+      c.lng += R * Math.cos(ang);
+    });
+  });
+
+  candidates.forEach(({ m, st, lat, lng }) => {
     const icon = L.divIcon({
-      html: `<div style="background:${color};color:white;border-radius:50%;width:32px;height:32px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;border:2px solid white;box-shadow:0 2px 6px rgba(0,0,0,.4)">${escapeHtml(m.shortName.slice(0,2))}</div>`,
+      html: `<div style="background:#DC143C;color:white;border-radius:50%;width:32px;height:32px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;border:2px solid white;box-shadow:0 2px 6px rgba(0,0,0,.4)">${escapeHtml(m.shortName.slice(0,2))}</div>`,
       className:'', iconSize:[32,32], iconAnchor:[16,16]
     });
-    const popup = `<b>${escapeHtml(m.name)}</b><br>${isOut ? `🔴 OUT — ${escapeHtml(st.locationText||'shared GPS')}` : '🟢 In Hotel'}${st.buddyWith ? `<br>👥 ${escapeHtml(st.buddyWith)}` : ''}`;
-    STATE.mapMarkers[m.id] = L.marker([st.lat, st.lng], { icon }).addTo(STATE.map).bindPopup(popup);
+    const popup = `<b>${escapeHtml(m.name)}</b><br>🔴 OUT — ${escapeHtml(st.locationText||'shared GPS')}${st.buddyWith ? `<br>👥 ${escapeHtml(st.buddyWith)}` : ''}`;
+    STATE.mapMarkers[m.id] = L.marker([lat, lng], { icon }).addTo(STATE.map).bindPopup(popup);
   });
 }
 
@@ -6525,6 +6559,9 @@ window.icMarkMember = async function(memberId, targetStatus) {
     status: targetStatus === 'out' ? 'out' : 'in_hotel',
     locationText: targetStatus === 'out' ? 'Out of Hotel' : 'Hotel',
     buddyWith: targetStatus === 'in' ? '' : cur.buddyWith,
+    // Clear GPS on in_hotel so the officer drops off the map
+    lat: targetStatus === 'in' ? '' : cur.lat,
+    lng: targetStatus === 'in' ? '' : cur.lng,
     lastUpdated: now
   };
   renderLocation();
@@ -6534,8 +6571,10 @@ window.icMarkMember = async function(memberId, targetStatus) {
       role: m.role, syndicate: m.syndicate,
       status: targetStatus === 'out' ? 'out' : 'in_hotel',
       locationText: targetStatus === 'out' ? 'Out of Hotel' : 'Hotel',
-      lat: targetStatus === 'in' ? CONFIG.hotel.lat : (cur.lat || ''),
-      lng: targetStatus === 'in' ? CONFIG.hotel.lng : (cur.lng || ''),
+      // in_hotel → clear lat/lng so the officer doesn't pin on the Map tab.
+      // Map only plots status === 'out' with valid GPS.
+      lat: targetStatus === 'in' ? '' : (cur.lat || ''),
+      lng: targetStatus === 'in' ? '' : (cur.lng || ''),
       buddyWith: targetStatus === 'in' ? '' : (cur.buddyWith || ''),
       roomNumber: cur.roomNumber || ''
     })
