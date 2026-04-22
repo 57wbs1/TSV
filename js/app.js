@@ -2999,8 +2999,48 @@ function initMap() {
   });
   if (STATE.showScope !== false) STATE.scopeLayer.addTo(STATE.map);
 
+  // ── Bangkok POIs — hospitals, no-go zones, shopping, markets, landmarks.
+  // Each category has its own visual language so officers can scan the map
+  // and instantly tell a hospital from a shopping mall from a no-go zone.
+  STATE.poiLayer = L.layerGroup();
+  (typeof MAP_POIS !== 'undefined' ? MAP_POIS : []).forEach(poi => {
+    const cat = MAP_POI_CATEGORIES[poi.cat] || MAP_POI_CATEGORIES.landmark;
+    const size = cat.size;
+    const iconHtml = cat.cat === 'nogo'
+      // No-go zone: red disc with large white ❌ overlay, drop shadow to
+      // draw the eye. Deliberately bigger than other pins.
+      ? `<div style="position:relative;width:${size}px;height:${size}px">
+           <div style="position:absolute;inset:0;background:${cat.bg};border:3px solid ${cat.border};border-radius:50%;box-shadow:0 4px 12px rgba(220,38,38,.6);display:flex;align-items:center;justify-content:center;color:${cat.fg};font-size:${Math.round(size*0.6)}px;font-weight:900;line-height:1">✕</div>
+           <div style="position:absolute;top:-6px;right:-6px;background:${cat.bg};color:${cat.fg};font-size:10px;font-weight:900;border-radius:6px;padding:1px 5px;border:1.5px solid ${cat.border};white-space:nowrap">NO-GO</div>
+         </div>`
+      : `<div style="background:${cat.bg};color:${cat.fg};border:2px solid ${cat.border};border-radius:50%;width:${size}px;height:${size}px;display:flex;align-items:center;justify-content:center;font-size:${Math.round(size*0.55)}px;box-shadow:0 3px 8px rgba(0,0,0,.3);font-weight:700">${cat.icon}</div>`;
+    const icon = L.divIcon({
+      html: iconHtml,
+      className: '',
+      iconSize: [size, size],
+      iconAnchor: [size/2, size/2]
+    });
+    const popup = `<b>${escapeHtml(poi.name)}</b><br>
+      <span style="color:${cat.border};font-weight:700;font-size:11px">${cat.label}</span><br>
+      ${poi.note || ''}`;
+    L.marker([poi.lat, poi.lng], { icon, title: poi.name, zIndexOffset: cat.cat === 'nogo' ? 1000 : 0 })
+      .bindPopup(popup).addTo(STATE.poiLayer);
+  });
+  // On by default — officers see POIs without needing to toggle.
+  if (STATE.showPois !== false) STATE.poiLayer.addTo(STATE.map);
+
   updateMapMarkers();
 }
+
+// Visual config for each POI category. bg + fg control the pin, border
+// ties the popup label colour. size is the circle diameter in pixels.
+const MAP_POI_CATEGORIES = {
+  nogo:     { cat:'nogo',     icon:'✕',   bg:'#dc2626', fg:'#ffffff', border:'#7f1d1d', label:'🚫 NO-GO ZONE',       size: 48 },
+  hospital: { cat:'hospital', icon:'🏥', bg:'#ffffff', fg:'#dc2626', border:'#dc2626', label:'🏥 Hospital',          size: 34 },
+  shopping: { cat:'shopping', icon:'🛍️',  bg:'#7c3aed', fg:'#ffffff', border:'#5b21b6', label:'🛍️ Shopping',          size: 30 },
+  market:   { cat:'market',   icon:'🛒', bg:'#16a34a', fg:'#ffffff', border:'#166534', label:'🛒 Market',           size: 30 },
+  landmark: { cat:'landmark', icon:'🏛️', bg:'#0891b2', fg:'#ffffff', border:'#0e7490', label:'🏛️ Landmark',          size: 30 }
+};
 function updateMapMarkers() {
   if (!STATE.map) return;
   Object.values(STATE.mapMarkers).forEach(m => m.remove());

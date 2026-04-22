@@ -582,6 +582,63 @@ const SCOPE_LOCATIONS = [
   { name: 'Wat Pa Pradu Phra Aram Luang',    lat: 12.6769, lng: 101.2750, syns: 'Syn 4 (M)' }
 ];
 
+// Bangkok points of interest plotted alongside SCOPE pins on the Map tab.
+// Categories drive icon colour + shape (see MAP_POI_CATEGORIES in app.js).
+// Goal: officers know where to go when off-duty, and where NOT to go.
+const MAP_POIS = [
+  // ── No-Go Zones — out of bounds for all officers ──
+  { cat: 'nogo', name: 'Soi Cowboy', lat: 13.7379, lng: 100.5615,
+    note: '<b style="color:#dc2626">OUT OF BOUNDS</b><br>Red-light district off Sukhumvit. No officer is to enter or be photographed near here. Reputational + security risk to the cohort.' },
+
+  // ── Hospitals (ordered by proximity to Pullman G) ──
+  { cat: 'hospital', name: 'BNH Hospital', lat: 13.7285, lng: 100.5361,
+    note: '9/1 Convent Rd · 2 min drive from Pullman · English-speaking · +66 2 022 0700' },
+  { cat: 'hospital', name: 'Bangkok Christian Hospital', lat: 13.7284, lng: 100.5216,
+    note: '124 Silom Rd · walking distance · +66 2 625 9000' },
+  { cat: 'hospital', name: 'Saint Louis Hospital', lat: 13.7215, lng: 100.5290,
+    note: '27 Sathon Tai Rd · +66 2 838 5555' },
+  { cat: 'hospital', name: 'Bumrungrad International', lat: 13.7472, lng: 100.5525,
+    note: '33 Sukhumvit 3 · top private hospital in BKK · +66 2 066 8888' },
+  { cat: 'hospital', name: 'Samitivej Sukhumvit', lat: 13.7331, lng: 100.5738,
+    note: '133 Soi Sukhumvit 49 · +66 2 022 2222' },
+
+  // ── Shopping Malls ──
+  { cat: 'shopping', name: 'Siam Paragon', lat: 13.7464, lng: 100.5348,
+    note: 'Luxury mall · BTS Siam · flagship brands + food hall' },
+  { cat: 'shopping', name: 'CentralWorld', lat: 13.7467, lng: 100.5394,
+    note: 'Mega-mall · BTS Chit Lom · Open 10am–10pm' },
+  { cat: 'shopping', name: 'MBK Center', lat: 13.7449, lng: 100.5299,
+    note: 'Electronics, tailors, souvenirs · BTS National Stadium' },
+  { cat: 'shopping', name: 'Terminal 21 Asok', lat: 13.7374, lng: 100.5602,
+    note: 'Themed floors (each a different city) · BTS Asok' },
+  { cat: 'shopping', name: 'EmQuartier / Emporium', lat: 13.7303, lng: 100.5693,
+    note: 'Luxury mall · BTS Phrom Phong' },
+  { cat: 'shopping', name: 'IconSiam', lat: 13.7264, lng: 100.5109,
+    note: 'Riverside luxury mall · Chao Phraya · shuttle boat from Saphan Taksin' },
+
+  // ── Markets ──
+  { cat: 'market', name: 'Chatuchak Weekend Market', lat: 13.7997, lng: 100.5500,
+    note: '~15,000 stalls · Sat/Sun only · MRT Chatuchak Park · allow 3+ hours' },
+  { cat: 'market', name: 'Asiatique The Riverfront', lat: 13.7047, lng: 100.5095,
+    note: 'Open-air night market + ferris wheel · free shuttle from Saphan Taksin' },
+  { cat: 'market', name: 'Pratunam Market', lat: 13.7525, lng: 100.5401,
+    note: 'Wholesale clothing · best in the AM · BTS Chit Lom' },
+
+  // ── Landmarks + Popular Areas ──
+  { cat: 'landmark', name: 'Wat Pho (Reclining Buddha)', lat: 13.7465, lng: 100.4926,
+    note: 'Historic temple · dress respectfully (cover shoulders/knees)' },
+  { cat: 'landmark', name: 'Grand Palace', lat: 13.7500, lng: 100.4913,
+    note: 'Royal palace complex · strict dress code · arrive early' },
+  { cat: 'landmark', name: 'Wat Arun (Temple of Dawn)', lat: 13.7437, lng: 100.4886,
+    note: 'Best seen at sunset from the east bank of the Chao Phraya' },
+  { cat: 'landmark', name: 'Khao San Road', lat: 13.7593, lng: 100.4970,
+    note: 'Backpacker street · nightlife + street food' },
+  { cat: 'landmark', name: 'Lumpini Park', lat: 13.7307, lng: 100.5418,
+    note: 'Large urban park · morning runs 0500–0800 · BTS Sala Daeng' },
+  { cat: 'landmark', name: 'Jim Thompson House', lat: 13.7489, lng: 100.5290,
+    note: 'Thai silk heritage museum · historic teak houses' }
+];
+
 const REFLECTION_TEMPLATE = `What did we observe?
 • [Observation 1]
 • [Observation 2]
