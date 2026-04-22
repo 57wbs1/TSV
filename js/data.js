@@ -624,6 +624,46 @@ const MAP_POIS = [
   { cat: 'market', name: 'Pratunam Market', lat: 13.7525, lng: 100.5401,
     note: 'Wholesale clothing · best in the AM · BTS Chit Lom' },
 
+  // ── Food — Michelin-starred + Bib Gourmand + top-rated ──
+  // Pins are ordered by proximity to Pullman within each tier, so officers
+  // on limited time pick the closest Michelin option without hunting.
+  // Walking distance from Pullman first:
+  { cat: 'food', name: 'Le Du', lat: 13.7294, lng: 100.5292,
+    note: '⭐⭐ 2-Michelin · Silom Soi 7 · modern Thai tasting menu · book 2 weeks ahead · walking from Pullman' },
+  { cat: 'food', name: 'Blue Elephant', lat: 13.7287, lng: 100.5239,
+    note: 'Refined royal Thai cuisine · heritage Silom mansion · walking from Pullman' },
+  { cat: 'food', name: 'Banana Leaf (Silom Complex)', lat: 13.7291, lng: 100.5292,
+    note: 'Local-favourite Thai · affordable · walking from Pullman · no reservations' },
+  { cat: 'food', name: 'Saawaan', lat: 13.7199, lng: 100.5428,
+    note: '⭐ 1-Michelin · 7-course contemporary Thai · Sathorn · smart casual' },
+  { cat: 'food', name: 'Nahm', lat: 13.7224, lng: 100.5443,
+    note: '⭐ 1-Michelin · COMO Metropolitan Sathorn · traditional Thai · book ahead' },
+  { cat: 'food', name: 'Issaya Siamese Club', lat: 13.7218, lng: 100.5470,
+    note: 'Top-rated · Chef Ian Kittichai · heritage villa · modern Thai · Sathorn' },
+  { cat: 'food', name: 'Polo Fried Chicken (Bib Gourmand)', lat: 13.7284, lng: 100.5403,
+    note: 'Bib Gourmand · famous garlic fried chicken · Lumphini · cash only · expect queue' },
+  // City-wide Michelin + iconic:
+  { cat: 'food', name: 'Jay Fai', lat: 13.7541, lng: 100.5038,
+    note: '⭐ 1-Michelin · street-food crab omelette · Mahachai Rd · queue 2–4h · goggled lady cooks nightly' },
+  { cat: 'food', name: 'Thipsamai Pad Thai', lat: 13.7533, lng: 100.5038,
+    note: 'Bib Gourmand · legendary pad thai since 1966 · Mahachai Rd · queue but worth it' },
+  { cat: 'food', name: 'Err Urban Rustic Thai', lat: 13.7454, lng: 100.4927,
+    note: 'Top-rated · Chef David Thompson · traditional Thai flavours · near Wat Pho' },
+  { cat: 'food', name: 'Sorn', lat: 13.7275, lng: 100.5663,
+    note: '⭐⭐ 2-Michelin · Southern Thai fine dining · Sukhumvit 26 · book 2+ months ahead' },
+  { cat: 'food', name: 'Gaggan Anand', lat: 13.7402, lng: 100.5650,
+    note: '⭐⭐ 2-Michelin · progressive Indian tasting menu · Sukhumvit 31 · the chef is the show' },
+  { cat: 'food', name: 'Sühring', lat: 13.7137, lng: 100.5443,
+    note: '⭐⭐ 2-Michelin · contemporary German by twin brothers · Yen Akat · set menu only' },
+  { cat: 'food', name: 'Paste', lat: 13.7443, lng: 100.5414,
+    note: '⭐ 1-Michelin · historical Thai recipes reinterpreted · Gaysorn Village · Ploenchit' },
+  { cat: 'food', name: 'R-HAAN', lat: 13.7337, lng: 100.5778,
+    note: '⭐ 1-Michelin · Royal Thai recipes · Sukhumvit 53 · smart casual' },
+  { cat: 'food', name: '80/20', lat: 13.7410, lng: 100.5090,
+    note: '⭐ 1-Michelin · hyper-local ingredients · Chinatown · book ahead' },
+  { cat: 'food', name: 'Elements, Inspired by Ciel Bleu', lat: 13.7446, lng: 100.5475,
+    note: '⭐ 1-Michelin · French × Asian · The Okura Prestige · rooftop · smart elegant' },
+
   // ── Nightlife / Bars / Clubs — where the scene is ──
   // Mix of area markers (whole nightlife districts) and specific iconic
   // venues. Coords are orientation-level; exact venue within an area

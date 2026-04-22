@@ -3037,6 +3037,7 @@ function initMap() {
 const MAP_POI_CATEGORIES = {
   nogo:      { cat:'nogo',      icon:'✕',   bg:'#dc2626', fg:'#ffffff', border:'#7f1d1d', label:'🚫 NO-GO ZONE',       size: 48 },
   hospital:  { cat:'hospital',  icon:'🏥', bg:'#ffffff', fg:'#dc2626', border:'#dc2626', label:'🏥 Hospital',          size: 34 },
+  food:      { cat:'food',      icon:'🍽️',  bg:'#ea580c', fg:'#ffffff', border:'#9a3412', label:'🍽️ Food · Michelin + Top-Rated', size: 30 },
   shopping:  { cat:'shopping',  icon:'🛍️',  bg:'#7c3aed', fg:'#ffffff', border:'#5b21b6', label:'🛍️ Shopping',          size: 30 },
   market:    { cat:'market',    icon:'🛒', bg:'#16a34a', fg:'#ffffff', border:'#166534', label:'🛒 Market',           size: 30 },
   nightlife: { cat:'nightlife', icon:'🍸', bg:'#ec4899', fg:'#ffffff', border:'#9d174d', label:'🍸 Nightlife · Bars',  size: 30 },
