@@ -5447,6 +5447,12 @@ function _renderSettingsMe(user, gk) {
         <button class="btn btn-outline btn-sm" onclick="changeMyPin()">Change</button>
       </div>
       <div class="settings-row">
+        <div class="sr-label">How to Use
+          <div class="sr-value">Full field guide — install, daily flows, IC duties, FAQ</div>
+        </div>
+        <button class="btn btn-outline btn-sm" onclick="openFieldGuide()">📖 Open</button>
+      </div>
+      <div class="settings-row">
         <div class="sr-label">Install as App
           <div class="sr-value">Add to home screen — iOS + Android</div>
         </div>
@@ -6068,6 +6074,17 @@ window.submitErrorReport = async function() {
 };
 
 // ═══════════ INSTALL GUIDE ════════════════════════════════════
+// Open the full field guide (hosted alongside the PWA on GitHub Pages).
+// Breaks out of the PWA's standalone scope so the guide loads in the user's
+// browser with normal scroll / zoom / share chrome.
+window.openFieldGuide = function() {
+  const url = location.origin + location.pathname.replace(/\/[^\/]*$/, '/') + 'guide.html';
+  const w = window.open(url, '_blank', 'noopener');
+  // On iOS standalone PWAs, window.open is often blocked — fall back to
+  // same-window navigation so the officer still reaches the guide.
+  if (!w) location.href = url;
+};
+
 window.showInstallGuide = function() {
   // Auto-detect platform so the correct tab opens first
   const ua = navigator.userAgent || '';
