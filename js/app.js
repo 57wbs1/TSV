@@ -4702,6 +4702,15 @@ function renderTranslatorSubTab() {
   if (mode === 'live') {
     const srcLabel = dir === 'en-th' ? '🇬🇧 English' : '🇹🇭 ไทย (Thai)';
     const tgtLabel = dir === 'en-th' ? '🇹🇭 ไทย (Thai)' : '🇬🇧 English';
+    const targetLang = dir === 'en-th' ? 'th-TH' : 'en-US';
+    const outHtml = last.output
+      ? `<div style="font-size:20px;line-height:1.4;color:var(--text);word-break:break-word">${escapeHtml(last.output)}</div>
+         ${last.rom ? `<div style="font-size:13px;color:#b45309;font-style:italic;margin-top:6px">${escapeHtml(last.rom)}</div>` : ''}
+         <div style="display:flex;gap:6px;margin-top:10px">
+           <button class="btn btn-outline btn-sm" style="flex:1;font-size:13px" onclick="speakText(${JSON.stringify(last.output).replace(/"/g,'&quot;')}, '${targetLang}')">🔊 Listen</button>
+           <button class="btn btn-outline btn-sm" style="flex:1;font-size:13px" onclick="copyPhraseThai(${JSON.stringify(last.output).replace(/"/g,'&quot;')})">📋 Copy</button>
+         </div>`
+      : `<span style="color:var(--text-3);font-size:13px">Translation will appear here…</span>`;
     return tabBar + `
       <div style="margin:0 12px 16px">
         <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px">
@@ -4717,11 +4726,11 @@ function renderTranslatorSubTab() {
           </button>
           <div style="margin-top:14px;font-size:12px;font-weight:800;color:var(--text-2);letter-spacing:.04em;text-transform:uppercase">To: ${tgtLabel}</div>
           <div id="trans-output"
-            style="margin-top:6px;background:var(--bg);border:1px solid var(--border-2);border-radius:8px;padding:12px;min-height:60px;font-size:16px;line-height:1.5;color:var(--text);white-space:pre-wrap;word-break:break-word">
-            ${last.output ? escapeHtml(last.output) : '<span style="color:var(--text-3);font-size:13px">Translation will appear here…</span>'}
+            style="margin-top:6px;background:var(--bg);border:1px solid var(--border-2);border-radius:8px;padding:12px;min-height:60px">
+            ${outHtml}
           </div>
           <div style="margin-top:8px;font-size:11px;color:var(--text-3)">
-            Powered by MyMemory · requires internet · 1,000-word daily cap per IP (shared across hotel)
+            Translation via Google · 🔊 uses your phone's Thai voice (download in iOS Settings → Accessibility → Spoken Content → Voices if blank)
           </div>
         </div>
       </div>`;
@@ -4730,15 +4739,21 @@ function renderTranslatorSubTab() {
   // Phrasebook view
   const phrasebookHtml = (typeof THAI_PHRASES !== 'undefined' ? THAI_PHRASES : []).map((cat, i) => {
     const open = STATE.translatorCatOpen === cat.category || (STATE.translatorCatOpen == null && i === 0);
-    const rows = cat.phrases.map(p => `
-      <div style="padding:10px 12px;border-top:1px solid var(--border-2);display:flex;gap:10px;align-items:flex-start" onclick="copyPhraseThai('${escapeHtml(p.th)}')">
+    const rows = cat.phrases.map(p => {
+      const thJson = JSON.stringify(p.th).replace(/"/g, '&quot;');
+      return `
+      <div style="padding:10px 12px;border-top:1px solid var(--border-2);display:flex;gap:8px;align-items:flex-start">
         <div style="flex:1;min-width:0">
           <div style="font-size:13px;color:var(--text-2)">${escapeHtml(p.en)}</div>
           <div style="font-size:18px;font-weight:700;color:var(--text);margin-top:2px;word-break:break-word">${escapeHtml(p.th)}</div>
           <div style="font-size:12px;color:#b45309;font-style:italic;margin-top:1px">${escapeHtml(p.rom)}</div>
         </div>
-        <button class="btn btn-outline btn-sm" style="font-size:11px;padding:4px 8px;flex-shrink:0;margin-top:2px" onclick="event.stopPropagation();copyPhraseThai('${escapeHtml(p.th)}')">📋</button>
-      </div>`).join('');
+        <div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0">
+          <button class="btn btn-outline btn-sm" style="font-size:11px;padding:4px 8px" onclick="speakText(${thJson}, 'th-TH')">🔊</button>
+          <button class="btn btn-outline btn-sm" style="font-size:11px;padding:4px 8px" onclick="copyPhraseThai(${thJson})">📋</button>
+        </div>
+      </div>`;
+    }).join('');
     return `
       <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;margin-bottom:10px;overflow:hidden">
         <div onclick="toggleTranslatorCat('${escapeHtml(cat.category)}')"
@@ -4805,23 +4820,77 @@ window.copyPhraseThai = function(thai) {
   }
 };
 
+// Google Translate's public "gtx" client endpoint returns translation AND
+// pronunciation (dt=rm) — critical for English-speaking officers reading
+// Thai script they can't sound out. Unofficial, but widely used + stable
+// for years. Structure: [ [segments], ..., [null, null, romanization], ...]
+// We keep MyMemory as a fallback if Google's endpoint ever breaks.
 window.doLiveTranslate = async function() {
   const input = (el('trans-input')?.value || '').trim();
   if (!input) return toast('Type something first');
   const dir = STATE.translatorDir || 'en-th';
-  const langpair = dir === 'en-th' ? 'en|th' : 'th|en';
+  const sl = dir === 'en-th' ? 'en' : 'th';
+  const tl = dir === 'en-th' ? 'th' : 'en';
   const out = el('trans-output');
   if (out) out.innerHTML = '<span style="color:var(--text-3);font-size:13px">Translating…</span>';
+
+  let translated = '', romanized = '';
   try {
-    const url = 'https://api.mymemory.translated.net/get?q=' + encodeURIComponent(input) + '&langpair=' + langpair;
-    const res = await fetch(url);
-    const body = await res.json();
-    const txt = (body?.responseData?.translatedText || '').trim();
-    if (!txt) throw new Error('Empty response');
-    STATE.translatorLast = { input, output: txt, ts: Date.now() };
-    if (out) out.textContent = txt;
+    const gUrl = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${sl}&tl=${tl}&dt=t&dt=rm&q=${encodeURIComponent(input)}`;
+    const res = await fetch(gUrl);
+    const data = await res.json();
+    // data[0] is an array of segment arrays. Each segment:
+    //   [translated, source, null, null, ?score]
+    // When dt=rm is requested, a final segment gives [null, null, src_rom, tgt_rom].
+    if (Array.isArray(data?.[0])) {
+      data[0].forEach(seg => {
+        if (typeof seg?.[0] === 'string') translated += seg[0];
+        // dt=rm rows have null in [0] and [1]; romanized text in [2] or [3]
+        if (seg?.[0] == null && (seg?.[2] || seg?.[3])) {
+          romanized += (dir === 'en-th' ? (seg[2] || seg[3]) : (seg[3] || seg[2])) || '';
+        }
+      });
+    }
+    translated = translated.trim();
+    romanized = romanized.trim();
+  } catch (e) { translated = ''; }
+
+  // Fallback to MyMemory if Google's unofficial endpoint failed
+  if (!translated) {
+    try {
+      const mmUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(input)}&langpair=${sl}|${tl}`;
+      const r = await fetch(mmUrl);
+      const body = await r.json();
+      translated = (body?.responseData?.translatedText || '').trim();
+    } catch {}
+  }
+
+  if (!translated) {
+    if (out) out.innerHTML = '<span style="color:#b91c1c">Translation failed — check internet. Use the Phrasebook tab instead.</span>';
+    return;
+  }
+
+  STATE.translatorLast = { input, output: translated, rom: romanized, ts: Date.now() };
+  _reRenderTranslatorHost();
+};
+
+// Speak text using the browser's built-in speech synthesis. On iOS the
+// Thai voice usually downloads on first use; if no Thai voice is installed
+// the utterance silently fails — we surface that as a toast.
+window.speakText = function(text, lang) {
+  try {
+    if (!('speechSynthesis' in window)) return toast('Speech not supported on this browser');
+    window.speechSynthesis.cancel();
+    const utter = new SpeechSynthesisUtterance(String(text || ''));
+    utter.lang = lang || 'th-TH';
+    utter.rate = 0.9;  // slightly slower — easier to mimic
+    const voices = window.speechSynthesis.getVoices() || [];
+    const match = voices.find(v => v.lang?.toLowerCase().startsWith(lang.toLowerCase().slice(0, 2)));
+    if (match) utter.voice = match;
+    utter.onerror = () => toast('Playback failed — download the Thai voice in iOS Settings → Accessibility → Spoken Content → Voices → Thai');
+    window.speechSynthesis.speak(utter);
   } catch (e) {
-    if (out) out.innerHTML = '<span style="color:#b91c1c">Translation failed — check internet. Fallback to the Phrasebook tab.</span>';
+    toast('Playback error: ' + e.message);
   }
 };
 window.toggleSOP = function(id) {
