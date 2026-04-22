@@ -623,6 +623,12 @@ const MAP_POIS = [
     note: 'Open-air night market + ferris wheel · free shuttle from Saphan Taksin' },
   { cat: 'market', name: 'Pratunam Market', lat: 13.7525, lng: 100.5401,
     note: 'Wholesale clothing · best in the AM · BTS Chit Lom' },
+  { cat: 'market', name: 'Talad Rot Fai Srinakarin (Night Train Market)', lat: 13.6947, lng: 100.6519,
+    note: 'Retro / vintage vibe · Thu–Sun evenings · street food, music, bar zones' },
+  { cat: 'market', name: 'Damnoen Saduak Floating Market', lat: 13.5183, lng: 99.9611,
+    note: 'Classic floating market · ~1h 40m drive from Pullman · best before 0900H, it gets packed' },
+  { cat: 'market', name: 'Amphawa Floating Market', lat: 13.4231, lng: 99.9558,
+    note: 'Weekend-only floating market · ~1h 30m drive · calmer than Damnoen · night firefly boats' },
 
   // ── Food — Michelin-starred + Bib Gourmand + top-rated ──
   // Pins are ordered by proximity to Pullman within each tier, so officers
@@ -694,18 +700,83 @@ const MAP_POIS = [
     note: 'Novotel Silom basement · 1930s Shanghai speakeasy · live jazz · close to Pullman' },
 
   // ── Landmarks + Popular Areas ──
+  // Inner Bangkok — cultural / historic
   { cat: 'landmark', name: 'Wat Pho (Reclining Buddha)', lat: 13.7465, lng: 100.4926,
     note: 'Historic temple · dress respectfully (cover shoulders/knees)' },
   { cat: 'landmark', name: 'Grand Palace', lat: 13.7500, lng: 100.4913,
     note: 'Royal palace complex · strict dress code · arrive early' },
   { cat: 'landmark', name: 'Wat Arun (Temple of Dawn)', lat: 13.7437, lng: 100.4886,
     note: 'Best seen at sunset from the east bank of the Chao Phraya' },
+  { cat: 'landmark', name: 'Wat Saket (Golden Mount)', lat: 13.7538, lng: 100.5064,
+    note: '318 steps to a gilded chedi · best sunset city view · Old City' },
+  { cat: 'landmark', name: 'Wat Benchamabophit (Marble Temple)', lat: 13.7668, lng: 100.5145,
+    note: 'Italian Carrara marble temple · featured on 5-baht coin · Dusit' },
+  { cat: 'landmark', name: 'Wat Traimit (Golden Buddha)', lat: 13.7373, lng: 100.5137,
+    note: "World's largest solid-gold Buddha · 5.5 tonnes · at Chinatown edge" },
+  { cat: 'landmark', name: 'Wat Suthat & Giant Swing', lat: 13.7509, lng: 100.5003,
+    note: 'One of six first-class royal temples · towering red swing outside' },
+  { cat: 'landmark', name: 'Erawan Shrine', lat: 13.7441, lng: 100.5404,
+    note: 'Busy Hindu shrine at Ratchaprasong · dancers perform for donations' },
+
+  // Museums + culture centres
+  { cat: 'landmark', name: 'Jim Thompson House', lat: 13.7489, lng: 100.5290,
+    note: 'Thai silk heritage museum · historic teak houses' },
+  { cat: 'landmark', name: 'Bangkok National Museum', lat: 13.7577, lng: 100.4923,
+    note: 'Former royal palace · Thai art + history · near Grand Palace' },
+  { cat: 'landmark', name: 'Museum Siam', lat: 13.7430, lng: 100.4940,
+    note: 'Interactive "What is Thai-ness?" museum · family-friendly' },
+  { cat: 'landmark', name: 'MOCA (Museum of Contemporary Art)', lat: 13.8511, lng: 100.5437,
+    note: 'Largest modern Thai art collection · 5 floors · north BKK · allow 2h' },
+  { cat: 'landmark', name: 'Bangkok Art & Culture Centre (BACC)', lat: 13.7465, lng: 100.5300,
+    note: 'Free entry · rotating exhibitions · cafés + galleries · BTS National Stadium' },
+
+  // Neighbourhoods + cultural districts
   { cat: 'landmark', name: 'Khao San Road', lat: 13.7593, lng: 100.4970,
     note: 'Backpacker street · nightlife + street food' },
+  { cat: 'landmark', name: 'Yaowarat (Chinatown)', lat: 13.7402, lng: 100.5099,
+    note: "Bangkok's Chinatown · street-food mecca after dark · Chinese temples + gold shops" },
+  { cat: 'landmark', name: 'Talad Noi (Old Town)', lat: 13.7348, lng: 100.5132,
+    note: 'Historic riverside neighbourhood · street art, hidden cafés, Sino-Portuguese houses' },
+  { cat: 'landmark', name: 'Chang Chui Creative Park', lat: 13.7880, lng: 100.4832,
+    note: 'Decommissioned plane as centrepiece · indie shops, art, street food · Thonburi side' },
+
+  // Parks + outdoor
   { cat: 'landmark', name: 'Lumpini Park', lat: 13.7307, lng: 100.5418,
-    note: 'Large urban park · morning runs 0500–0800 · BTS Sala Daeng' },
-  { cat: 'landmark', name: 'Jim Thompson House', lat: 13.7489, lng: 100.5290,
-    note: 'Thai silk heritage museum · historic teak houses' }
+    note: 'Large urban park · morning runs 0500–0800 · monitor lizards · BTS Sala Daeng' },
+  { cat: 'landmark', name: 'Benjakitti Forest Park', lat: 13.7309, lng: 100.5556,
+    note: 'Newer forest park (2022) · wooden boardwalks over reclaimed tobacco land' },
+  { cat: 'landmark', name: 'Chatuchak Park', lat: 13.8055, lng: 100.5541,
+    note: 'Next to the weekend market · quiet green refuge between stalls' },
+
+  // Views + observation
+  { cat: 'landmark', name: 'Baiyoke Sky Tower', lat: 13.7546, lng: 100.5399,
+    note: '84-floor observation deck · 360° rotating platform · Pratunam area' },
+
+  // Family / kids / adventure
+  { cat: 'landmark', name: 'SEA LIFE Bangkok Ocean World', lat: 13.7461, lng: 100.5350,
+    note: 'Aquarium in Siam Paragon basement · walk-through tunnel · family-friendly' },
+  { cat: 'landmark', name: 'Madame Tussauds Bangkok', lat: 13.7456, lng: 100.5322,
+    note: 'Wax museum · Siam Discovery · quick 1-hour stop' },
+  { cat: 'landmark', name: 'Bangkok Planetarium', lat: 13.7346, lng: 100.5665,
+    note: 'Classic planetarium + science museum · Ekkamai · cheap entry' },
+  { cat: 'landmark', name: 'Dream World (Amusement Park)', lat: 13.9814, lng: 100.6661,
+    note: 'Large theme park · ~45 min from Pullman · rollercoasters + snow zone · Rangsit' },
+  { cat: 'landmark', name: 'Siam Amazing Park', lat: 13.8074, lng: 100.7486,
+    note: 'Amusement + water park combo · Minburi · ~45 min drive' },
+  { cat: 'landmark', name: 'Safari World', lat: 13.8669, lng: 100.7005,
+    note: 'Drive-through safari + marine park · ~45 min · full-day trip' },
+  { cat: 'landmark', name: 'Erawan Museum (3-Headed Elephant)', lat: 13.5808, lng: 100.6128,
+    note: 'Enormous bronze elephant statue with museum inside · Samut Prakan · ~45 min' },
+
+  // Muay Thai stadiums
+  { cat: 'landmark', name: 'Rajadamnern Stadium (Muay Thai)', lat: 13.7589, lng: 100.5094,
+    note: "Thailand's oldest Muay Thai stadium (1945) · fights Mon/Wed/Thu/Sun · 1800-2200H" },
+  { cat: 'landmark', name: 'Lumpinee Boxing Stadium (Muay Thai)', lat: 13.7728, lng: 100.5534,
+    note: 'Premier Muay Thai stadium · fights Tue/Fri/Sat · Ramintra (newer venue)' },
+
+  // Transport / iconic
+  { cat: 'landmark', name: 'Hua Lamphong Railway Station', lat: 13.7378, lng: 100.5172,
+    note: 'Historic 1916 Italian-designed station · now mostly a heritage landmark · MRT connected' }
 ];
 
 const REFLECTION_TEMPLATE = `What did we observe?
