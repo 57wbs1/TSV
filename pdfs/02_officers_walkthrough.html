@@ -44,21 +44,32 @@
 </section>
 
 <h2>Installing the app</h2>
-<p>The TSV app is a Progressive Web App. You install it once from Safari; after that, it behaves like any other app on your home screen — own icon, full-screen, works on weak Wi-Fi, remembers your login.</p>
+<p>The TSV app is a Progressive Web App. Install it once from your phone's browser; after that, it behaves like any other app on your home screen — own icon, full-screen, works on weak Wi-Fi, remembers your login. Works on both iPhone and Android.</p>
 
+<h3>iPhone · Safari</h3>
 <div class="flow">
-  <div class="s">Open <code>https://57wbs1.github.io/TSV/</code> in <b>Safari</b> on your iPhone. Chrome will not let you install it — only Safari.</div>
-  <div class="s">Tap the <b>Share</b> icon at the bottom of Safari (the square with the arrow).</div>
+  <div class="s">Open <code>https://57wbs1.github.io/TSV/</code> in <b>Safari</b>. Chrome on iOS cannot install PWAs — only Safari can.</div>
+  <div class="s">Tap the <b>Share</b> icon at the bottom of Safari (square with an arrow pointing up).</div>
   <div class="s">Scroll down in the share sheet and tap <b>Add to Home Screen</b>.</div>
   <div class="s">Confirm the name and tap <b>Add</b>. The TSV BKK icon appears on your home screen.</div>
-  <div class="s">Open the app from the home screen icon. Sign in with the PIN the admin issued you. You'll be asked to set your own PIN on first login — pick one you'll remember.</div>
 </div>
+
+<h3>Android · Chrome</h3>
+<div class="flow">
+  <div class="s">Open <code>https://57wbs1.github.io/TSV/</code> in <b>Chrome</b> (or any Chromium browser — Edge, Samsung Internet, etc. all work).</div>
+  <div class="s">Chrome usually shows a banner at the bottom: <b>Add TSV BKK to Home screen</b>. Tap it. If you don't see the banner, proceed to the next step.</div>
+  <div class="s">Tap the <b>⋮</b> menu (top-right corner), then tap <b>Install app</b>. On older Chrome it may read <b>Add to Home screen</b> — same thing.</div>
+  <div class="s">Confirm with <b>Install</b>. The icon appears in your app drawer and on your home screen.</div>
+</div>
+
+<h3>First login · both platforms</h3>
+<p>Open the app from your home screen. Sign in with the PIN your admin issued you. On first login you'll be prompted to set your own PIN — pick something memorable, because the admin can reset it but will not see what you choose.</p>
 
 <h3>If the app won't install</h3>
 <ul>
-  <li>Make sure you're in Safari, not Chrome or Firefox.</li>
-  <li>If you tap Share and don't see Add to Home Screen, scroll further down the share sheet — iOS hides it below the share targets.</li>
-  <li>If the page just shows a spinning circle, force-quit Safari and reopen the link. The app is designed to recover cleanly.</li>
+  <li><b>iPhone:</b> make sure you're in Safari, not Chrome or Firefox. If you tap Share and don't see <i>Add to Home Screen</i>, scroll further down the share sheet — iOS hides it below the share targets.</li>
+  <li><b>Android:</b> if the ⋮ menu doesn't show <i>Install app</i>, Chrome probably needs to fully load the page first. Wait a few seconds, then retry. Private / incognito mode blocks PWA installs — switch to a normal tab.</li>
+  <li><b>Either platform:</b> if the page shows a spinning circle and never loads, force-quit the browser or the app and reopen the link. The service worker is designed to recover on its second boot.</li>
 </ul>
 
 <hr class="rule" />
