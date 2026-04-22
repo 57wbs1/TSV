@@ -5851,6 +5851,12 @@ function _renderSettingsMe(user, gk) {
         <button class="btn btn-outline btn-sm" onclick="changeMyPin()">Change</button>
       </div>
       <div class="settings-row">
+        <div class="sr-label">Video Walkthrough
+          <div class="sr-value">5-min screen recording showing the app end-to-end</div>
+        </div>
+        <button class="btn btn-outline btn-sm" onclick="openVideoWalkthrough()">📹 Watch</button>
+      </div>
+      <div class="settings-row">
         <div class="sr-label">How to Use
           <div class="sr-value">Full field guide — install, daily flows, IC duties, FAQ</div>
         </div>
@@ -6578,6 +6584,14 @@ window.openFieldGuide = function() {
   const w = window.open(url, '_blank', 'noopener');
   // On iOS standalone PWAs, window.open is often blocked — fall back to
   // same-window navigation so the officer still reaches the guide.
+  if (!w) location.href = url;
+};
+
+// YouTube-hosted walkthrough video. On iPhone this handoffs to the YouTube
+// app if installed, otherwise falls back to Safari / the embedded player.
+window.openVideoWalkthrough = function() {
+  const url = 'https://youtu.be/qx4I03rIxvA';
+  const w = window.open(url, '_blank', 'noopener');
   if (!w) location.href = url;
 };
 
