@@ -7,7 +7,12 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="TSV BKK">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com https://www.gstatic.com; style-src 'self' 'unsafe-inline' https://unpkg.com; img-src * data: blob:; connect-src 'self' https://script.google.com https://*.firebaseio.com https://*.googleapis.com https://api.open-meteo.com https://air-quality-api.open-meteo.com https://translate.googleapis.com https://api.mymemory.translated.net https://*.tile.openstreetmap.org https://unpkg.com; font-src 'self' data:; worker-src 'self'; manifest-src 'self';">
+  <!-- CSP intentionally removed pre-trip: Apps Script 302-redirects larger
+       responses to script.googleusercontent.com, which my earlier CSP blocked
+       silently (e.g. Tele-Auto preview). Revisit post-trip with every domain
+       properly whitelisted (add *.googleusercontent.com). For now, defence in
+       depth is provided by: escapeHtml() at render time, HTTPS-only transport,
+       and the Apps Script super-admin actor gate on sensitive endpoints. -->
   <link rel="apple-touch-icon" href="icons/icon-192.png">
   <link rel="apple-touch-icon" sizes="512x512" href="icons/icon-512.png">
   <link rel="manifest" href="manifest.json">
