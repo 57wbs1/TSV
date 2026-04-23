@@ -135,10 +135,31 @@ function doGet(e) {
         if (e.parameter.confirm !== 'YES_RESET') { data = { error: 'Missing confirm=YES_RESET' }; break; }
         data = tripPrepReset({ rename: e.parameter.rename || '' });
         break;
+      case 'resetDay1FromPdf':
+        // Super-admin only. Wipes Day 1 from Sheet + GCal and re-inserts the
+        // PDF-accurate 0600-SG→0200-BKK itinerary. Safe to re-run (idempotent).
+        if (e.parameter.actor !== SUPER_ADMIN_ID) { data = { error: 'Unauthorized' }; break; }
+        data = resetDay1FromPdf();
+        break;
+      case 'restoreDay1Preflight':
+        // Super-admin only. Overwrite sheet d1_01–d1_04 with correct SG times
+        // after the sync previously mangled them. Idempotent.
+        if (e.parameter.actor !== SUPER_ADMIN_ID) { data = { error: 'Unauthorized' }; break; }
+        data = restoreDay1Preflight();
+        break;
       case 'getAdminRequests': data = readSheet(SHEETS.ADMINREQ); break;
       case 'getTransport':    data = getTransportState(); break;
       case 'getForceInConfig': data = getForceInConfig(); break;
       case 'getParadeState':   data = readParadeState(); break;
+      case 'getSynRemarks':    data = readSynRemarks(); break;
+      case 'getBroadcastOverrides':
+        if (e.parameter.actor !== SUPER_ADMIN_ID) { data = { error: 'Unauthorized' }; break; }
+        data = getBroadcastOverrides();
+        break;
+      case 'previewBroadcast':
+        if (e.parameter.actor !== SUPER_ADMIN_ID) { data = { error: 'Unauthorized' }; break; }
+        data = previewBroadcast(e.parameter.key || '', e.parameter.date || '');
+        break;
       case 'getIncidents':     data = getIncidents(); break;
       case 'getTelegramConfig': data = getTelegramConfig(); break;
       case 'getCalendar':
@@ -178,8 +199,22 @@ const ACTOR_REQUIRED = new Set([
   'updateStatus','addLearning','addReflection','deleteReflection','addIncident',
   'createIncident','addIncidentUpdate','deleteIncident',
   'addMember','updateMember','deleteMember','seedMembers','bulkSyncMembers',
-  'sendPing','addAdminRequest','resolveAdminRequest','postHotwash',
-  'sendTelegram','updateParadeStatus','sendAdhocParadeState'
+  'sendPing','markPingRead','addAdminRequest','resolveAdminRequest','postHotwash',
+  'sendTelegram','updateParadeStatus','updateSynRemark','sendAdhocParadeState',
+  'saveBroadcastOverride','clearBroadcastOverride',
+  'updateEvent','addEvent','deleteEvent','updateTransport',
+  'updateTelegramConfig','updateBroadcastSchedule','updateForceInConfig',
+  'testRouting','seedCalendar'
+]);
+
+// Actions that require admin rights (not just a known actor). Calendar CRUD
+// and any trip-wide config change must be gated beyond the client-side UI
+// hide — otherwise a non-admin could craft the POST manually.
+const ADMIN_ONLY_ACTIONS = new Set([
+  'updateEvent','addEvent','deleteEvent',
+  'updateTelegramConfig','updateBroadcastSchedule','updateForceInConfig',
+  'testRouting','seedCalendar','seedMembers','bulkSyncMembers',
+  'deleteMember','deleteIncident','resolveAdminRequest'
 ]);
 
 function _validateActor(actor) {
@@ -212,8 +247,21 @@ function doPost(e) {
   try {
     const body = JSON.parse(e.postData.contents || '{}');
 
-    // Detect Telegram webhook payload — has top-level update_id
+    // Detect Telegram webhook payload — has top-level update_id.
+    // Validate the secret_token header so a forged POST can't trigger the
+    // bot's reply/log path (set via setWebhook's `secret_token` param; must
+    // match the `tsvTelegramWebhookSecret` ScriptProperty). If the property
+    // is unset we fall open so webhook setup isn't blocked mid-install.
     if (body.update_id !== undefined) {
+      const expected = PropertiesService.getScriptProperties().getProperty('tsvTelegramWebhookSecret');
+      if (expected) {
+        const got = (e.parameter && e.parameter.secret_token) ||
+                    (e.headers && e.headers['X-Telegram-Bot-Api-Secret-Token']) || '';
+        if (got !== expected) {
+          logAction('tg_webhook_forged', 'server', '');
+          return json({ ok: false, error: 'Invalid webhook signature' });
+        }
+      }
       return handleTelegramUpdate(body);
     }
 
@@ -222,6 +270,11 @@ function doPost(e) {
     // Actor gate — mutating actions must come from a known member
     if (ACTOR_REQUIRED.has(action) && !_validateActor(body.actor)) {
       return json({ ok: false, error: 'Unauthorized: unknown actor' });
+    }
+    // Admin gate — trip-wide config / destructive writes require admin rights
+    // on the server (client-side UI hide alone is bypassable).
+    if (ADMIN_ONLY_ACTIONS.has(action) && !_isAdminActor(body.actor)) {
+      return json({ ok: false, error: 'Unauthorized: admin only' });
     }
 
     let data;
@@ -251,6 +304,15 @@ function doPost(e) {
       case 'deleteEvent':      data = deleteCalendarEvent(body); break;
       case 'updateTransport':  data = updateTransportState(body); break;
       case 'updateParadeStatus': data = updateParadeStatus(body); break;
+      case 'updateSynRemark':    data = updateSynRemark(body); break;
+      case 'saveBroadcastOverride':
+        if (body.actor !== SUPER_ADMIN_ID) { data = { ok: false, error: 'Unauthorized' }; break; }
+        data = saveBroadcastOverride(body);
+        break;
+      case 'clearBroadcastOverride':
+        if (body.actor !== SUPER_ADMIN_ID) { data = { ok: false, error: 'Unauthorized' }; break; }
+        data = clearBroadcastOverride(body);
+        break;
       case 'sendAdhocParadeState': data = sendAdhocParadeState(body); break;
       case 'seedCalendar':     data = seedCalendarFromServer(); break;
       case 'updateTelegramConfig':  data = updateTelegramConfig(body); break;
@@ -516,6 +578,7 @@ function testRouting(body) {
       case 'A3_evening':    sendEveningSitrep(chatId);        return { ok: true, sent: 'A3 evening sitrep' };
       case 'A4_midnight':   sendMidnightSitrep(chatId);       return { ok: true, sent: 'A4 midnight curfew sitrep' };
       case 'A5_parade':     sendParadeStateBroadcast(chatId); return { ok: true, sent: 'A5 parade state' };
+      case 'A5b_gkscsc':    tgSend(_buildParadeStateMessage(), chatId); return { ok: true, sent: 'A5b GKSCSC parade state' };
       case 'M1_ir':             _sendSampleM(chatId, 'M1');  return { ok: true, sent: 'M1 incident report sample' };
       case 'M2_bus_boarding':   _sendSampleM(chatId, 'M2');  return { ok: true, sent: 'M2 bus boarding sample' };
       case 'M3_bus_pushing':    _sendSampleM(chatId, 'M3');  return { ok: true, sent: 'M3 bus pushing sample' };
@@ -622,38 +685,48 @@ function _calHeaders(sheet) {
 }
 
 function updateCalendarEvent(body) {
-  const sheet = _calSheet();
-  const rows  = sheet.getDataRange().getValues();
-  const h     = rows[0];
-  const idCol = h.indexOf('id');
-  for (let i = 1; i < rows.length; i++) {
-    if (String(rows[i][idCol]) !== String(body.id)) continue;
-    const now = new Date().toISOString();
-    const newRow = h.map(col => {
-      switch (col) {
-        case 'id':          return body.id;
-        case 'day':         return body.day || rows[i][h.indexOf('day')];
-        case 'startTime':   return body.startTime || '';
-        case 'endTime':     return body.endTime || '';
-        case 'title':       return body.title || '';
-        case 'location':    return body.location || '';
-        case 'category':    return body.category || 'event';
-        case 'attire':      return body.attire || '';
-        case 'remarks':     return body.remarks || '';
-        case 'visitId':     return body.visitId || '';
-        case 'synicReport': return body.synicReport ? 'true' : 'false';
-        case 'oicsJson':    return typeof body.oics === 'object' ? JSON.stringify(body.oics) : (body.oicsJson || '{}');
-        case 'isDeleted':   return 'false';
-        case 'createdAt':   return rows[i][h.indexOf('createdAt')] || now;
-        case 'updatedAt':   return now;
-        default:            return rows[i][h.indexOf(col)] || '';
-      }
-    });
-    sheet.getRange(i + 1, 1, 1, h.length).setValues([newRow]);
-    logAction('updateEvent', body.actor || 'unknown', body.id);
-    return { updated: body.id };
+  // Lock prevents concurrent admin edits from stomping each other (read-A,
+  // read-B, write-A → B's mutation disappears). 5s timeout matches other
+  // mutation helpers in this file.
+  const lock = LockService.getScriptLock();
+  try { lock.waitLock(5000); }
+  catch (e) { return { error: 'Could not acquire lock, try again' }; }
+  try {
+    const sheet = _calSheet();
+    const rows  = sheet.getDataRange().getValues();
+    const h     = rows[0];
+    const idCol = h.indexOf('id');
+    for (let i = 1; i < rows.length; i++) {
+      if (String(rows[i][idCol]) !== String(body.id)) continue;
+      const now = new Date().toISOString();
+      const newRow = h.map(col => {
+        switch (col) {
+          case 'id':          return body.id;
+          case 'day':         return body.day || rows[i][h.indexOf('day')];
+          case 'startTime':   return body.startTime || '';
+          case 'endTime':     return body.endTime || '';
+          case 'title':       return body.title || '';
+          case 'location':    return body.location || '';
+          case 'category':    return body.category || 'event';
+          case 'attire':      return body.attire || '';
+          case 'remarks':     return body.remarks || '';
+          case 'visitId':     return body.visitId || '';
+          case 'synicReport': return body.synicReport ? 'true' : 'false';
+          case 'oicsJson':    return typeof body.oics === 'object' ? JSON.stringify(body.oics) : (body.oicsJson || '{}');
+          case 'isDeleted':   return 'false';
+          case 'createdAt':   return rows[i][h.indexOf('createdAt')] || now;
+          case 'updatedAt':   return now;
+          default:            return rows[i][h.indexOf(col)] || '';
+        }
+      });
+      sheet.getRange(i + 1, 1, 1, h.length).setValues([newRow]);
+      logAction('updateEvent', body.actor || 'unknown', body.id);
+      return { updated: body.id };
+    }
+    return { error: 'Event not found: ' + body.id };
+  } finally {
+    lock.releaseLock();
   }
-  return { error: 'Event not found: ' + body.id };
 }
 
 function addCalendarEvent(body) {
@@ -1826,6 +1899,7 @@ const TG_CHAT_DEFAULTS = {
   A3_evening:       { label: 'A3 · 2300H Evening Sitrep',           defaultId: SYN1_CHAT,  enabled: true },
   A4_midnight:      { label: 'A4 · 0200H Midnight Curfew Report',   defaultId: SYN1_CHAT,  enabled: true },
   A5_parade:        { label: 'A5 · 0830H Parade State',             defaultId: SYN1_CHAT,  enabled: true },
+  A5b_gkscsc:       { label: 'A5b · 0830H Parade State (GKSCSC)',   defaultId: '-1003501832989', enabled: true },
   M1_ir:            { label: 'M1 · Incident Report (IR)',           defaultId: SYN1_CHAT,  enabled: true },
   M2_bus_boarding:  { label: 'M2 · Bus Boarding Sitrep',            defaultId: SYN1_CHAT,  enabled: true },
   M3_bus_pushing:   { label: 'M3 · Bus Pushing Sitrep',             defaultId: SYN1_CHAT,  enabled: true },
@@ -2251,18 +2325,21 @@ function sendDailyReminder(forceDate, overrideChatId) {
       : new Date(bkk.getTime() + 24*60*60*1000);
     const tmrDate = forceDate || Utilities.formatDate(tmr, 'Asia/Bangkok', 'yyyy-MM-dd');
 
-    let msg = DAILY_PREVIEWS[tmrDate];
+    // Check Tele-Auto override first (only on production sends, not test routes).
+    // 'once' is keyed by the MESSAGE's target date (tmrDate) — what the message
+    // is about — because that's what the Tele-Auto UI shows the super-admin
+    // when they preview + pick a date. A1 (weather) uses today; A2 (reminder)
+    // uses tmrDate since the message is about tomorrow.
+    let msg;
+    if (!overrideChatId) {
+      const ov = _consumeBroadcastOverride('A2_reminder', tmrDate);
+      if (ov) msg = ov;
+    }
+
+    if (!msg) msg = _buildReminderMessage(tmrDate, overrideChatId /* testMode */);
     if (!msg) {
-      // For test / QC: if it's not a trip-eve day, pick the nearest upcoming preview
-      if (overrideChatId) {
-        const keys = Object.keys(DAILY_PREVIEWS).sort();
-        const upcoming = keys.find(k => k >= Utilities.formatDate(bkk, 'Asia/Bangkok', 'yyyy-MM-dd')) || keys[0];
-        if (upcoming) msg = '<b>[TEST PREVIEW — ' + upcoming + ']</b>\n\n' + DAILY_PREVIEWS[upcoming];
-      }
-      if (!msg) {
-        logAction('reminder_skip', 'server', 'not trip day: ' + tmrDate);
-        return 'Not a trip-eve day: ' + tmrDate;
-      }
+      logAction('reminder_skip', 'server', 'not trip day: ' + tmrDate);
+      return 'Not a trip-eve day: ' + tmrDate;
     }
 
     const sr2 = _tgSendRouted(msg, 'A2_reminder', overrideChatId);
@@ -2272,6 +2349,21 @@ function sendDailyReminder(forceDate, overrideChatId) {
     logAction('reminder_sent', 'server', tmrDate);
     return 'Sent reminder for ' + tmrDate;
   });
+}
+
+// Pure builder for the 1900H reminder. Returns the message string for the
+// given trip-eve date, or null if it's not a scheduled trip-eve. If testMode
+// is truthy and the date has no preview, returns the nearest upcoming one
+// tagged with a [TEST PREVIEW — YYYY-MM-DD] header.
+function _buildReminderMessage(dateStr, testMode) {
+  if (DAILY_PREVIEWS[dateStr]) return DAILY_PREVIEWS[dateStr];
+  if (testMode) {
+    const today = Utilities.formatDate(bkkNow(), 'Asia/Bangkok', 'yyyy-MM-dd');
+    const keys = Object.keys(DAILY_PREVIEWS).sort();
+    const upcoming = keys.find(k => k >= today) || keys[0];
+    if (upcoming) return '<b>[TEST PREVIEW — ' + upcoming + ']</b>\n\n' + DAILY_PREVIEWS[upcoming];
+  }
+  return null;
 }
 
 
@@ -2531,9 +2623,31 @@ function _psiBand(v, label) {
 // briefing with tailored advice based on max temp + humidity + rain.
 function sendWeatherBriefing(overrideChatId) {
   overrideChatId = _coerceChatId(overrideChatId);
-  return _safeCron('weather_0600', () => _sendWeatherBriefingImpl(overrideChatId));
+  return _safeCron('weather_0600', () => {
+    const today = Utilities.formatDate(bkkNow(), 'Asia/Bangkok', 'yyyy-MM-dd');
+    // Check for a queued override (super-admin edit from Tele-Auto). 'once'
+    // overrides auto-consume + delete; 'persistent' stays until cleared.
+    // Skipped when overrideChatId is set (test routing shouldn't auto-consume
+    // a production override).
+    let msg;
+    if (!overrideChatId) {
+      const ov = _consumeBroadcastOverride('A1_weather', today);
+      if (ov) msg = ov;
+    }
+    if (!msg) msg = _buildWeatherMessage();
+    const sr1 = _tgSendRouted(msg, 'A1_weather', overrideChatId);
+    if (sr1 === 'disabled') { logAction('weather_disabled', 'server', ''); return 'A1 disabled'; }
+    if (sr1 === 'killswitch-off') return 'A1 killswitch-off';
+    if (String(sr1).indexOf('fail:') === 0) { logAction('weather_fail', 'server', sr1.slice(0, 180)); return sr1; }
+    logAction('weather_0600', 'server', 'sent · ' + today);
+    return 'Sent weather ' + today;
+  });
 }
-function _sendWeatherBriefingImpl(overrideChatId) {
+
+// Pure builder — fetches live weather + programme + AQI and returns the
+// rendered HTML string. Never sends. Used by the cron, Tele-Auto preview,
+// and any admin audit path.
+function _buildWeatherMessage() {
   const bkk = bkkNow();
   const dateLabel = Utilities.formatDate(bkk, 'Asia/Bangkok', 'EEEE, d MMM');
   const today = Utilities.formatDate(bkk, 'Asia/Bangkok', 'yyyy-MM-dd');
@@ -2579,8 +2693,7 @@ function _sendWeatherBriefingImpl(overrideChatId) {
     }
   } catch (e) {
     logAction('weather_fail', 'server', e.message);
-    _tgSendRouted('<b>☀️ Weather briefing</b>\nCouldn\'t reach the weather service — defaulting: stay hydrated, wear light layers, bring rain cover.', 'A1_weather', overrideChatId);
-    return 'Weather fetch failed';
+    return '<b>☀️ Weather briefing</b>\nCouldn\'t reach the weather service — defaulting: stay hydrated, wear light layers, bring rain cover.';
   }
 
   // Emoji + description for weather code
@@ -2752,13 +2865,7 @@ function _sendWeatherBriefingImpl(overrideChatId) {
   msg += '\n<b>Today\'s tips</b>\n' + tips.map(t => '• ' + t).join('\n');
   msg += '\n\nStay sharp 🇹🇭';
 
-  const sr1 = _tgSendRouted(msg, 'A1_weather', overrideChatId);
-  if (sr1 === 'disabled') { logAction('weather_disabled', 'server', ''); return 'A1 disabled'; }
-  if (sr1 === 'killswitch-off') return 'A1 killswitch-off';
-  if (String(sr1).indexOf('fail:') === 0) { logAction('weather_fail', 'server', sr1.slice(0, 180)); return sr1; }
-  const aqiTag = bkkAqi ? 'BKK' + bkkAqi.value : '';
-  logAction('weather_0600', 'server', (tMax||'?') + '°C ' + wc[1] + (aqiTag ? ' · ' + aqiTag : ''));
-  return 'Sent weather ' + today + (aqiTag ? ' (' + aqiTag + ')' : '');
+  return msg;
 }
 
 // ── Broadcast schedule — each A-series cron's time lives here, editable
@@ -2766,6 +2873,127 @@ function _sendWeatherBriefingImpl(overrideChatId) {
 // if no override saved. Changing a time re-creates that specific trigger.
 // ──────────────────────────────────────────────────────────────────────
 const BROADCAST_SCHEDULE_KEY = 'tsvBroadcastSchedule';
+
+// ──────────────────────────────────────────────────────────────────────
+// BROADCAST OVERRIDES — Tele-Auto preview/edit/queue for A-series messages.
+// Stored as JSON map keyed by routing key (A1_weather, A2_reminder, ...).
+// Entry shape:
+//   { mode: 'once'|'persistent', text: '...', date: 'YYYY-MM-DD'|null,
+//     savedBy: 'caspar', savedAt: ISO }
+// 'once' — consumed + deleted when the cron fires on the matching date.
+//          If the date has passed (cron missed it), the entry auto-expires.
+// 'persistent' — sent every day until super-admin hits Revert.
+// ──────────────────────────────────────────────────────────────────────
+const BROADCAST_OVERRIDES_KEY = 'tsvBroadcastOverrides';
+const OVERRIDE_SUPPORTED_KEYS = { A1_weather: 1, A2_reminder: 1 };
+
+function _readBroadcastOverrides() {
+  try { return JSON.parse(PropertiesService.getScriptProperties().getProperty(BROADCAST_OVERRIDES_KEY) || '{}'); }
+  catch (e) { return {}; }
+}
+function _writeBroadcastOverrides(map) {
+  PropertiesService.getScriptProperties().setProperty(BROADCAST_OVERRIDES_KEY, JSON.stringify(map));
+}
+
+// Returns the override text to send for this key today, or null. Mutates
+// storage: consumes (deletes) matching 'once' entries, expires stale ones.
+function _consumeBroadcastOverride(key, todayStr) {
+  const lock = LockService.getScriptLock();
+  try { lock.waitLock(5000); } catch (e) { return null; }
+  try {
+    const map = _readBroadcastOverrides();
+    const entry = map[key];
+    if (!entry || !entry.text) return null;
+    if (entry.mode === 'persistent') return entry.text;
+    if (entry.mode === 'once' && entry.date) {
+      if (entry.date === todayStr) {
+        delete map[key];
+        _writeBroadcastOverrides(map);
+        logAction('override_consume', 'server', key + ' once/' + entry.date);
+        return entry.text;
+      }
+      if (entry.date < todayStr) {
+        // Stale once-override — clean up silently
+        delete map[key];
+        _writeBroadcastOverrides(map);
+        logAction('override_expire', 'server', key + ' once/' + entry.date);
+      }
+    }
+    return null;
+  } finally {
+    try { lock.releaseLock(); } catch (e) {}
+  }
+}
+
+function getBroadcastOverrides() {
+  return { ok: true, overrides: _readBroadcastOverrides() };
+}
+
+function saveBroadcastOverride(body) {
+  const key  = String((body && body.key) || '').trim();
+  const mode = String((body && body.mode) || 'once').trim();
+  const text = String((body && body.text) || '').trim();
+  const date = String((body && body.date) || '').trim();
+  if (!OVERRIDE_SUPPORTED_KEYS[key]) return { ok: false, error: 'Override not supported for ' + key };
+  if (mode !== 'once' && mode !== 'persistent') return { ok: false, error: 'Invalid mode' };
+  if (!text) return { ok: false, error: 'Empty text — use clearBroadcastOverride to revert' };
+  if (mode === 'once' && !/^\d{4}-\d{2}-\d{2}$/.test(date)) return { ok: false, error: 'Once-mode requires date YYYY-MM-DD' };
+  if (text.length > 4000) return { ok: false, error: 'Text exceeds 4000 chars' };
+  const lock = LockService.getScriptLock();
+  try { lock.waitLock(5000); } catch (e) { return { ok: false, error: 'Busy, retry' }; }
+  try {
+    const map = _readBroadcastOverrides();
+    map[key] = {
+      mode, text,
+      date: mode === 'once' ? date : null,
+      savedBy: body.actorName || body.actor || '',
+      savedAt: new Date().toISOString()
+    };
+    _writeBroadcastOverrides(map);
+    logAction('override_save', body.actor || '', key + ' mode=' + mode + (date ? ' date=' + date : '') + ' len=' + text.length);
+    return { ok: true, entry: map[key] };
+  } finally {
+    try { lock.releaseLock(); } catch (e) {}
+  }
+}
+
+function clearBroadcastOverride(body) {
+  const key = String((body && body.key) || '').trim();
+  if (!OVERRIDE_SUPPORTED_KEYS[key]) return { ok: false, error: 'Override not supported for ' + key };
+  const lock = LockService.getScriptLock();
+  try { lock.waitLock(5000); } catch (e) { return { ok: false, error: 'Busy, retry' }; }
+  try {
+    const map = _readBroadcastOverrides();
+    if (!map[key]) return { ok: true, cleared: false };
+    delete map[key];
+    _writeBroadcastOverrides(map);
+    logAction('override_clear', (body && body.actor) || '', key);
+    return { ok: true, cleared: true };
+  } finally {
+    try { lock.releaseLock(); } catch (e) {}
+  }
+}
+
+// Read-only preview — runs the real builder so Tele-Auto shows exactly what
+// the cron would fire. For A2 (date-driven), accepts an optional dateStr.
+function previewBroadcast(key, dateStr) {
+  if (key === 'A1_weather') {
+    const msg = _buildWeatherMessage();
+    return { ok: true, message: msg, charCount: msg.length };
+  }
+  if (key === 'A2_reminder') {
+    const bkk = bkkNow();
+    const tmrDate = dateStr && /^\d{4}-\d{2}-\d{2}$/.test(dateStr)
+      ? dateStr
+      : Utilities.formatDate(new Date(bkk.getTime() + 24*60*60*1000), 'Asia/Bangkok', 'yyyy-MM-dd');
+    const msg = _buildReminderMessage(tmrDate, false);
+    return msg
+      ? { ok: true, message: msg, charCount: msg.length, date: tmrDate }
+      : { ok: true, message: '', charCount: 0, date: tmrDate,
+          warning: 'No 1900H reminder is scheduled for ' + tmrDate + '. The cron would skip this date and log "reminder_skip".' };
+  }
+  return { ok: false, error: 'Preview not supported for ' + key };
+}
 
 const BROADCAST_DEFAULTS = {
   A1_weather:   { hour: 6,  minute: 0,  handler: 'sendWeatherBriefing',     label: 'A1 · Weather Briefing' },
@@ -2937,6 +3165,43 @@ function updateParadeStatus(body) {
   }
 }
 
+// Per-syndicate shared remarks. Stored as a single JSON blob in ScriptProperties
+// keyed by groupKey (e.g. "57 CSC Syn 1"). Shared across devices so any
+// syndicate member / admin can edit, and every parade broadcast (0830H cron
+// + ad-hoc M7 sends) includes them automatically below the counts.
+const SYN_REMARKS_KEY = 'tsvSynRemarks';
+
+function readSynRemarks() {
+  try {
+    const raw = PropertiesService.getScriptProperties().getProperty(SYN_REMARKS_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return { ok: true, remarks: parsed };
+  } catch (e) {
+    return { ok: true, remarks: {} };
+  }
+}
+
+function updateSynRemark(body) {
+  const syn = String((body && body.syn) || '').trim();
+  if (!syn) return { ok: false, error: 'Missing syn' };
+  const text = String((body && body.remarks) || '').trim().slice(0, 500);
+  const lock = LockService.getScriptLock();
+  try { lock.waitLock(5000); }
+  catch (e) { return { ok: false, error: 'Busy, retry' }; }
+  try {
+    const props = PropertiesService.getScriptProperties();
+    let current = {};
+    try { current = JSON.parse(props.getProperty(SYN_REMARKS_KEY) || '{}'); } catch(e) {}
+    if (!text) delete current[syn];
+    else       current[syn] = { text, updatedBy: body.actorName || body.actor || '', updatedAt: new Date().toISOString() };
+    props.setProperty(SYN_REMARKS_KEY, JSON.stringify(current));
+    logAction('synRemark', body.actor || '', syn + (text ? ' = ' + text.slice(0, 80) : ' (cleared)'));
+    return { ok: true, syn, remarks: current[syn] || null };
+  } finally {
+    try { lock.releaseLock(); } catch(e) {}
+  }
+}
+
 // Build the Telegram parade-state message.
 //   options:
 //     groupKeys (array) — if non-empty, only include these syndicates
@@ -3008,6 +3273,21 @@ function _buildParadeStateMessage(options) {
     });
   }
 
+  // Per-syndicate remarks — loaded from ScriptProperties (tsvSynRemarks).
+  // Surfaced inline under each syndicate's section so context stays attached
+  // to the syn it belongs to. Skipped silently if empty.
+  let synRemarksMap = {};
+  try { synRemarksMap = readSynRemarks().remarks || {}; } catch(e) {}
+  const synRemarkLines = groups
+    .map(gk => ({ gk, r: synRemarksMap[gk] }))
+    .filter(x => x.r && x.r.text);
+  if (synRemarkLines.length) {
+    msg += `\n<b>Syndicate Notes</b>\n`;
+    synRemarkLines.forEach(({ gk, r }) => {
+      msg += `${_formatGroup(gk)}: ${_escTg(r.text)}\n`;
+    });
+  }
+
   if (opts.remarks) {
     msg += `\n${_escTg(String(opts.remarks).trim())}\n`;
   }
@@ -3015,7 +3295,9 @@ function _buildParadeStateMessage(options) {
   return msg;
 }
 
-// Server-scheduled 0830H daily broadcast (A5_parade)
+// Server-scheduled 0830H daily broadcast (A5_parade).
+// Fires to A5_parade (primary) and A5b_gkscsc (GKSCSC secondary) on real
+// broadcasts. Test overrides only hit A5_parade so QC doesn't spam GKSCSC.
 function sendParadeStateBroadcast(overrideChatId) {
   overrideChatId = _coerceChatId(overrideChatId);
   return _safeCron('parade_0830', () => {
@@ -3024,6 +3306,15 @@ function sendParadeStateBroadcast(overrideChatId) {
     if (sr === 'disabled') { logAction('parade_disabled', 'server', ''); return 'A5 disabled'; }
     if (sr === 'killswitch-off') return 'A5 killswitch-off';
     if (String(sr).indexOf('fail:') === 0) { logAction('parade_0830_fail', 'server', sr.slice(0, 180)); return sr; }
+    // Secondary: A5b → GKSCSC daily update. Gated by its own enabled toggle
+    // + the A-killswitch (routing key starts with "A"). No duplicate on test.
+    if (!overrideChatId) {
+      const sr2 = _tgSendRouted(msg, 'A5b_gkscsc');
+      if (sr2 === 'sent')              logAction('parade_0830_gkscsc', 'server', 'sent');
+      else if (sr2 === 'disabled')     logAction('parade_0830_gkscsc', 'server', 'disabled-in-settings');
+      else if (sr2 === 'killswitch-off') logAction('parade_0830_gkscsc', 'server', 'killswitch-off');
+      else if (String(sr2).indexOf('fail:') === 0) logAction('parade_0830_gkscsc_fail', 'server', sr2.slice(0, 180));
+    }
     logAction('parade_0830', 'server', 'sent');
     return 'Parade State 0830H sent';
   });
@@ -3381,6 +3672,176 @@ function createTsvCalendar() {
   };
 }
 
+// One-off: wipe Day 1 from Sheet + GCal, re-insert the PDF-accurate itinerary.
+// Pre-flight events (up to Flight) created with +08:00 (SG TZ) so GCal shows
+// SG time. Post-arrival events use +07:00 (BKK TZ). Safe to re-run.
+const DAY1_PDF_EVENTS = [
+  { id:'d1_01', tz:'+08:00', startTime:'06:00', endTime:'07:30', title:'Check-In',
+    location:'Changi Airport Terminal 2', category:'admin',
+    attire:'Smart Casual (Long Pants, Collared Top, Covered Shoes)', synicReport:true,
+    remarks:'(SG TIME) Booking Reference No disseminated 2-3 days prior for online check-in.' },
+  { id:'d1_02', tz:'+08:00', startTime:'07:30', endTime:'08:00', title:'Group Photo in Transit Area',
+    location:'Dreamscape Indoor Garden, Changi T2', category:'event',
+    remarks:'(SG TIME) All check-in to be completed.' },
+  { id:'d1_03', tz:'+08:00', startTime:'08:30', endTime:'09:15', title:'Commence Boarding',
+    location:'Gate @ Changi T2', category:'admin', synicReport:true,
+    remarks:'(SG TIME) Syn ICs to update when everyone is at the Gate.' },
+  { id:'d1_04', tz:'+08:00', startTime:'09:15', endTime:'10:00', title:'Flight SQ 708 to BKK',
+    location:'SIN → BKK', category:'flight',
+    remarks:'Depart 09:15 SG · Arrive 11:00 BKK. Breakfast provided by airline.' },
+  { id:'d1_05', tz:'+07:00', startTime:'11:00', endTime:'13:00', title:'Arrival · Immigration · Movement to Lunch',
+    location:'Suvarnabhumi Airport → Lunch Venue', category:'event',
+    remarks:'(BKK TIME from here on) All times from this event are Bangkok local.' },
+  { id:'d1_06', tz:'+07:00', startTime:'13:00', endTime:'14:30', title:'Lunch',
+    location:'TBC (Catered)', category:'meal', remarks:'Lunch Venue TBC (Catered).' },
+  { id:'d1_07', tz:'+07:00', startTime:'14:30', endTime:'17:30', title:'Long Tail Boat Tour @ Chao Phraya River',
+    location:'Chao Phraya River', category:'event', attire:'Smart Casual', visitId:'boat_tour',
+    remarks:'3-hour boat tour. Status: Confirmed. Alternative: Grand Palace.' },
+  { id:'d1_08', tz:'+07:00', startTime:'17:30', endTime:'18:30', title:'Movement to Hotel',
+    location:'Chao Phraya River → Pullman Bangkok Hotel G', category:'movement' },
+  { id:'d1_09', tz:'+07:00', startTime:'18:30', endTime:'18:45', title:'Hotel Check-in',
+    location:'Pullman Bangkok Hotel G', category:'admin',
+    remarks:'Submit Rooming List to Syn ICs.' },
+  { id:'d1_10', tz:'+07:00', startTime:'18:45', endTime:'19:15', title:'Syn Reflections',
+    location:'Pullman Bangkok Hotel G', category:'reflection', synicReport:true,
+    remarks:'Follow template provided by learning IC.' },
+  { id:'d1_11', tz:'+07:00', startTime:'19:15', endTime:'26:00', title:'Executive Time · TSV Learning Huddle',
+    location:'Pullman Bangkok Hotel G', category:'free',
+    remarks:'Ends 02:00 next day. Dinner (Self-funded). TSV Learning Huddle (HoD, TSV & Syn Learning ICs). TSV Comm Hotwash (PDS, TSV Comm & Syn ICs).' },
+  { id:'d1_cutoff', tz:'+07:00', startTime:'02:00', endTime:'02:00', title:'⏱ Daily Cutoff',
+    location:'—', category:'admin', remarks:'All members to be in hotel by this time.' }
+];
+
+function resetDay1FromPdf() {
+  const sheet = SPREADSHEET.getSheetByName(SHEETS.CALENDAR.name);
+  const rows = sheet.getDataRange().getValues();
+  const headers = rows[0];
+  const idCol = headers.indexOf('id');
+  const dayCol = headers.indexOf('day');
+
+  // 1. Hard-delete every row where day==1, bottom-up to keep indices stable.
+  let sheetDeleted = 0;
+  for (let i = rows.length - 1; i >= 1; i--) {
+    if (String(rows[i][dayCol]) === '1') {
+      sheet.deleteRow(i + 1);
+      sheetDeleted++;
+    }
+  }
+
+  // 2. Wipe every GCal event on 2026-04-26 (Day 1 window).
+  const calId = PropertiesService.getScriptProperties().getProperty(GCAL_PROP_KEY);
+  let gcalDeleted = 0, gcalCreated = 0, gcalFailed = 0;
+  let cal = null;
+  if (calId) {
+    cal = CalendarApp.getCalendarById(calId);
+    if (cal) {
+      const wStart = new Date('2026-04-26T00:00:00+08:00'); // early enough to catch SG-TZ events
+      const wEnd   = new Date('2026-04-27T12:00:00+07:00'); // late enough to catch post-midnight Exec Time
+      cal.getEvents(wStart, wEnd).forEach(ev => {
+        try { ev.deleteEvent(); gcalDeleted++; } catch(e) {}
+      });
+    }
+  }
+
+  // 3. Re-insert Sheet rows + GCal events from the canonical list.
+  const now = new Date().toISOString();
+  DAY1_PDF_EVENTS.forEach(r => {
+    // Handle Executive Time that spans past midnight: split into sheet as
+    // 19:15 → 02:00 (crosses midnight handled client-side) but in GCal use
+    // a 19:15 → next-day 02:00 event.
+    const sheetEnd = r.endTime === '26:00' ? '02:00' : r.endTime;
+    const newRow = headers.map(col => {
+      switch (col) {
+        case 'id':          return r.id;
+        case 'day':         return 1;
+        case 'startTime':   return r.startTime;
+        case 'endTime':     return sheetEnd;
+        case 'title':       return r.title;
+        case 'location':    return r.location || '';
+        case 'category':    return r.category || 'event';
+        case 'attire':      return r.attire || '';
+        case 'remarks':     return r.remarks || '';
+        case 'visitId':     return r.visitId || '';
+        case 'synicReport': return r.synicReport ? 'true' : 'false';
+        case 'oicsJson':    return '{}';
+        case 'isDeleted':   return 'false';
+        case 'createdAt':   return now;
+        case 'updatedAt':   return now;
+        default:            return '';
+      }
+    });
+    sheet.appendRow(newRow);
+
+    // GCal
+    if (cal) {
+      try {
+        const dateIso = '2026-04-26';
+        const [sh, sm] = r.startTime.split(':');
+        let eh, em;
+        if (r.endTime === '26:00') { eh = '02'; em = '00'; } // handled below
+        else { [eh, em] = r.endTime.split(':'); }
+        const start = new Date(dateIso + 'T' + sh + ':' + sm + ':00' + r.tz);
+        let end = new Date(dateIso + 'T' + eh + ':' + em + ':00' + r.tz);
+        // Span past midnight: push end to next day
+        if (r.endTime === '26:00' || (!(r.id === 'd1_cutoff') && end.getTime() <= start.getTime())) {
+          end.setTime(end.getTime() + 24 * 60 * 60 * 1000);
+        }
+        // Zero-duration cutoff: GCal needs a positive duration — make it 5 min
+        if (r.id === 'd1_cutoff') end = new Date(start.getTime() + 5 * 60 * 1000);
+        cal.createEvent(r.title, start, end, {
+          location: r.location || '',
+          description: _gcalDescription({
+            id: r.id, category: r.category, attire: r.attire,
+            remarks: r.remarks, visitId: r.visitId, synicReport: r.synicReport
+          })
+        });
+        gcalCreated++;
+      } catch (e) {
+        gcalFailed++;
+        logAction('resetDay1_gcal_fail', 'server', r.id + ': ' + e.message);
+      }
+    }
+  });
+
+  logAction('resetDay1', 'server',
+    'sheetDeleted=' + sheetDeleted + ' sheetInserted=' + DAY1_PDF_EVENTS.length +
+    ' gcalDeleted=' + gcalDeleted + ' gcalCreated=' + gcalCreated + ' gcalFailed=' + gcalFailed);
+
+  return { ok: true, sheetDeleted, sheetInserted: DAY1_PDF_EVENTS.length, gcalDeleted, gcalCreated, gcalFailed };
+}
+
+// One-off repair: the sync (before the FROZEN_SYNC_IDS fix) read Day 1
+// pre-flight GCal events (which are stored in SG TZ) and wrote them into
+// the sheet as BKK times — corrupting d1_01–d1_04. This function writes
+// the correct SG times back. Idempotent; safe to re-run.
+function restoreDay1Preflight() {
+  const canonical = {
+    d1_01: { startTime: '06:00', endTime: '07:30' },
+    d1_02: { startTime: '07:30', endTime: '08:00' },
+    d1_03: { startTime: '08:30', endTime: '09:15' },
+    d1_04: { startTime: '09:15', endTime: '11:00' }
+  };
+  const sheet = SPREADSHEET.getSheetByName(SHEETS.CALENDAR.name);
+  const rows = sheet.getDataRange().getValues();
+  const headers = rows[0];
+  const idCol = headers.indexOf('id');
+  const startCol = headers.indexOf('startTime');
+  const endCol = headers.indexOf('endTime');
+  const updatedCol = headers.indexOf('updatedAt');
+  const now = new Date().toISOString();
+  let patched = 0;
+  for (let i = 1; i < rows.length; i++) {
+    const id = String(rows[i][idCol]);
+    if (!canonical[id]) continue;
+    sheet.getRange(i + 1, startCol + 1).setValue(canonical[id].startTime);
+    sheet.getRange(i + 1, endCol + 1).setValue(canonical[id].endTime);
+    if (updatedCol >= 0) sheet.getRange(i + 1, updatedCol + 1).setValue(now);
+    patched++;
+  }
+  logAction('restoreDay1Preflight', 'server', 'patched=' + patched);
+  return { ok: true, patched, ids: Object.keys(canonical) };
+}
+
 // Delete every event in the TSV26 calendar inside the trip window.
 // Destructive — only callable by super-admin.
 function wipeGcalTripEvents() {
@@ -3404,26 +3865,39 @@ function wipeGcalTripEvents() {
 // Sheet time cells can come back as Date objects (with the 1899-12-30 epoch),
 // as ISO strings, or as plain "HH:mm" strings. Normalize to "HH:mm".
 //
-// IMPORTANT: Sheets stores time-only cells as Date objects whose UTC instant
-// equals the user-entered time-of-day. e.g. "06:00" → Date(1899-12-30T06:00:00Z).
-// Formatting with a real timezone (Asia/Bangkok) corrupts the value by applying
-// a historical BMT/ICT offset. So we extract the UTC hours/minutes directly.
+// TIMEZONE QUIRK: When the spreadsheet TZ is Asia/Bangkok, Sheets stores a
+// cell like "06:00" as a Date using historical Bangkok Mean Time (UTC+6:55:56,
+// the 1899-era offset). So "06:00 Bangkok" → 1899-12-29T23:04:04Z. Using
+// getUTCHours() returns 23 — wrong. Using Utilities.formatDate(date,
+// 'Asia/Bangkok', 'HH:mm') is ALSO wrong because it applies the even-older
+// LMT offset (UTC+6:42:04), producing times 14 minutes early. Only reliable
+// path: extract UTC H/M then manually add the BMT offset (+6h 56m) back.
 function _normalizeHHmm(v) {
   if (v == null || v === '') return '';
   if (v instanceof Date && !isNaN(v.getTime())) {
-    const h = v.getUTCHours();
-    const m = v.getUTCMinutes();
-    return (h < 10 ? '0' + h : '' + h) + ':' + (m < 10 ? '0' + m : '' + m);
+    return _hmFromBmtDate(v.getUTCHours(), v.getUTCMinutes());
   }
   const s = String(v).trim();
   if (/^\d{1,2}:\d{2}$/.test(s)) {
     const [h, m] = s.split(':');
     return (h.length === 1 ? '0' + h : h) + ':' + m;
   }
-  // ISO-like "1899-12-30T06:00:00.000Z" → grab HH:mm directly from the UTC form
-  const iso = s.match(/T(\d{2}):(\d{2})/);
-  if (iso) return iso[1] + ':' + iso[2];
+  // ISO datetime — if it's the 1899 epoch, apply BMT correction; else just grab HH:mm
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+  if (m) {
+    if (m[1] === '1899' || m[1] === '1900') return _hmFromBmtDate(+m[4], +m[5]);
+    return m[4] + ':' + m[5];
+  }
   return '';
+}
+
+// Add the Bangkok Mean Time offset (+6h 56m) to UTC hours/minutes and wrap.
+function _hmFromBmtDate(h, m) {
+  let mins = h * 60 + m + (6 * 60 + 56);
+  mins = ((mins % 1440) + 1440) % 1440;
+  const oh = Math.floor(mins / 60);
+  const om = mins % 60;
+  return (oh < 10 ? '0' + oh : '' + oh) + ':' + (om < 10 ? '0' + om : '' + om);
 }
 
 // 5-min cron: read the GCal, for each event find its App ref, and
@@ -3462,9 +3936,18 @@ function _syncFromGoogleCalendarImpl() {
   let updated = 0, unchanged = 0, unmatched = 0;
   const nowIso = new Date().toISOString();
 
+  // Events that MUST NOT be overwritten from GCal. Day 1 pre-flight + flight
+  // events are in SG time (user is still in Singapore before the flight).
+  // GCal stores them as absolute UTC instants — formatting back through
+  // Asia/Bangkok silently converts "06:00 SG" into "05:00 BKK", corrupting
+  // the user-facing times. Keep these frozen; the sheet seed is source of
+  // truth. Post-arrival events (d1_05 onwards) sync normally.
+  const FROZEN_SYNC_IDS = new Set(['d1_01', 'd1_02', 'd1_03', 'd1_04']);
+
   events.forEach(ev => {
     const parsed = _parseGcalDescription(ev.getDescription());
     if (!parsed.appId) { unmatched++; return; }
+    if (FROZEN_SYNC_IDS.has(parsed.appId)) { unchanged++; return; }
     // Find the row with this appId
     for (let i = 1; i < rows.length; i++) {
       if (rows[i][idCol] !== parsed.appId) continue;

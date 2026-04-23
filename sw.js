@@ -1,5 +1,5 @@
 // Bump this version number on every deploy to invalidate the cache.
-const CACHE_NAME = 'tsv-bkk-v87-' + '20260423v71';
+const CACHE_NAME = 'tsv-bkk-v87-' + '20260424v81-teleauto';
 
 const APP_SHELL = [
   './index.html',
@@ -11,6 +11,8 @@ const APP_SHELL = [
   './js/app.js',
   './manifest.json',
   './icons/icon.svg',
+  './icons/icon-192.png',
+  './icons/icon-512.png',
   './icons/gks-logo.png'
 ];
 
@@ -78,11 +80,15 @@ self.addEventListener('fetch', e => {
     return;
   }
 
-  // App shell — network-first, fall back to cache
+  // App shell — network-first with 4s timeout, fall back to cache.
+  // Without the timeout, a slow Apps Script cold start (5-10s) blocks the
+  // whole navigation — users stare at white screen before SW gives up.
   e.respondWith(
-    fetch(e.request)
+    Promise.race([
+      fetch(e.request),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('sw-timeout')), 4000))
+    ])
       .then(res => {
-        // Cache fresh copy
         if (res && res.ok) {
           const clone = res.clone();
           caches.open(CACHE_NAME).then(c => c.put(e.request, clone));

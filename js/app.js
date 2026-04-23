@@ -72,10 +72,20 @@ const API = {
     // Always include an `actor` (server gate requires it for mutations).
     const payload = { action, actor: (data && data.actor) || STATE.currentUser?.id || '', ...data };
     if (!payload.actor && STATE.currentUser?.id) payload.actor = STATE.currentUser.id;
+    // In-flight dedup: if a Telegram/send mutation with identical body is
+    // already mid-flight, return its promise instead of posting again.
+    // Prevents double-taps on "Send IR / Parade / SITREP" from double-firing.
+    const DEDUP_ACTIONS = API._DEDUP_ACTIONS;
+    const dedupKey = DEDUP_ACTIONS.has(action) ? (action + '::' + JSON.stringify(data || {})) : null;
+    if (dedupKey) {
+      API._inflight = API._inflight || new Map();
+      if (API._inflight.has(dedupKey)) return API._inflight.get(dedupKey);
+    }
     const domain = MUTATION_DOMAIN[action];
     if (domain) lockSync(domain);
     beginSaving(action);
-    try {
+    const runPromise = (async () => {
+      try {
       const res = await fetch(CONFIG.apiUrl, {
         method: 'POST',
         body: JSON.stringify(payload),
@@ -117,8 +127,20 @@ const API = {
       if (domain) unlockSync(domain);
       endSaving(action);
     }
+    })();
+    if (dedupKey) {
+      API._inflight.set(dedupKey, runPromise);
+      runPromise.finally(() => { try { API._inflight.delete(dedupKey); } catch {} });
+    }
+    return runPromise;
   }
 };
+// Actions that should be deduped if a second identical call fires while the
+// first is still in flight — all the "send a Telegram message" paths.
+API._DEDUP_ACTIONS = new Set([
+  'sendTelegram', 'sendAdhocParadeState', 'createIncident', 'appendIncidentEvent',
+  'testRouting', 'updateTelegramConfig', 'updateBroadcastSchedule'
+]);
 
 // Type-coercion guards — Google Sheets auto-converts numeric-looking strings
 // to numbers on write. These helpers force them back to predictable JS types.
@@ -376,12 +398,29 @@ function el(id) { return document.getElementById(id); }
 function qs(s, p) { return (p || document).querySelector(s); }
 
 let toastTimer;
-function toast(msg, ms = 3000) {
-  const t = el('toast');
-  t.textContent = msg;
-  t.classList.add('show');
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.classList.remove('show'), ms);
+function toast(msg, ms = 3500) {
+  // Stack toasts in a dedicated container (appended next to the legacy #toast
+  // div). Each toast is its own node so rapid-fire sends don't clobber each
+  // other. Max 3 visible — older ones fade out when exceeded.
+  let host = el('toast-stack');
+  if (!host) {
+    host = document.createElement('div');
+    host.id = 'toast-stack';
+    document.body.appendChild(host);
+  }
+  const node = document.createElement('div');
+  node.className = 'toast-item';
+  node.textContent = msg;
+  host.appendChild(node);
+  // Enforce max stack size
+  while (host.children.length > 3) host.firstChild.remove();
+  // Trigger enter anim on next frame
+  requestAnimationFrame(() => node.classList.add('show'));
+  setTimeout(() => {
+    node.classList.remove('show');
+    node.classList.add('leave');
+    setTimeout(() => node.remove(), 250);
+  }, ms);
 }
 
 // Returns the current real instant (UTC-anchored). Display code MUST use
@@ -854,6 +893,27 @@ function setupModalSwipes() {
   attachSwipeDownClose(el('buddy-modal'), '.buddy-sheet');
 }
 
+// Global ESC-to-close: when a modal is visible (has `.modal.visible` or any
+// `.modal` without `.hidden`), pressing ESC closes the top-most one by
+// clicking its close button (or removing the visible class as a fallback).
+// Also triggers on the system back-button via popstate for Android PWA.
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  const MODAL_IDS = ['event-editor', 'member-editor', 'members-modal', 'visit-detail-modal',
+                     'buddy-modal', 'pin-change-modal', 'install-modal', 'error-report-modal',
+                     'identity-modal', 'parade-picker-modal', 'adhoc-picker-modal',
+                     'force-in-modal', 'incident-modal', 'attendance-modal', 'tele-auto-modal'];
+  for (let i = MODAL_IDS.length - 1; i >= 0; i--) {
+    const m = el(MODAL_IDS[i]);
+    if (m && !m.classList.contains('hidden') && m.offsetParent !== null) {
+      const closeBtn = m.querySelector('.sheet-close-btn, .close-btn, .modal-close, [data-close]');
+      if (closeBtn) { closeBtn.click(); return; }
+      m.classList.add('hidden');
+      return;
+    }
+  }
+});
+
 // Swipe-right-to-close — page-turn feel: as the sheet slides right, the
 // backdrop fades out proportionally, revealing the app behind. Only arms
 // from the left 30% so normal taps/scrolls in the body aren't hijacked.
@@ -924,6 +984,30 @@ function attachSwipeRightClose(modalEl, sheetSelector, onClose) {
 }
 
 function logout() {
+  // Tear down all background pollers so re-login doesn't double-fire them.
+  // Without this, every logout/login cycle leaks another setInterval chain.
+  try {
+    Object.values(STATE._timers || {}).forEach(id => clearInterval(id));
+    STATE._timers = {};
+  } catch {}
+  // Detach the visibilitychange handler registered in startPolling, else
+  // every re-login adds a duplicate that fires syncStatuses on every blur/focus.
+  try {
+    if (STATE._visHandler) {
+      document.removeEventListener('visibilitychange', STATE._visHandler);
+      STATE._visHandler = null;
+    }
+  } catch {}
+  // Stop GPS watch + drop in-memory location so the next user doesn't inherit.
+  try {
+    if (STATE._gpsWatchId != null) {
+      navigator.geolocation.clearWatch(STATE._gpsWatchId);
+      STATE._gpsWatchId = null;
+    }
+  } catch {}
+  STATE._lastGpsSent = null;
+  STATE.memberStatuses = {};
+  // Clear identity
   localStorage.removeItem('tsv_user');
   STATE.currentUser = null;
   loginCandidateMember = null;
@@ -951,11 +1035,32 @@ function switchTab(tabId) {
   el(`nav-${tabId}`)?.classList.add('active');
   STATE.currentTab = tabId;
 
-  if (tabId === 'home')      renderHome();
-  if (tabId === 'calendar')  { renderCalendar(); if (STATE.calendarSubTab === 'visits') syncLearnings(); }
-  if (tabId === 'location')  renderLocation();
-  if (tabId === 'sop')       renderSOP();
-  if (tabId === 'settings')  renderSettings();
+  if (tabId === 'home')      _safeRender('home',     renderHome);
+  if (tabId === 'calendar')  { _safeRender('calendar', renderCalendar); syncCalendar(); if (STATE.calendarSubTab === 'visits') syncLearnings(); }
+  if (tabId === 'location')  _safeRender('location', renderLocation);
+  if (tabId === 'sop')       _safeRender('sop',      renderSOP);
+  if (tabId === 'settings')  _safeRender('settings', renderSettings);
+}
+
+// Render error boundary: if a tab's top-level render throws, show a recovery
+// UI instead of leaving the tab blank / half-drawn. Without this, a single
+// malformed Sheet row (stale member id in a reflection, bad event category)
+// would brick the whole tab until full reload.
+function _safeRender(tabId, fn) {
+  try { fn(); }
+  catch (err) {
+    console.error('[render]', tabId, err);
+    const host = el('tab-' + tabId);
+    if (host) host.innerHTML = `
+      <div class="error-state" style="margin:24px 16px">
+        <div class="icon">⚠️</div>
+        <div class="msg">
+          <b>Couldn't render this tab.</b><br>
+          ${escapeHtml(err.message || String(err))}
+        </div>
+        <button class="btn btn-sm" onclick="location.reload()">Reload</button>
+      </div>`;
+  }
 }
 
 // ═══════════ IDENTITY ════════════════════════════════════════
@@ -1329,6 +1434,15 @@ function startPolling() {
     if (!['home', 'location', 'rooms', 'map'].includes(STATE.currentTab)) return;
     syncStatuses();
   }, 60 * 1000);
+
+  // Calendar poll — every 5 min so GCal edits (server-synced every 15 min)
+  // surface quickly. Skip when tab is hidden OR when the user is looking at
+  // something unrelated (saves battery + avoids an unnecessary Sheets read).
+  STATE._timers.calendarPoll = setInterval(() => {
+    if (document.hidden) return;
+    if (!['home', 'calendar'].includes(STATE.currentTab)) return;
+    syncCalendar();
+  }, 5 * 60 * 1000);
 
   // Refresh when user comes back to the tab/app
   if (!STATE._visHandler) {
@@ -1895,8 +2009,26 @@ function renderCalendar() {
     </div>
     ${scopeNotice}
     <div class="category-filter">${catChips}</div>
-    <div class="cal-event-list">${eventHtml || '<div class="empty-state"><div class="icon">📅</div><p>No events match this filter.</p></div>'}</div>
+    <div class="cal-event-list">${eventHtml || (CALENDAR_EVENTS.length === 0 ? _calSkeletonHtml() : '<div class="empty-state"><div class="icon">📅</div><h3>No events match</h3><p>Try another day or clear the category filter.</p></div>')}</div>
   `;
+}
+
+// Shimmer placeholder shown on initial load before syncCalendar() returns.
+// Mirrors the real .cal-event card layout so there's no visual jump when
+// events arrive. Rendering 5 looks right for a typical 10+-event day.
+function _calSkeletonHtml() {
+  const one = `
+    <div class="cal-event">
+      <div class="cal-event-time">
+        <div class="skeleton skeleton-line" style="width:38px"></div>
+        <div class="skeleton skeleton-line xs" style="width:30px;opacity:.6"></div>
+      </div>
+      <div class="skeleton-card" style="flex:1">
+        <div class="skeleton skeleton-line lg" style="width:60%;margin-bottom:8px"></div>
+        <div class="skeleton skeleton-line" style="width:40%"></div>
+      </div>
+    </div>`;
+  return one.repeat(5);
 }
 
 function isEventNow(ev, nowMins) {
@@ -3654,7 +3786,11 @@ function renderReflectionsSubTab() {
   const userPmesii = pmesiiForSyn(userSynLabel);
 
   const feedHtml = !reflections.length
-    ? `<div class="empty-state"><div class="icon">📝</div><p>No reflections posted yet.<br>Be the first to contribute!</p></div>`
+    ? `<div class="empty-state">
+         <div class="icon">📝</div>
+         <h3>No reflections yet</h3>
+         <p>Be the first to share a takeaway from today. Your syndicate's PMESII column in the Learning Debrief sheet will update automatically.</p>
+       </div>`
     : `<div class="learning-feed">${reflections.map(r => {
         const time = r.timestamp ? new Date(r.timestamp).toLocaleString('en-GB', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' }) : '';
         const dayMeta = r.day ? DAYS.find(d => d.day == r.day) : null;
@@ -5265,24 +5401,34 @@ window.addEventListener('load', () => {
 // Writes the result to localStorage so the next open paints instantly.
 function _loadParadeState(opts) {
   if (!STATE.paradeState) STATE.paradeState = {};
+  if (!STATE.synRemarks)  STATE.synRemarks = {};
   const force = !!(opts && opts.force);
   const now = Date.now();
   if (!force && STATE._paradeFetchedAt && (now - STATE._paradeFetchedAt) < 30000) return;
   if (STATE._paradeFetchInflight) return;
   STATE._paradeFetchInflight = true;
-  API.get('getParadeState').then(data => {
-    if (data && typeof data === 'object') {
-      STATE.paradeState = data;
-      STATE._paradeFetchedAt = Date.now();
-      try { localStorage.setItem('tsv_parade_state', JSON.stringify(data)); } catch {}
+  Promise.all([API.get('getParadeState'), API.get('getSynRemarks')])
+    .then(([paradeData, remarksData]) => {
+      if (paradeData && typeof paradeData === 'object') {
+        STATE.paradeState = paradeData;
+        STATE._paradeFetchedAt = Date.now();
+        try { localStorage.setItem('tsv_parade_state', JSON.stringify(paradeData)); } catch {}
+      }
+      if (remarksData && remarksData.remarks && typeof remarksData.remarks === 'object') {
+        STATE.synRemarks = remarksData.remarks;
+      }
       if (STATE.currentTab === 'location' && STATE.trackerView === 'parade') renderParadeState();
-    }
-  }).catch(() => {}).finally(() => { STATE._paradeFetchInflight = false; });
+    })
+    .catch(() => {})
+    .finally(() => { STATE._paradeFetchInflight = false; });
 }
 
 function renderParadeState() {
   const wrap = el('tracker-parade-wrap');
   if (!wrap) return;
+  // Don't clobber mid-typing in the remarks textarea — full re-render would
+  // lose focus + cursor position. Poll cycles can re-attempt later.
+  if (document.activeElement && document.activeElement.id === 'syn-remarks-input') return;
   const user = STATE.currentUser;
   if (!user) { wrap.innerHTML = '<div class="alert alert-orange" style="margin:12px">Sign in first.</div>'; return; }
   // Hydrate from localStorage cache the first time so the initial paint
@@ -5384,15 +5530,71 @@ function renderParadeState() {
 
     ${picker}
 
-    <div style="margin:6px 12px 24px;border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--card)">
+    <div style="margin:6px 12px 10px;border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--card)">
       ${memberRows || '<div style="padding:16px;color:var(--text-3);font-size:13px;text-align:center">No members in this syndicate.</div>'}
     </div>
+
+    ${_renderSynRemarksBox(selectedGk)}
 
     <div style="font-size:11px;color:var(--text-3);text-align:center;margin:0 12px 24px">
       Auto-sent daily at 0830H BKK · Default status: Present · Tap ✏️ Edit to change.
     </div>
   `;
 }
+
+// Per-syndicate shared remarks — persisted server-side so every member sees
+// the same note, and the 0830H parade-state broadcast automatically appends
+// it. Debounced save: 800ms after user stops typing.
+function _renderSynRemarksBox(gk) {
+  const entry = (STATE.synRemarks || {})[gk] || null;
+  const text = entry ? entry.text : '';
+  const meta = entry
+    ? `Last: ${new Date(entry.updatedAt).toLocaleString('en-GB', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit', timeZone:'Asia/Bangkok' })}${entry.updatedBy ? ' · by ' + escapeHtml(entry.updatedBy) : ''}`
+    : '';
+  return `
+    <div style="margin:0 12px 16px">
+      <div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:4px">
+        <label style="font-size:12px;font-weight:700;color:var(--text-2)">📝 Syndicate Remarks <span style="font-weight:500;color:var(--text-3)">(optional · shared)</span></label>
+        <span id="syn-remarks-status" style="font-size:10px;color:var(--text-3)">${meta}</span>
+      </div>
+      <textarea id="syn-remarks-input"
+        placeholder="Context that should appear on today's parade state broadcast — e.g. '3 members at RTC course, returning 1700H.' Max 500 chars."
+        maxlength="500"
+        style="width:100%;min-height:70px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;font-family:inherit;background:var(--card);color:var(--text);resize:vertical"
+        oninput="onSynRemarksInput('${escapeHtml(gk)}', this.value)">${escapeHtml(text)}</textarea>
+    </div>`;
+}
+
+window.onSynRemarksInput = function(gk, value) {
+  // Debounced save — fire 800ms after last keystroke so we don't POST on every
+  // letter. Status hint flips to "Saving…" during the wait for feedback.
+  STATE._synRemarksDrafts = STATE._synRemarksDrafts || {};
+  STATE._synRemarksDrafts[gk] = value;
+  const statusEl = el('syn-remarks-status');
+  if (statusEl) statusEl.textContent = 'Saving…';
+  clearTimeout(STATE._synRemarksDebounce);
+  STATE._synRemarksDebounce = setTimeout(async () => {
+    const text = STATE._synRemarksDrafts[gk] || '';
+    const resp = await API.postRaw('updateSynRemark', {
+      syn: gk,
+      remarks: text,
+      actor: STATE.currentUser?.id,
+      actorName: STATE.currentUser?.shortName || STATE.currentUser?.name
+    });
+    if (resp && resp.ok && resp.data && resp.data.ok) {
+      STATE.synRemarks = STATE.synRemarks || {};
+      if (resp.data.remarks) STATE.synRemarks[gk] = resp.data.remarks;
+      else delete STATE.synRemarks[gk];
+      const now = new Date().toLocaleString('en-GB', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit', timeZone:'Asia/Bangkok' });
+      const by  = STATE.currentUser?.shortName || STATE.currentUser?.name || '';
+      const s2  = el('syn-remarks-status');
+      if (s2) s2.textContent = text ? `Saved ${now}${by ? ' · by ' + by : ''}` : 'Cleared';
+    } else {
+      const s2 = el('syn-remarks-status');
+      if (s2) s2.textContent = '⚠️ Save failed';
+    }
+  }, 800);
+};
 
 window.setParadeSyn = function(gk) {
   STATE.paradeSyn = gk;
@@ -5758,6 +5960,7 @@ function renderSettings() {
       <button class="subtab-btn ${sub === 'me'          ? 'active' : ''}" onclick="setSettingsSubTab('me')">👤 Me</button>
       <button class="subtab-btn ${sub === 'display'     ? 'active' : ''}" onclick="setSettingsSubTab('display')">🎨 Display</button>
       ${showAdmin ? `<button class="subtab-btn ${sub === 'admin-tele'   ? 'active' : ''}" onclick="setSettingsSubTab('admin-tele')">📡 Admin · Tele</button>` : ''}
+      ${isSuperAdmin ? `<button class="subtab-btn ${sub === 'tele-auto' ? 'active' : ''}" onclick="setSettingsSubTab('tele-auto')">🤖 Tele · Auto</button>` : ''}
       ${showAdmin ? `<button class="subtab-btn ${sub === 'admin-others' ? 'active' : ''}" onclick="setSettingsSubTab('admin-others')">🔐 Admin · Others${pendingBadge}</button>` : ''}
     </div>`;
 
@@ -5766,11 +5969,16 @@ function renderSettings() {
     STATE.settingsSubTab = 'me';
     return renderSettings();
   }
+  if (sub === 'tele-auto' && !isSuperAdmin) {
+    STATE.settingsSubTab = 'me';
+    return renderSettings();
+  }
 
   let body = '';
   if (sub === 'me')                body = _renderSettingsMe(user, gk);
   else if (sub === 'display')      body = _renderSettingsDisplay();
   else if (sub === 'admin-tele')   body = _renderSettingsAdminTele(user, isSuperAdmin);
+  else if (sub === 'tele-auto')    body = _renderSettingsTeleAuto();
   else if (sub === 'admin-others') body = _renderSettingsAdminOthers(user, isSuperAdmin, pendingReqs);
 
   container.innerHTML = subtabBar + `<div id="settings-sub-content">${body}</div>`;
@@ -5826,12 +6034,288 @@ function renderSettings() {
       _renderForceInConfig(cfg, false);
     });
   }
+
+  // Tele-Auto post-render hook: fetch current overrides map so the status
+  // pills (Auto / Once / Persistent) are live.
+  if (sub === 'tele-auto' && isSuperAdmin) {
+    _loadBroadcastOverrides();
+  }
 }
 
 window.setSettingsSubTab = function(sub) {
   STATE.settingsSubTab = sub;
   renderSettings();
 };
+
+// ── Settings: TELE-AUTO sub-tab (super-admin message preview/override) ──
+function _renderSettingsTeleAuto() {
+  const rows = [
+    { key: 'A1_weather',  label: 'A1 · 0600H Weather Briefing',  hint: 'Live forecast + AQI + today\'s programme. Pulled fresh each preview.' },
+    { key: 'A2_reminder', label: 'A2 · 1900H Pre-trip Reminder', hint: 'Hardcoded per-date countdown messages. Preview the next trip-eve send.' }
+  ];
+  return `
+    <div class="card" style="margin:12px">
+      <div style="font-size:13px;font-weight:700;margin-bottom:4px">🤖 Auto-broadcast preview &amp; override</div>
+      <div style="font-size:11px;color:var(--text-2);line-height:1.5">
+        Read the exact message the cron will fire, edit it if needed, and queue your edits as a <b>one-shot</b> (next send only) or <b>persistent</b> (every send until cleared). Data-driven SITREPs (A3/A4/A5) regenerate live from parade &amp; transport state — not listed here.
+      </div>
+    </div>
+    <div id="tele-auto-rows">
+      ${rows.map(r => `
+        <div class="card" style="margin:12px">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <div style="flex:1;min-width:0">
+              <div style="font-weight:700;font-size:13px">${escapeHtml(r.label)}</div>
+              <div style="font-size:11px;color:var(--text-3);margin-top:2px">${escapeHtml(r.hint)}</div>
+            </div>
+            <span id="ta-pill-${r.key}" style="font-size:10px;background:var(--n-100);color:var(--text-2);padding:2px 8px;border-radius:10px;font-weight:700">AUTO</span>
+          </div>
+          <div style="display:flex;gap:6px;margin-top:10px">
+            <button class="btn btn-primary btn-sm" style="flex:1" onclick="openTeleAutoEditor('${r.key}')">👁 Preview &amp; Edit</button>
+            <button class="btn btn-outline btn-sm" onclick="clearTeleAutoOverride('${r.key}')" id="ta-clear-${r.key}" style="display:none">🔄 Revert</button>
+          </div>
+        </div>`).join('')}
+    </div>`;
+}
+
+async function _loadBroadcastOverrides() {
+  const url = `${CONFIG.apiUrl}?action=getBroadcastOverrides&actor=${encodeURIComponent(STATE.currentUser?.id || '')}`;
+  try {
+    const r = await fetch(url);
+    const j = await r.json();
+    if (j && j.ok && j.data && j.data.ok) {
+      STATE.broadcastOverrides = j.data.overrides || {};
+      _paintOverrideStatus();
+    }
+  } catch (e) { /* non-fatal */ }
+}
+
+function _paintOverrideStatus() {
+  const map = STATE.broadcastOverrides || {};
+  ['A1_weather', 'A2_reminder'].forEach(key => {
+    const pill = el('ta-pill-' + key);
+    const revertBtn = el('ta-clear-' + key);
+    if (!pill) return;
+    const entry = map[key];
+    if (!entry) {
+      pill.textContent = 'AUTO';
+      pill.style.background = 'var(--n-100)';
+      pill.style.color = 'var(--text-2)';
+      if (revertBtn) revertBtn.style.display = 'none';
+    } else if (entry.mode === 'once') {
+      pill.textContent = `⏰ Once · ${entry.date}`;
+      pill.style.background = '#fef3c7';
+      pill.style.color = '#78350f';
+      if (revertBtn) revertBtn.style.display = '';
+    } else {
+      pill.textContent = '🔁 Persistent';
+      pill.style.background = '#dbeafe';
+      pill.style.color = '#1e40af';
+      if (revertBtn) revertBtn.style.display = '';
+    }
+  });
+}
+
+// ── Tele-Auto editor modal ───────────────────────────────────────────
+window.openTeleAutoEditor = async function(key) {
+  const modal = _ensureTeleAutoModal();
+  modal.dataset.key = key;
+  const titleEl = modal.querySelector('.ta-modal-title');
+  const bodyEl  = modal.querySelector('.ta-modal-textarea');
+  const metaEl  = modal.querySelector('.ta-modal-meta');
+  const dateWrap= modal.querySelector('.ta-modal-date-wrap');
+  const dateInp = modal.querySelector('.ta-modal-date');
+  const modeOnce= modal.querySelector('.ta-mode-once');
+  const modePer = modal.querySelector('.ta-mode-persistent');
+
+  titleEl.textContent = key === 'A1_weather' ? '👁 A1 · Weather Briefing' : '👁 A2 · Pre-trip Reminder';
+  bodyEl.value = 'Loading…';
+  metaEl.textContent = 'Fetching live preview…';
+  modal.classList.remove('hidden');
+
+  // A2 has a date picker; A1 does not (always "today")
+  if (key === 'A2_reminder') {
+    dateWrap.style.display = '';
+    if (!dateInp.value) {
+      // Default: next message target date in BKK. A2 fires at 1900H BKK and
+      // the message is about "tomorrow" relative to fire time. If it's before
+      // 1900H BKK now, the next 1900H will target tomorrow BKK; if after
+      // 1900H, the next 1900H is tomorrow and targets day-after-tomorrow.
+      const p = bkkParts();
+      const addDays = p.hour < 19 ? 1 : 2;
+      dateInp.value = bkkParts(new Date(Date.now() + addDays * 86400000)).dateStr;
+    }
+  } else {
+    dateWrap.style.display = 'none';
+  }
+
+  // Pre-select mode based on existing override, else default to 'once'
+  const existing = (STATE.broadcastOverrides || {})[key];
+  if (existing && existing.mode === 'persistent') { modePer.checked = true; modeOnce.checked = false; }
+  else                                            { modeOnce.checked = true; modePer.checked = false; }
+
+  await _fetchTeleAutoPreview(key);
+};
+
+async function _fetchTeleAutoPreview(key) {
+  const modal = el('tele-auto-modal');
+  if (!modal) return;
+  const bodyEl = modal.querySelector('.ta-modal-textarea');
+  const metaEl = modal.querySelector('.ta-modal-meta');
+  const dateInp= modal.querySelector('.ta-modal-date');
+  const actor  = STATE.currentUser?.id || '';
+  const dateParam = (key === 'A2_reminder' && dateInp.value) ? `&date=${encodeURIComponent(dateInp.value)}` : '';
+  const url = `${CONFIG.apiUrl}?action=previewBroadcast&key=${encodeURIComponent(key)}&actor=${encodeURIComponent(actor)}${dateParam}`;
+  try {
+    const r = await fetch(url);
+    const j = await r.json();
+    if (!j.ok || !j.data || !j.data.ok) {
+      bodyEl.value = '';
+      metaEl.textContent = '⚠️ ' + ((j.data && j.data.error) || j.error || 'Preview failed');
+      return;
+    }
+    // If an override is already queued, prefer showing THAT in the editor so
+    // the admin can tweak it further. Otherwise show the live-generated text.
+    const existing = (STATE.broadcastOverrides || {})[key];
+    if (existing && existing.text) {
+      bodyEl.value = existing.text;
+      metaEl.textContent = `Showing queued override · ${existing.mode} · saved ${new Date(existing.savedAt).toLocaleString('en-GB', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit', timeZone:'Asia/Bangkok' })}`;
+    } else {
+      bodyEl.value = j.data.message || '';
+      const warn = j.data.warning ? ' · ⚠️ ' + j.data.warning : '';
+      metaEl.textContent = `Live preview · ${j.data.charCount || 0} chars${warn}`;
+    }
+  } catch (e) {
+    bodyEl.value = '';
+    metaEl.textContent = '⚠️ Network error — ' + e.message;
+  }
+}
+
+window.refreshTeleAutoPreview = function() {
+  const modal = el('tele-auto-modal');
+  if (!modal) return;
+  _fetchTeleAutoPreview(modal.dataset.key);
+};
+
+window.closeTeleAutoModal = function() {
+  const m = el('tele-auto-modal');
+  if (m) m.classList.add('hidden');
+};
+
+window.saveTeleAutoOverride = async function() {
+  const modal = el('tele-auto-modal');
+  if (!modal) return;
+  const key = modal.dataset.key;
+  const text = modal.querySelector('.ta-modal-textarea').value.trim();
+  const modeOnce = modal.querySelector('.ta-mode-once').checked;
+  const mode = modeOnce ? 'once' : 'persistent';
+  const date = modal.querySelector('.ta-modal-date').value;
+  if (!text) return toast('❌ Text is empty — use Revert to clear instead');
+  if (mode === 'once') {
+    // For A1 weather, there's no explicit date picker; lock to today BKK
+    // (the next 0600H fire is always "today" if called before 0600, else tomorrow)
+    const effectiveDate = key === 'A1_weather' ? _nextA1FireDate() : date;
+    if (!effectiveDate) return toast('❌ Pick a date for one-shot');
+    const resp = await API.postRaw('saveBroadcastOverride', {
+      key, mode, text, date: effectiveDate,
+      actor: STATE.currentUser?.id,
+      actorName: STATE.currentUser?.shortName || STATE.currentUser?.name
+    });
+    _handleOverrideSaveResp(resp, key, mode, effectiveDate);
+  } else {
+    const resp = await API.postRaw('saveBroadcastOverride', {
+      key, mode, text,
+      actor: STATE.currentUser?.id,
+      actorName: STATE.currentUser?.shortName || STATE.currentUser?.name
+    });
+    _handleOverrideSaveResp(resp, key, mode);
+  }
+};
+
+function _handleOverrideSaveResp(resp, key, mode, dateStr) {
+  if (!resp || resp.ok === false || !resp.data || !resp.data.ok) {
+    return toast('❌ Save failed — ' + ((resp && (resp.error || (resp.data && resp.data.error))) || 'network'));
+  }
+  STATE.broadcastOverrides = STATE.broadcastOverrides || {};
+  STATE.broadcastOverrides[key] = resp.data.entry;
+  _paintOverrideStatus();
+  closeTeleAutoModal();
+  toast(`✅ ${mode === 'once' ? 'Queued for ' + dateStr : 'Persistent override active'}`);
+}
+
+window.clearTeleAutoOverride = async function(key) {
+  if (!confirm('Revert ' + key + ' to auto-generated? The queued override will be deleted.')) return;
+  const resp = await API.postRaw('clearBroadcastOverride', {
+    key, actor: STATE.currentUser?.id
+  });
+  if (!resp || resp.ok === false || !resp.data || !resp.data.ok) {
+    return toast('❌ Revert failed');
+  }
+  delete (STATE.broadcastOverrides || {})[key];
+  _paintOverrideStatus();
+  toast('✅ Reverted to auto-generated');
+};
+
+function _nextA1FireDate() {
+  // A1 fires at 0600H BKK daily. If it's before 0600H BKK now, the next fire
+  // is TODAY; else tomorrow. bkkParts handles the BKK TZ conversion so just
+  // add 24h to the instant and re-parse.
+  const p = bkkParts();
+  if (p.hour < 6) return p.dateStr;
+  return bkkParts(new Date(Date.now() + 24 * 60 * 60 * 1000)).dateStr;
+}
+
+function _ensureTeleAutoModal() {
+  let modal = el('tele-auto-modal');
+  if (modal) return modal;
+  modal = document.createElement('div');
+  modal.id = 'tele-auto-modal';
+  modal.className = 'hidden';
+  modal.innerHTML = `
+    <div class="editor-sheet" style="max-width:640px">
+      <div class="members-header">
+        <h2 class="ta-modal-title">Preview</h2>
+        <button class="close-btn" onclick="closeTeleAutoModal()">✕</button>
+      </div>
+      <div class="editor-body">
+        <div class="ta-modal-date-wrap" style="margin-bottom:10px;display:none">
+          <label style="font-size:11px;font-weight:700;color:var(--text-2);display:block;margin-bottom:4px">Trip-eve date (preview):</label>
+          <input type="date" class="ta-modal-date" onchange="refreshTeleAutoPreview()"
+            style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);font-size:13px">
+        </div>
+        <div class="ta-modal-meta" style="font-size:11px;color:var(--text-3);margin-bottom:6px">Loading…</div>
+        <textarea class="ta-modal-textarea"
+          style="width:100%;min-height:280px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:12px;font-family:ui-monospace,Menlo,monospace;line-height:1.5;background:var(--card);color:var(--text);resize:vertical"
+          placeholder="Loading preview…"></textarea>
+        <div style="font-size:10px;color:var(--text-3);margin-top:4px">
+          Telegram HTML: <code>&lt;b&gt;</code> <code>&lt;i&gt;</code> <code>&lt;u&gt;</code> <code>&lt;code&gt;</code>. Escape &amp;, &lt;, &gt;. Max 4000 chars.
+        </div>
+        <div style="margin-top:14px;padding:10px 12px;background:var(--n-50);border-radius:8px;border:1px solid var(--border)">
+          <div style="font-size:11px;font-weight:700;margin-bottom:6px">Save mode:</div>
+          <label style="display:flex;gap:6px;align-items:flex-start;padding:6px 0;cursor:pointer">
+            <input type="radio" name="ta-mode" class="ta-mode-once" checked style="margin-top:2px">
+            <div>
+              <div style="font-size:12px;font-weight:600">⏰ One-shot</div>
+              <div style="font-size:10px;color:var(--text-3);line-height:1.4">Sends this text for the next scheduled fire only, then auto-reverts to the data-driven template.</div>
+            </div>
+          </label>
+          <label style="display:flex;gap:6px;align-items:flex-start;padding:6px 0;cursor:pointer">
+            <input type="radio" name="ta-mode" class="ta-mode-persistent" style="margin-top:2px">
+            <div>
+              <div style="font-size:12px;font-weight:600">🔁 Persistent</div>
+              <div style="font-size:10px;color:var(--text-3);line-height:1.4">Sends this exact text every day until you hit "Revert". Use when the auto-generator is wrong for a stretch.</div>
+            </div>
+          </label>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:12px">
+          <button class="btn btn-outline btn-sm" onclick="refreshTeleAutoPreview()">🔄 Reload preview</button>
+          <button class="btn btn-primary btn-sm" onclick="saveTeleAutoOverride()">💾 Save override</button>
+        </div>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+  return modal;
+}
 
 // ── Settings: ME sub-tab (Account + Session) ──
 function _renderSettingsMe(user, gk) {
