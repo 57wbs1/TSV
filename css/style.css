@@ -5068,3 +5068,36 @@ html.is-dark .sheet-close-btn:hover { background: rgba(203, 213, 225, .18); }
 /* Hide the legacy single-toast div; we now render into #toast-stack instead. */
 #toast { display: none !important; }
 
+/* Tele-Auto preview modal — matches existing modal overlay pattern. Without
+   this the modal opens invisibly (the `hidden` class has no effect unless
+   the modal has positioning styles to hide from). */
+#tele-auto-modal {
+  position: fixed; inset: 0;
+  background: rgba(15, 23, 42, .65);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex; align-items: flex-end; justify-content: center;
+  z-index: 6900;
+  animation: fadeIn .2s var(--ease-out);
+}
+#tele-auto-modal.hidden { display: none; }
+#tele-auto-modal .editor-sheet {
+  background: var(--n-0);
+  width: 100%; max-width: 640px;
+  max-height: 92vh;
+  height: auto;
+  border-radius: 18px 18px 0 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  animation: slideUp .3s var(--ease-out);
+  padding-top: calc(10px + var(--safe-t));
+  padding-bottom: calc(10px + var(--safe-b));
+}
+#tele-auto-modal .editor-body {
+  padding: 0 18px 14px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+html.is-dark #tele-auto-modal .editor-sheet { background: var(--card); }
+

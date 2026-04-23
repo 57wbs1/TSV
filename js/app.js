@@ -3243,24 +3243,26 @@ function renderVisitsSubTab() {
 
 // ═══════════ TRANSPORT SUB-TAB ═══════════════════════════════
 const TRANSPORT_BUSES = [
-  { id: 'bus1', label: 'Bus 1', pax: 'Syn 1 · 27E · Dy CC · DS1', syns: ['Syn 1', '27E', 'Dy CC', 'DS1'] },
-  { id: 'bus2', label: 'Bus 2', pax: 'Syn 3 · 26E · DS3 · DSE',   syns: ['Syn 3', '26E', 'DS3', 'DSE']   },
-  { id: 'bus3', label: 'Bus 3', pax: 'Syn 4 · 25E · DS4 · CXO',   syns: ['Syn 4', '25E', 'DS4', 'CXO']   },
-  { id: 'car',  label: '🚗 Car', pax: 'HOD · SO',                  syns: ['HOD', 'SO']                    },
+  { id: 'bus1', label: 'Bus 1 · Group A',   pax: 'Syn 3 · 26E · 27E',                                          syns: ['Syn 3', '26E', '27E'] },
+  { id: 'bus2', label: 'Bus 2 · Group B',   pax: 'Syn 1 · Syn 4 · 25E',                                        syns: ['Syn 1', 'Syn 4', '25E'] },
+  { id: 'bus3', label: 'Bus 3 · Mini-Bus',  pax: 'DS 1 · DS 3 · DS 4 (PDS) · DS E · CXO · Staff 1 · Staff 2',  syns: ['DS1', 'DS3', 'DS4', 'DSE', 'CXO', 'Staff 1', 'Staff 2'] },
 ];
 // All syndicate labels that exist across all vehicles (for flight boarding picker)
-const ALL_TRANSPORT_SYNS = ['Syn 1','27E','Dy CC','DS1','Syn 3','26E','DS3','DSE','Syn 4','25E','DS4','CXO','HOD','SO'];
+const ALL_TRANSPORT_SYNS = ['Syn 1','Syn 3','Syn 4','25E','26E','27E','DS1','DS3','DS4','DSE','CXO','Staff 1','Staff 2'];
 
 // Returns the short syn label for the current user (for boarding affordance)
 function _mySynLabel(user) {
   if (!user) return null;
   const gk = memberGroupKey(user);
   const disp = formatGroupDisplay(gk);
+  // Maps the member's group display → the label used in TRANSPORT_BUSES.syns.
+  // HOD/PSO/SO/Dy CC are NOT in the current bus list (they ride the mini-bus
+  // manually as Staff 1 / Staff 2, or travel separately) — intentionally
+  // unmapped so no vehicle auto-selects for them; they can still manually tap.
   const MAP = {
     'Syndicate 1':'Syn 1','Syndicate 3':'Syn 3','Syndicate 4':'Syn 4',
-    'Leadership':'HOD','PSO':'HOD','SO':'SO',
     '25ES18':'25E','26ES14':'26E','27ES18':'27E',
-    'DS1':'DS1','DS3':'DS3','DS4':'DS4','DSE':'DSE','CXO':'CXO','Dy CC':'Dy CC'
+    'DS1':'DS1','DS3':'DS3','DS4':'DS4','DSE':'DSE','CXO':'CXO'
   };
   return MAP[disp] || disp;
 }
