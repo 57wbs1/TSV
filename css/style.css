@@ -5068,9 +5068,7 @@ html.is-dark .sheet-close-btn:hover { background: rgba(203, 213, 225, .18); }
 /* Hide the legacy single-toast div; we now render into #toast-stack instead. */
 #toast { display: none !important; }
 
-/* Tele-Auto preview modal — matches existing modal overlay pattern. Without
-   this the modal opens invisibly (the `hidden` class has no effect unless
-   the modal has positioning styles to hide from). */
+/* Tele-Auto preview modal — full-height scrollable bottom sheet. */
 #tele-auto-modal {
   position: fixed; inset: 0;
   background: rgba(15, 23, 42, .65);
@@ -5084,20 +5082,24 @@ html.is-dark .sheet-close-btn:hover { background: rgba(203, 213, 225, .18); }
 #tele-auto-modal .editor-sheet {
   background: var(--n-0);
   width: 100%; max-width: 640px;
-  max-height: 92vh;
-  height: auto;
+  height: 92vh;          /* explicit height so flex children can size properly */
   border-radius: 18px 18px 0 0;
   overflow: hidden;
   display: flex;
   flex-direction: column;
   animation: slideUp .3s var(--ease-out);
+}
+#tele-auto-modal .members-header {
+  flex: 0 0 auto;
   padding-top: calc(10px + var(--safe-t));
-  padding-bottom: calc(10px + var(--safe-b));
 }
 #tele-auto-modal .editor-body {
-  padding: 0 18px 14px;
+  flex: 1 1 auto;          /* grow to fill available space */
+  min-height: 0;           /* critical for scroll children of flex column */
+  padding: 10px 18px calc(14px + var(--safe-b));
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
 }
 html.is-dark #tele-auto-modal .editor-sheet { background: var(--card); }
 

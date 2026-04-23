@@ -3270,8 +3270,12 @@ function _mySynLabel(user) {
 async function refreshTransportState() {
   const data = await API.get('getTransport');
   if (data && typeof data === 'object') STATE.transport = data;
+  // Overlay any local drafts the user hasn't yet sent as SITREP.
+  applyTransportDrafts();
   const body = _transportHost();
-  if (body && STATE.calendarSubTab === 'transport') _redrawTransport(body);
+  // Tracker transport is rendered in its own container now — redraw whenever
+  // the DOM wrap exists, not gated on calendarSubTab.
+  if (body) _redrawTransport(body);
 }
 
 // Which vehicle picker is open; which bus card is expanded for driver details
@@ -3328,43 +3332,99 @@ window.toggleTransportSyn = function(syn) {
 
 // Save mid-state: writes current selection + remarks to server, no Telegram.
 // Mode-aware — writes to the boarding OR check-in fields based on modal.mode.
-window.saveTransportProgress = async function() {
+// LOCAL-ONLY Save Progress (v83+). Writes to localStorage and in-memory STATE
+// only — no server round-trip. This keeps partial progress reliable even
+// on flaky networks. Server sync happens when Send SITREP is clicked.
+// On app reload, drafts are re-applied over whatever the server returns,
+// so the user's work is never lost until they explicitly Send SITREP.
+const TRANSPORT_DRAFT_KEY = 'tsv_transport_drafts_v1';
+
+function _loadTransportDrafts() {
+  try { return JSON.parse(localStorage.getItem(TRANSPORT_DRAFT_KEY) || '{}'); }
+  catch { return {}; }
+}
+function _saveTransportDrafts(drafts) {
+  try { localStorage.setItem(TRANSPORT_DRAFT_KEY, JSON.stringify(drafts)); } catch {}
+}
+function _clearTransportDraft(vehicleId, mode) {
+  const drafts = _loadTransportDrafts();
+  if (!drafts[vehicleId]) return;
+  if (mode === 'checkin') {
+    delete drafts[vehicleId].checkedInSyns;
+    delete drafts[vehicleId].checkinRemarks;
+  } else {
+    delete drafts[vehicleId].boardedSyns;
+    delete drafts[vehicleId].boardingRemarks;
+  }
+  // If all fields cleared, remove the vehicle entry entirely
+  if (!drafts[vehicleId].checkedInSyns && !drafts[vehicleId].boardedSyns &&
+      !drafts[vehicleId].checkinRemarks && !drafts[vehicleId].boardingRemarks) {
+    delete drafts[vehicleId];
+  }
+  _saveTransportDrafts(drafts);
+}
+
+// Apply all pending drafts on top of the current STATE.transport. Called
+// after refreshTransportState() so server truth is the base, drafts overlay.
+function applyTransportDrafts() {
+  const drafts = _loadTransportDrafts();
+  if (!STATE.transport) STATE.transport = {};
+  for (const vid in drafts) {
+    const d = drafts[vid];
+    STATE.transport[vid] = STATE.transport[vid] || { status: 'idle', boardedSyns: [], driver: {} };
+    const v = STATE.transport[vid];
+    if (d.boardedSyns   !== undefined) v.boardedSyns     = d.boardedSyns;
+    if (d.boardingRemarks!== undefined) v.boardingRemarks= d.boardingRemarks;
+    if (d.checkedInSyns !== undefined) v.checkedInSyns   = d.checkedInSyns;
+    if (d.checkinRemarks!== undefined) v.checkinRemarks  = d.checkinRemarks;
+    v._draftMode = true;
+    v._draftSavedAt = d.savedAt;
+    v._draftSavedBy = d.savedBy;
+  }
+}
+
+window.saveTransportProgress = function() {
   const m = STATE.transportModal;
   if (!m) return;
-  const user = STATE.currentUser;
-  const actorName = user ? (user.shortName || user.name) : 'unknown';
   const remarks = (el('tmod-remarks')?.value || m.remarks || '').trim();
   const isCheckin = m.mode === 'checkin';
-  const op = isCheckin ? 'checkinBatch' : 'boardBatch';
-  // Optimistic update — write to the correct state field based on mode.
-  const priorState = STATE.transport ? JSON.parse(JSON.stringify(STATE.transport)) : {};
+  const savedBy = STATE.currentUser?.shortName || STATE.currentUser?.name || '';
+  const now = new Date().toISOString();
+
+  // 1. Persist to localStorage (survives reload)
+  const drafts = _loadTransportDrafts();
+  drafts[m.vehicleId] = drafts[m.vehicleId] || {};
+  if (isCheckin) {
+    drafts[m.vehicleId].checkedInSyns  = m.selected.slice();
+    drafts[m.vehicleId].checkinRemarks = remarks;
+  } else {
+    drafts[m.vehicleId].boardedSyns    = m.selected.slice();
+    drafts[m.vehicleId].boardingRemarks= remarks;
+  }
+  drafts[m.vehicleId].savedAt = now;
+  drafts[m.vehicleId].savedBy = savedBy;
+  _saveTransportDrafts(drafts);
+
+  // 2. Apply to in-memory STATE.transport so render picks it up immediately
   if (!STATE.transport) STATE.transport = {};
   if (!STATE.transport[m.vehicleId]) STATE.transport[m.vehicleId] = { status:'idle', boardedSyns:[], driver:{} };
+  const v = STATE.transport[m.vehicleId];
   if (isCheckin) {
-    STATE.transport[m.vehicleId].checkedInSyns = m.selected.slice();
-    STATE.transport[m.vehicleId].checkinRemarks = remarks;
+    v.checkedInSyns  = m.selected.slice();
+    v.checkinRemarks = remarks;
   } else {
-    STATE.transport[m.vehicleId].boardedSyns = m.selected.slice();
-    STATE.transport[m.vehicleId].boardingRemarks = remarks;
+    v.boardedSyns    = m.selected.slice();
+    v.boardingRemarks= remarks;
   }
-  const resp = await API.postRaw('updateTransport', {
-    vehicleId: m.vehicleId,
-    op,
-    synLabels: m.selected,
-    remarks,
-    actorName
-  });
-  if (resp && resp.ok && resp.data) {
-    STATE.transport = resp.data;
-    toast('💾 Progress saved');
-  } else {
-    STATE.transport = priorState;
-    const err = resp?.error || 'no response (offline?)';
-    toast('❌ Save failed — ' + err);
-  }
+  v._draftMode = true;
+  v._draftSavedAt = now;
+  v._draftSavedBy = savedBy;
+
+  // 3. Close modal + redraw
   STATE.transportModal = null;
   const body = _transportHost();
   if (body) _redrawTransport(body);
+  toast('💾 Saved locally — tap Send SITREP to broadcast');
 };
 
 // Send SITREP: saves state + sends Telegram to ops chat. Mode-aware — for
@@ -3391,15 +3451,30 @@ window.sendTransportBoarding = async function() {
     STATE.transport[m.vehicleId].boardedSyns = m.selected.slice();
     STATE.transport[m.vehicleId].boardingRemarks = remarks;
   }
-  // 1. Save to server
-  const result = await API.post('updateTransport', {
+  // 1. Save to server — use postRaw so we can inspect the shape and surface
+  // the actual failure reason instead of silently dropping.
+  const saveResp = await API.postRaw('updateTransport', {
     vehicleId: m.vehicleId,
     op,
     synLabels: m.selected,
     remarks,
     actorName
   });
-  if (result) STATE.transport = result;
+  console.log('[transport] send+save resp:', saveResp);
+  const okShape = saveResp && saveResp.ok && saveResp.data && typeof saveResp.data === 'object'
+                  && !saveResp.data.error
+                  && saveResp.data[m.vehicleId];
+  if (okShape) {
+    STATE.transport = saveResp.data;
+    // Clear the local draft for this mode — it's now on the server.
+    _clearTransportDraft(m.vehicleId, m.mode);
+    // Re-apply any OTHER vehicles' drafts on top of fresh server state
+    applyTransportDrafts();
+  } else {
+    const err = (saveResp && saveResp.data && saveResp.data.error) || saveResp?.error || STATE.lastApiError || 'no response';
+    toast('⚠️ Save failed (' + err + ') — Telegram still sent, draft kept locally');
+    // Do NOT clear the draft — user can retry Send SITREP later
+  }
 
   // 2. Build + send Telegram message
   const selList = m.selected.join(', ') || 'None';
@@ -3427,6 +3502,9 @@ window.sendTransportBoarding = async function() {
   STATE.transportModal = null;
   const body = _transportHost();
   if (body) _redrawTransport(body);
+  // Re-pull from server to confirm what's persisted — covers the case where
+  // the save succeeded on the server but the response was unexpected.
+  setTimeout(() => refreshTransportState().catch(() => {}), 300);
 };
 
 window.toggleTransportExpand = function(vehicleId) {
@@ -3638,15 +3716,21 @@ function _redrawTransport(container) {
       </span>`;
     }).join('');
 
+    const isDraft = !!v._draftMode;
+
     const bar = `
       <div style="margin:10px 0 4px;background:#e2e8f0;border-radius:6px;height:8px;overflow:hidden">
-        <div style="height:100%;width:${pct}%;background:${barColor};border-radius:6px"></div>
+        <div style="height:100%;width:${pct}%;background:${barColor};border-radius:6px;${isDraft ? 'opacity:.55;background-image:repeating-linear-gradient(45deg,transparent,transparent 4px,rgba(0,0,0,.2) 4px,rgba(0,0,0,.2) 8px);' : ''}"></div>
       </div>
-      <div style="font-size:11px;color:var(--text-3)">${boarded.length}/${veh.syns.length} groups confirmed · ${pct}%</div>`;
+      <div style="font-size:11px;color:var(--text-3)">${boarded.length}/${veh.syns.length} groups confirmed · ${pct}%${isDraft ? ' · <span style="color:#b45309;font-weight:700">📝 Draft (not sent)</span>' : ''}</div>`;
 
+    const draftBadge = isDraft
+      ? `<span style="font-size:10px;background:#fef3c7;color:#78350f;border:1px solid #fbbf24;padding:2px 7px;border-radius:10px;font-weight:700;margin-left:6px">📝 Draft</span>`
+      : '';
     const statusBadge = pushing
       ? `<span style="font-size:11px;background:#dbeafe;color:#1e40af;border:1px solid #bfdbfe;padding:2px 7px;border-radius:10px;font-weight:700;margin-left:6px">🚌 Pushing</span>`
-      : (allBoarded ? `<span style="font-size:11px;background:#dcfce7;color:#166534;border:1px solid #bbf7d0;padding:2px 7px;border-radius:10px;font-weight:700;margin-left:6px">All Boarded ✓</span>` : '');
+      : (allBoarded && !isDraft ? `<span style="font-size:11px;background:#dcfce7;color:#166534;border:1px solid #bbf7d0;padding:2px 7px;border-radius:10px;font-weight:700;margin-left:6px">All Boarded ✓</span>` : '')
+      + draftBadge;
 
     const driverSection = isExpand ? `
       <div class="transport-driver-section">
@@ -3681,12 +3765,14 @@ function _redrawTransport(container) {
       </div>` : '';
 
     const hasState = status !== 'idle' || boarded.length > 0;
-    const boardBtn = status === 'idle' ? `<button class="btn btn-sm" style="background:#eff6ff;color:#0369a1;border:1px solid #7dd3fc;font-size:13px" onclick="openTransportBoarding('${veh.id}',false)">${boarded.length ? '➕ Continue Boarding' : '🔲 Boarding?'}</button>` : '';
-    const pushBtn  = canAdmin && status === 'idle' && allBoarded ? `<button class="btn btn-sm" style="background:#2563eb;color:#fff;font-size:13px" onclick="transportAction('pushing','${veh.id}')">🚌 Mark Pushing</button>` : '';
-    // Dropped Off: available whenever there's any boarded state (not just during pushing),
-    // so the bus can be cleared between rounds without first marking Pushing.
-    const dropBtn  = canAdmin && (pushing || boarded.length > 0) ? `<button class="btn btn-sm" style="background:#16a34a;color:#fff;font-size:13px" onclick="transportAction('dropped','${veh.id}')">✅ Dropped Off</button>` : '';
-    const resetBtn = canAdmin && hasState ? `<button class="btn btn-sm btn-outline" style="font-size:12px" onclick="transportAction('reset','${veh.id}')">↺ Reset</button>` : '';
+    const boardBtn = status === 'idle' ? `<button class="btn btn-sm" style="background:#eff6ff;color:#0369a1;border:1px solid #7dd3fc;font-size:13px" onclick="openTransportBoarding('${veh.id}',false)">${boarded.length ? (isDraft ? '✏️ Edit Draft' : '➕ Continue Boarding') : '🔲 Boarding?'}</button>` : '';
+    // Pushing / Dropped / Reset are gated on "no pending draft" — server state
+    // must be in sync before marking lifecycle transitions. When a draft exists,
+    // show a hint instead of the button.
+    const pushBtn  = canAdmin && !isDraft && status === 'idle' && allBoarded ? `<button class="btn btn-sm" style="background:#2563eb;color:#fff;font-size:13px" onclick="transportAction('pushing','${veh.id}')">🚌 Mark Pushing</button>` : '';
+    const dropBtn  = canAdmin && !isDraft && (pushing || boarded.length > 0) ? `<button class="btn btn-sm" style="background:#16a34a;color:#fff;font-size:13px" onclick="transportAction('dropped','${veh.id}')">✅ Dropped Off</button>` : '';
+    const resetBtn = canAdmin && !isDraft && hasState ? `<button class="btn btn-sm btn-outline" style="font-size:12px" onclick="transportAction('reset','${veh.id}')">↺ Reset</button>` : '';
+    const draftHint = isDraft ? `<div style="font-size:11px;color:#b45309;padding:6px 10px;background:#fef3c7;border:1px dashed #fbbf24;border-radius:6px;margin-top:6px">📝 Unsaved draft — tap <b>Edit Draft</b> → <b>Send SITREP</b> to sync to server. Pushing / Dropped unlock after Send.</div>` : '';
 
     return `
       <div class="transport-bus-card" style="border-left:4px solid ${pushing ? '#2563eb' : allBoarded ? '#16a34a' : '#e2e8f0'}">
@@ -3705,6 +3791,7 @@ function _redrawTransport(container) {
         <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">
           ${boardBtn}${pushBtn}${dropBtn}${resetBtn}
         </div>
+        ${draftHint}
         ${sitrepPanel}
         ${v.pushedAt ? `<div style="font-size:10px;color:var(--text-3);margin-top:4px">Pushed ${new Date(v.pushedAt).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}H${v.pushedBy?' by '+escapeHtml(v.pushedBy):''}</div>` : ''}
         ${v.lastDroppedAt ? `<div style="font-size:10px;color:var(--text-3);margin-top:2px">Last dropped ${new Date(v.lastDroppedAt).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}H</div>` : ''}
@@ -3756,12 +3843,14 @@ window.toggleTransportSection = function(key) {
 };
 
 async function renderTransportSubTab(container) {
-  // Render immediately with cached state — no spinner flash
+  // Render immediately with cached state + any local drafts — no spinner flash
+  applyTransportDrafts();
   _redrawTransport(container);
-  // Refresh from server in background
+  // Refresh from server in background, re-overlay drafts
   const data = await API.get('getTransport');
   if (data && typeof data === 'object') {
     STATE.transport = data;
+    applyTransportDrafts();
     _redrawTransport(container);
   }
 }
@@ -6167,73 +6256,59 @@ async function _fetchTeleAutoPreview(key) {
   const dateInp= modal.querySelector('.ta-modal-date');
   const actor  = STATE.currentUser?.id || '';
   const dateParam = (key === 'A2_reminder' && dateInp.value) ? `&date=${encodeURIComponent(dateInp.value)}` : '';
-  const url = `${CONFIG.apiUrl}?action=previewBroadcast&key=${encodeURIComponent(key)}&actor=${encodeURIComponent(actor)}${dateParam}`;
 
-  // Cache key for localStorage fallback when network is unreliable.
+  // Use the battle-tested API.get wrapper instead of direct fetch. It handles
+  // iOS Safari quirks (redirect, timeout, JSON parse errors) consistently
+  // with the rest of the app. Smuggle extra params in the action string.
+  const actionStr = `previewBroadcast&key=${encodeURIComponent(key)}&actor=${encodeURIComponent(actor)}${dateParam}`;
   const cacheKey = `tsv_preview_${key}${dateParam || ''}`;
 
   // Show cached preview instantly if we have one — refresh in background.
   try {
     const cached = localStorage.getItem(cacheKey);
-    if (cached) {
-      const existing = (STATE.broadcastOverrides || {})[key];
-      if (existing && existing.text) {
-        bodyEl.value = existing.text;
-        metaEl.textContent = `Queued override · ${existing.mode} · refreshing live preview…`;
-      } else {
-        bodyEl.value = cached;
-        metaEl.textContent = `Cached preview · refreshing…`;
-      }
+    const existing = (STATE.broadcastOverrides || {})[key];
+    if (existing && existing.text) {
+      bodyEl.value = existing.text;
+      metaEl.textContent = `Queued override · ${existing.mode} · refreshing live preview…`;
+    } else if (cached) {
+      bodyEl.value = cached;
+      metaEl.textContent = `Cached preview · refreshing…`;
     }
   } catch {}
 
-  // Apps Script cold start + live weather API can take >10s; give it 25s.
-  // Retry once on failure (cold-start tax is usually paid on the first req).
-  async function tryFetch(attempt) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 25000);
-    try {
-      const r = await fetch(url, { signal: controller.signal, cache: 'no-store' });
-      clearTimeout(timer);
-      const j = await r.json();
-      return j;
-    } catch (e) {
-      clearTimeout(timer);
-      throw e;
-    }
-  }
-
-  let j = null, lastErr = null;
+  // Two attempts — GAS cold start pays the first call's tax.
+  let data = null, lastErr = null;
   for (let attempt = 1; attempt <= 2; attempt++) {
-    try { j = await tryFetch(attempt); break; }
-    catch (e) { lastErr = e; if (attempt === 1) await new Promise(r => setTimeout(r, 600)); }
+    try {
+      data = await API.get(actionStr);
+      if (data) break;
+      lastErr = STATE.lastApiError || 'no response';
+    } catch (e) { lastErr = e?.message || String(e); }
+    if (attempt === 1) await new Promise(r => setTimeout(r, 800));
   }
 
-  if (!j) {
-    // Both attempts failed — leave any cached content visible so admin can
-    // at least edit what was there last time.
-    metaEl.textContent = '⚠️ Network error — ' + (lastErr?.name === 'AbortError' ? 'timed out after 25s (Apps Script cold-start or weather API slow)' : (lastErr?.message || 'load failed')) + '. Retry or edit the cached text below.';
+  if (!data) {
+    // Leave any cached text visible so admin can edit + save an override.
+    const err = lastErr || 'load failed';
+    metaEl.innerHTML = `⚠️ Server unreachable — ${escapeHtml(err)}. <button class="btn btn-sm btn-outline" style="margin-left:6px;font-size:11px;padding:3px 10px" onclick="refreshTeleAutoPreview()">Retry</button>`;
     return;
   }
 
-  if (!j.ok || !j.data || !j.data.ok) {
-    metaEl.textContent = '⚠️ ' + ((j.data && j.data.error) || j.error || 'Preview failed');
+  if (!data.ok) {
+    metaEl.innerHTML = `⚠️ ${escapeHtml(data.error || 'Preview failed')}. <button class="btn btn-sm btn-outline" style="margin-left:6px;font-size:11px;padding:3px 10px" onclick="refreshTeleAutoPreview()">Retry</button>`;
     return;
   }
 
-  // Cache for next open
-  try { localStorage.setItem(cacheKey, j.data.message || ''); } catch {}
+  try { localStorage.setItem(cacheKey, data.message || ''); } catch {}
 
-  // If an override is already queued, prefer showing THAT in the editor so
-  // the admin can tweak it further. Otherwise show the live-generated text.
   const existing = (STATE.broadcastOverrides || {})[key];
   if (existing && existing.text) {
     bodyEl.value = existing.text;
     metaEl.textContent = `Queued override · ${existing.mode} · saved ${new Date(existing.savedAt).toLocaleString('en-GB', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit', timeZone:'Asia/Bangkok' })}`;
   } else {
-    bodyEl.value = j.data.message || '';
-    const warn = j.data.warning ? ' · ⚠️ ' + j.data.warning : '';
-    metaEl.textContent = `Live preview · ${j.data.charCount || 0} chars${warn}`;
+    bodyEl.value = data.message || '';
+    const warn = data.warning ? ' · ⚠️ ' + data.warning : '';
+    metaEl.textContent = `Live preview · ${data.charCount || 0} chars${warn}`;
   }
 }
 
