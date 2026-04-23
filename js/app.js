@@ -6168,28 +6168,72 @@ async function _fetchTeleAutoPreview(key) {
   const actor  = STATE.currentUser?.id || '';
   const dateParam = (key === 'A2_reminder' && dateInp.value) ? `&date=${encodeURIComponent(dateInp.value)}` : '';
   const url = `${CONFIG.apiUrl}?action=previewBroadcast&key=${encodeURIComponent(key)}&actor=${encodeURIComponent(actor)}${dateParam}`;
+
+  // Cache key for localStorage fallback when network is unreliable.
+  const cacheKey = `tsv_preview_${key}${dateParam || ''}`;
+
+  // Show cached preview instantly if we have one — refresh in background.
   try {
-    const r = await fetch(url);
-    const j = await r.json();
-    if (!j.ok || !j.data || !j.data.ok) {
-      bodyEl.value = '';
-      metaEl.textContent = '⚠️ ' + ((j.data && j.data.error) || j.error || 'Preview failed');
-      return;
+    const cached = localStorage.getItem(cacheKey);
+    if (cached) {
+      const existing = (STATE.broadcastOverrides || {})[key];
+      if (existing && existing.text) {
+        bodyEl.value = existing.text;
+        metaEl.textContent = `Queued override · ${existing.mode} · refreshing live preview…`;
+      } else {
+        bodyEl.value = cached;
+        metaEl.textContent = `Cached preview · refreshing…`;
+      }
     }
-    // If an override is already queued, prefer showing THAT in the editor so
-    // the admin can tweak it further. Otherwise show the live-generated text.
-    const existing = (STATE.broadcastOverrides || {})[key];
-    if (existing && existing.text) {
-      bodyEl.value = existing.text;
-      metaEl.textContent = `Showing queued override · ${existing.mode} · saved ${new Date(existing.savedAt).toLocaleString('en-GB', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit', timeZone:'Asia/Bangkok' })}`;
-    } else {
-      bodyEl.value = j.data.message || '';
-      const warn = j.data.warning ? ' · ⚠️ ' + j.data.warning : '';
-      metaEl.textContent = `Live preview · ${j.data.charCount || 0} chars${warn}`;
+  } catch {}
+
+  // Apps Script cold start + live weather API can take >10s; give it 25s.
+  // Retry once on failure (cold-start tax is usually paid on the first req).
+  async function tryFetch(attempt) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 25000);
+    try {
+      const r = await fetch(url, { signal: controller.signal, cache: 'no-store' });
+      clearTimeout(timer);
+      const j = await r.json();
+      return j;
+    } catch (e) {
+      clearTimeout(timer);
+      throw e;
     }
-  } catch (e) {
-    bodyEl.value = '';
-    metaEl.textContent = '⚠️ Network error — ' + e.message;
+  }
+
+  let j = null, lastErr = null;
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try { j = await tryFetch(attempt); break; }
+    catch (e) { lastErr = e; if (attempt === 1) await new Promise(r => setTimeout(r, 600)); }
+  }
+
+  if (!j) {
+    // Both attempts failed — leave any cached content visible so admin can
+    // at least edit what was there last time.
+    metaEl.textContent = '⚠️ Network error — ' + (lastErr?.name === 'AbortError' ? 'timed out after 25s (Apps Script cold-start or weather API slow)' : (lastErr?.message || 'load failed')) + '. Retry or edit the cached text below.';
+    return;
+  }
+
+  if (!j.ok || !j.data || !j.data.ok) {
+    metaEl.textContent = '⚠️ ' + ((j.data && j.data.error) || j.error || 'Preview failed');
+    return;
+  }
+
+  // Cache for next open
+  try { localStorage.setItem(cacheKey, j.data.message || ''); } catch {}
+
+  // If an override is already queued, prefer showing THAT in the editor so
+  // the admin can tweak it further. Otherwise show the live-generated text.
+  const existing = (STATE.broadcastOverrides || {})[key];
+  if (existing && existing.text) {
+    bodyEl.value = existing.text;
+    metaEl.textContent = `Queued override · ${existing.mode} · saved ${new Date(existing.savedAt).toLocaleString('en-GB', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit', timeZone:'Asia/Bangkok' })}`;
+  } else {
+    bodyEl.value = j.data.message || '';
+    const warn = j.data.warning ? ' · ⚠️ ' + j.data.warning : '';
+    metaEl.textContent = `Live preview · ${j.data.charCount || 0} chars${warn}`;
   }
 }
 
