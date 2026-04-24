@@ -5329,3 +5329,155 @@ html:not(.no-polish) .day-tabs,
 html:not(.no-polish) .category-filter {
   scrollbar-width: none;   /* Firefox */
 }
+
+/* ══════════════════════════════════════════════════════════════
+   === CSS POLISH V2 — C3: Motion + Glass + Dark contrast + Sticky ===
+   Frosted surfaces on 3 stable areas only (header/nav/modal backdrops).
+   No list items, no cards — zero scroll jank.
+   Additive, reversible via html.no-polish.
+   ══════════════════════════════════════════════════════════════ */
+
+/* ── STICKY SUB-TAB ROW FIX ─────────────────────────────────
+   User report: Home sub-tabs (Overview/Map/Translator) scrolling off +
+   no visible gap below. Enforce sticky + add breathing room. */
+html:not(.no-polish) .subtab-row {
+  position: sticky !important;       /* guard against parent override */
+  top: calc(var(--header-h) + var(--safe-t));
+  z-index: 25;                       /* above most in-tab content */
+  margin-bottom: 14px;               /* gap before action rows below */
+}
+/* Reinforce the shield under sticky rows — stops any sub-pixel bleed
+   where the rounded pill ends and the content behind scrolls past. */
+html:not(.no-polish) .subtab-row::before {
+  background: var(--bg);
+  inset: -8px -20px -14px;
+}
+html.is-dark:not(.no-polish) .subtab-row::before {
+  background: #0b1120;
+}
+/* The Home tab inline-styled `margin-top:6px` on its subtab-row —
+   neutralise that so the sticky glue is clean against header bottom. */
+html:not(.no-polish) #tab-home > .subtab-row {
+  margin-top: 4px !important;
+}
+
+/* ── FROSTED GLASS — HEADER + BOTTOM NAV + MODAL BACKDROPS ──
+   backdrop-filter is expensive on large areas, so restricted to these
+   3 surfaces that rarely repaint. @supports fallback keeps the old
+   background so non-WebKit/old-Safari doesn't see a blank panel. */
+@supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  html:not(.no-polish) #app-header {
+    background: rgba(255, 255, 255, 0.72);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    backdrop-filter: blur(20px) saturate(180%);
+    border-bottom: 0.5px solid var(--ios-sep);
+  }
+  html.is-dark:not(.no-polish) #app-header {
+    background: rgba(15, 23, 42, 0.72);
+    border-bottom-color: var(--ios-sep);
+  }
+  html:not(.no-polish) #bottom-nav {
+    background: rgba(255, 255, 255, 0.78);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    backdrop-filter: blur(20px) saturate(180%);
+    border-top: 0.5px solid var(--ios-sep);
+  }
+  html.is-dark:not(.no-polish) #bottom-nav {
+    background: rgba(15, 23, 42, 0.78);
+    border-top-color: var(--ios-sep);
+  }
+  /* Modal backdrops — only the overlay, not the sheet content. */
+  html:not(.no-polish) #tele-auto-modal,
+  html:not(.no-polish) #install-guide-modal,
+  html:not(.no-polish) #error-report-modal,
+  html:not(.no-polish) #pin-change-modal {
+    background: rgba(15, 23, 42, 0.40);
+    -webkit-backdrop-filter: blur(16px) saturate(140%);
+    backdrop-filter: blur(16px) saturate(140%);
+  }
+}
+
+/* ── MODAL SPRING ENTER ─────────────────────────────────────
+   Replaces linear fadeIn/slideUp with a subtle spring so sheets
+   pop into place rather than slide mechanically. Uses
+   cubic-bezier(.34, 1.56, .64, 1) — overshoot + settle. */
+html:not(.no-polish) .editor-sheet,
+html:not(.no-polish) .buddy-sheet,
+html:not(.no-polish) .members-sheet,
+html:not(.no-polish) .visit-detail-sheet,
+html:not(.no-polish) .pin-change-sheet,
+html:not(.no-polish) .install-sheet,
+html:not(.no-polish) .error-report-sheet {
+  animation: tsvSheetSpring .38s cubic-bezier(.34, 1.56, .64, 1);
+  will-change: transform, opacity;
+}
+@keyframes tsvSheetSpring {
+  from { opacity: 0; transform: translateY(24px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+/* Release GPU layer after animation to save memory. */
+html:not(.no-polish) .editor-sheet,
+html:not(.no-polish) .buddy-sheet,
+html:not(.no-polish) .members-sheet,
+html:not(.no-polish) .visit-detail-sheet,
+html:not(.no-polish) .pin-change-sheet,
+html:not(.no-polish) .install-sheet,
+html:not(.no-polish) .error-report-sheet {
+  animation-fill-mode: both;
+}
+
+/* Bottom-sheet drag handle — small pill at the top of each sheet.
+   Purely decorative iOS-native signal that it's draggable. */
+html:not(.no-polish) .buddy-sheet::before,
+html:not(.no-polish) .editor-sheet::before,
+html:not(.no-polish) .visit-detail-sheet::before,
+html:not(.no-polish) .pin-change-sheet::before,
+html:not(.no-polish) .error-report-sheet::before,
+html:not(.no-polish) #tele-auto-modal .editor-sheet::before {
+  content: '';
+  position: absolute;
+  top: calc(6px + var(--safe-t));
+  left: 50%;
+  transform: translateX(-50%);
+  width: 36px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--ios-gray-4);
+  opacity: .7;
+  pointer-events: none;
+  z-index: 5;
+}
+html.is-dark:not(.no-polish) .buddy-sheet::before,
+html.is-dark:not(.no-polish) .editor-sheet::before,
+html.is-dark:not(.no-polish) .visit-detail-sheet::before,
+html.is-dark:not(.no-polish) .pin-change-sheet::before,
+html.is-dark:not(.no-polish) .error-report-sheet::before,
+html.is-dark:not(.no-polish) #tele-auto-modal .editor-sheet::before {
+  background: rgba(235, 235, 245, 0.35);
+}
+
+/* ── DARK-MODE CONTRAST SWEEP ───────────────────────────────
+   Bump specific labels that were sub-AA on dark cards. */
+html.is-dark:not(.no-polish) .nav-btn .nav-label,
+html.is-dark:not(.no-polish) .cal-event-time,
+html.is-dark:not(.no-polish) .cal-event-time .ce-end,
+html.is-dark:not(.no-polish) .ce-loc,
+html.is-dark:not(.no-polish) .ce-badges,
+html.is-dark:not(.no-polish) .post-time,
+html.is-dark:not(.no-polish) .parade-card .label {
+  color: #cbd5e1;
+}
+html.is-dark:not(.no-polish) .empty-state p,
+html.is-dark:not(.no-polish) .members-hint,
+html.is-dark:not(.no-polish) .sheet-link,
+html.is-dark:not(.no-polish) .day-tab {
+  color: rgba(235, 235, 245, 0.72);
+}
+
+/* Bottom-nav active label — stronger contrast against the frosted bg. */
+html:not(.no-polish) .nav-btn.active .nav-label {
+  color: var(--blue-500);
+}
+html.is-dark:not(.no-polish) .nav-btn.active .nav-label {
+  color: #7dd3fc;
+}
