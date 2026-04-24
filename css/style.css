@@ -5317,17 +5317,47 @@ html:not(.no-polish) .category-filter {
   overscroll-behavior: contain;
 }
 
-/* Horizontal scroll rows (subtab bar, day tabs, category chips) — hide the
-   ugly default scrollbar on mobile since they scroll by gesture. */
-html:not(.no-polish) .subtab-bar::-webkit-scrollbar,
+/* Horizontal scroll rows (day tabs, category chips) — hide scrollbar on
+   these gesture-scrolled pills. EXCLUDING .subtab-bar (Settings) because
+   its buttons like "Admin · Others" can overflow off-screen and users
+   need the scrollbar as a visual cue that more is to the right. */
 html:not(.no-polish) .day-tabs::-webkit-scrollbar,
 html:not(.no-polish) .category-filter::-webkit-scrollbar {
   display: none;
 }
-html:not(.no-polish) .subtab-bar,
 html:not(.no-polish) .day-tabs,
 html:not(.no-polish) .category-filter {
   scrollbar-width: none;   /* Firefox */
+}
+
+/* Settings sub-tab row scrollability affordance — when Admin / Tele tabs
+   overflow the viewport, show a subtle right-edge fade as a scroll cue. */
+html:not(.no-polish) .subtab-bar {
+  position: relative;
+  -webkit-mask-image: linear-gradient(to right, black calc(100% - 24px), transparent 100%);
+          mask-image: linear-gradient(to right, black calc(100% - 24px), transparent 100%);
+}
+/* Reset the mask once the user has scrolled to the end, so the last tab
+   is fully visible. Uses pointer fallback; benign if not supported. */
+html:not(.no-polish) .subtab-bar:not(:hover) {
+  /* no-op — mask applies in base state */
+}
+
+/* Sticky the Settings sub-tab bar so sub-tabs stay visible while
+   scrolling the settings page. Matches the .subtab-row pattern. */
+html:not(.no-polish) #tab-settings > .subtab-bar {
+  position: sticky;
+  top: calc(var(--header-h) + var(--safe-t));
+  z-index: 22;
+  background: var(--bg);
+  padding-top: 10px;
+  padding-bottom: 6px;
+  margin-bottom: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+html.is-dark:not(.no-polish) #tab-settings > .subtab-bar {
+  background: #0b1120;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 
 /* ══════════════════════════════════════════════════════════════

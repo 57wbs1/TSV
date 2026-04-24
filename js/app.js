@@ -5351,7 +5351,10 @@ window.openMemberEditor = function(memberId) {
   const adminRow = el('ed-admin-row');
   const adminSel = el('ed-admin');
   if (adminRow) adminRow.classList.toggle('hidden', !isSuperAdmin);
-  if (adminSel) adminSel.value = (m && (m.isAdmin === true || m.isAdmin === 'true')) ? 'true' : 'false';
+  // Use cBool — Sheets sometimes writes 'TRUE' (uppercase) or 'true'
+  // (lowercase) depending on who set it. Previous check only matched
+  // lowercase, so admins stored as 'TRUE' showed as Non-Admin in editor.
+  if (adminSel) adminSel.value = (m && cBool(m.isAdmin)) ? 'true' : 'false';
   el('member-editor').classList.remove('hidden');
 };
 window.hideMemberEditor = function() { el('member-editor').classList.add('hidden'); _editingMemberId = null; };
