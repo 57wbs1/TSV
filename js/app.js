@@ -1240,7 +1240,10 @@ function _applyBulkSync(bulk) {
       const hash = JSON.stringify(bulk.members);
       if (hash !== _lastMembersHash) {
         _lastMembersHash = hash;
-        ALL_MEMBERS = bulk.members;
+        MEMBERS = bulk.members;
+        // Persist to localStorage so next app open renders instantly
+        // from cache before the network round-trip completes.
+        try { localStorage.setItem('tsv_members_cache', JSON.stringify(bulk.members)); } catch {}
       }
     }
     if (Array.isArray(bulk.statuses) && !isSyncLocked('statuses')) {
@@ -1264,6 +1267,7 @@ function _applyBulkSync(bulk) {
           oics: r.oics ? (typeof r.oics === 'string' ? safeJson(r.oics) : r.oics) : {},
           isDeleted: cBool(r.isDeleted)
         }));
+        try { localStorage.setItem('tsv_calendar_cache', JSON.stringify(CALENDAR_EVENTS)); } catch {}
       }
     }
     if (Array.isArray(bulk.learnings) && !isSyncLocked('learnings')) {
@@ -1332,6 +1336,7 @@ async function syncMembers() {
     pin: cStr(row.pin, '0000').padStart(4, '0'),
     isAdmin: cBool(row.isAdmin)
   }));
+  try { localStorage.setItem('tsv_members_cache', JSON.stringify(MEMBERS)); } catch {}
   STATE.membersSynced = true;
   if (STATE.currentUser) {
     const me = MEMBERS.find(m => m.id === STATE.currentUser.id);
@@ -1437,6 +1442,7 @@ async function syncCalendar() {
     oics: r.oics ? (typeof r.oics === 'string' ? safeJson(r.oics) : r.oics) : {},
     isDeleted: cBool(r.isDeleted)
   }));
+  try { localStorage.setItem('tsv_calendar_cache', JSON.stringify(CALENDAR_EVENTS)); } catch {}
   if (anyModalOpen() || STATE.isTouching) return;
   if (STATE.currentTab === 'calendar') renderCalendar();
   if (STATE.currentTab === 'home') renderHome();
@@ -1500,8 +1506,27 @@ function startPolling() {
   Object.keys(STATE._timers || {}).forEach(k => clearInterval(STATE._timers[k]));
   STATE._timers = {};
 
-  // Initial sync — try bulkSync first (one round-trip, pays GAS cold-start
-  // once). Falls back to the 3 individual fetches if bulk isn't available.
+  // Hydrate from localStorage INSTANTLY before any network call. This is
+  // why the app used to feel like it "hung" during refresh — users waited
+  // for the server round-trip before seeing anything. Now the UI paints
+  // from cache in <10ms and the server sync happens in the background.
+  try {
+    const cachedMembers = JSON.parse(localStorage.getItem('tsv_members_cache') || 'null');
+    if (Array.isArray(cachedMembers) && cachedMembers.length) {
+      MEMBERS = cachedMembers;
+      _lastMembersHash = JSON.stringify(cachedMembers);
+    }
+  } catch {}
+  try {
+    const cachedCalendar = JSON.parse(localStorage.getItem('tsv_calendar_cache') || 'null');
+    if (Array.isArray(cachedCalendar) && cachedCalendar.length) {
+      CALENDAR_EVENTS = cachedCalendar;
+      _lastCalendarHash = JSON.stringify(cachedCalendar);
+    }
+  } catch {}
+
+  // Initial sync — bulkSync in background. UI is already painted from
+  // cache, so a slow server response doesn't hold anything up.
   (async () => {
     const bulk = await API.get('bulkSync').catch(() => null);
     if (bulk && typeof bulk === 'object' && bulk.ok !== false) {
@@ -1644,6 +1669,17 @@ function setupPullToRefresh() {
 // ═══════════ HOME TAB ════════════════════════════════════════
 function renderHome() {
   const homeSub = STATE.homeSubTab || 'overview';
+
+  // CRITICAL: if we're on the map sub-tab AND a live Leaflet map already
+  // exists in the DOM, DO NOT re-innerHTML the whole tab. That was nuking
+  // the map on every background sync (bulkSync, statusPoll, etc.) —
+  // which is why zoom + background sync overlap caused the "refresh" flash.
+  // Just update the markers (cheap, non-destructive) and return.
+  if (homeSub === 'map' && STATE.map && el('leaflet-map')) {
+    updateMapMarkers();
+    return;
+  }
+
   const homeSubBar = `
     <div class="subtab-row" style="margin-top:6px">
       <button class="subtab-btn ${homeSub === 'overview' ? 'active' : ''}" onclick="setHomeSubTab('overview')">🏠 Overview</button>
