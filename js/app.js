@@ -1241,6 +1241,9 @@ function _applyBulkSync(bulk) {
         // from cache before the network round-trip completes.
         try { localStorage.setItem('tsv_members_cache', JSON.stringify(bulk.members)); } catch {}
       }
+      // Critical: must flip this flag or in/out count displays show '…'
+      // forever. syncMembers() sets it; bulkSync used to forget.
+      STATE.membersSynced = true;
     }
     if (Array.isArray(bulk.statuses) && !isSyncLocked('statuses')) {
       const hash = JSON.stringify(bulk.statuses);
@@ -1511,6 +1514,10 @@ function startPolling() {
     if (Array.isArray(cachedMembers) && cachedMembers.length) {
       MEMBERS = cachedMembers;
       _lastMembersHash = JSON.stringify(cachedMembers);
+      // Mark roster as synced so in/out count displays render numbers
+      // instead of '…' on the cold-start render before the network call
+      // resolves. The cached set is recent enough to render counts.
+      STATE.membersSynced = true;
     }
   } catch {}
   try {
