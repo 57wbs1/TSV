@@ -16,6 +16,12 @@
   <link rel="apple-touch-icon" href="icons/icon-192.png">
   <link rel="apple-touch-icon" sizes="512x512" href="icons/icon-512.png">
   <link rel="manifest" href="manifest.json">
+  <!-- Warm the TLS + DNS for Apps Script + its redirect target at page load
+       instead of on first fetch. Saves ~300-500ms on the initial sync. -->
+  <link rel="preconnect" href="https://script.google.com" crossorigin>
+  <link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
+  <link rel="dns-prefetch" href="https://script.google.com">
+  <link rel="dns-prefetch" href="https://script.googleusercontent.com">
   <title>GKSCSC Thailand Study Visit</title>
 
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">

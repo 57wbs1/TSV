@@ -1229,6 +1229,85 @@ async function mutateWithLock(domain, fn) {
   finally { unlockSync(domain); }
 }
 
+// Apply a bulkSync payload into STATE and trigger targeted re-renders.
+// Replaces 7+ separate GETs with one round-trip's worth of data. Each
+// field is optional; only those present cause state mutation. Uses the
+// same hash-dedup + render-guard logic as the individual sync functions.
+function _applyBulkSync(bulk) {
+  if (!bulk || typeof bulk !== 'object') return;
+  try {
+    if (Array.isArray(bulk.members) && bulk.members.length && !isSyncLocked('members')) {
+      const hash = JSON.stringify(bulk.members);
+      if (hash !== _lastMembersHash) {
+        _lastMembersHash = hash;
+        ALL_MEMBERS = bulk.members;
+      }
+    }
+    if (Array.isArray(bulk.statuses) && !isSyncLocked('statuses')) {
+      const hash = JSON.stringify(bulk.statuses);
+      if (hash !== _lastStatusHash) {
+        _lastStatusHash = hash;
+        STATE.memberStatuses = {};
+        bulk.statuses.forEach(r => { if (r && r.id) STATE.memberStatuses[r.id] = r; });
+      }
+    }
+    if (Array.isArray(bulk.calendar) && bulk.calendar.length) {
+      const hash = JSON.stringify(bulk.calendar);
+      if (hash !== _lastCalendarHash) {
+        _lastCalendarHash = hash;
+        CALENDAR_EVENTS = bulk.calendar.map(r => ({
+          id: cStr(r.id), day: parseInt(r.day) || 1,
+          startTime: cStr(r.startTime), endTime: cStr(r.endTime),
+          title: cStr(r.title), location: cStr(r.location),
+          category: cStr(r.category), attire: cStr(r.attire),
+          visitId: cStr(r.visitId), remarks: cStr(r.remarks),
+          oics: r.oics ? (typeof r.oics === 'string' ? safeJson(r.oics) : r.oics) : {},
+          isDeleted: cBool(r.isDeleted)
+        }));
+      }
+    }
+    if (Array.isArray(bulk.learnings) && !isSyncLocked('learnings')) {
+      const hash = JSON.stringify(bulk.learnings);
+      if (hash !== _lastLearningsHash) {
+        _lastLearningsHash = hash;
+        STATE.learnings = bulk.learnings;
+      }
+    }
+    if (Array.isArray(bulk.reflections)) {
+      const hash = JSON.stringify(bulk.reflections);
+      if (hash !== _lastReflectionsHash) {
+        _lastReflectionsHash = hash;
+        STATE.reflections = bulk.reflections;
+      }
+    }
+    if (bulk.paradeState && typeof bulk.paradeState === 'object') {
+      STATE.paradeState = bulk.paradeState;
+      STATE._paradeFetchedAt = Date.now();
+      try { localStorage.setItem('tsv_parade_state', JSON.stringify(bulk.paradeState)); } catch {}
+    }
+    if (bulk.synRemarks && typeof bulk.synRemarks === 'object') {
+      STATE.synRemarks = bulk.synRemarks;
+    }
+    if (bulk.transport && typeof bulk.transport === 'object') {
+      STATE.transport = bulk.transport;
+      applyTransportDrafts();
+    }
+    if (Array.isArray(bulk.incidents)) {
+      STATE.incidents = bulk.incidents;
+      STATE._incidentsFetchedAt = Date.now();
+      try { localStorage.setItem('tsv_incidents', JSON.stringify(bulk.incidents)); } catch {}
+    }
+  } catch (e) { console.warn('[bulkSync apply]', e); }
+
+  // Re-render whatever tab is currently showing
+  if (anyModalOpen() || STATE.isTouching) return;
+  const t = STATE.currentTab;
+  if (t === 'home')     renderHome();
+  if (t === 'calendar') renderCalendar();
+  if (t === 'location') renderLocation();
+  if (t === 'settings') renderSettings();
+}
+
 async function syncMembers() {
   // Skip sync while any member mutation is in flight — the server's
   // pre-update response would overwrite fresh local state (PIN change,
@@ -1421,8 +1500,16 @@ function startPolling() {
   Object.keys(STATE._timers || {}).forEach(k => clearInterval(STATE._timers[k]));
   STATE._timers = {};
 
-  // Initial sync — parallel, fire-and-forget so startup isn't blocked
-  Promise.all([syncMembers(), syncStatuses(), syncCalendar()]).catch(() => {});
+  // Initial sync — try bulkSync first (one round-trip, pays GAS cold-start
+  // once). Falls back to the 3 individual fetches if bulk isn't available.
+  (async () => {
+    const bulk = await API.get('bulkSync').catch(() => null);
+    if (bulk && typeof bulk === 'object' && bulk.ok !== false) {
+      _applyBulkSync(bulk);
+    } else {
+      Promise.all([syncMembers(), syncStatuses(), syncCalendar()]).catch(() => {});
+    }
+  })();
 
   // Live status polling — only when the user is looking at a tab whose
   // UI depends on other members' statuses (Home parade state, Tracker
@@ -1521,23 +1608,29 @@ function setupPullToRefresh() {
       resetIndicator();
       try {
         await withLoader('Refreshing…', async () => {
-          // Fire GCal sync in the background — don't block the main refresh.
-          // When it completes it triggers a second syncCalendar() pass so
-          // any Google Calendar edits (drag-to-reschedule etc) land within
-          // a few seconds without holding up the rest of the UI update.
-          API.get('syncFromGoogleCalendar').then(() => syncCalendar()).catch(() => {});
-          await Promise.all([
-            syncMembers(),
-            syncStatuses(),
+          // Fire GCal sync in the background — don't block main refresh.
+          API.get('syncFromGoogleCalendar').catch(() => {});
+          // bulkSync (members + statuses + transport + paradeState +
+          // synRemarks) in ONE trip, fires in parallel with the heavier
+          // individual syncs (calendar / learnings / reflections / IR)
+          // so the user sees everything refresh at once instead of
+          // serially.
+          const [bulk] = await Promise.all([
+            API.get('bulkSync').catch(() => null),
             syncCalendar(),
             syncLearnings(),
             syncReflections(),
-            // Also force-refresh the parade-state + incidents caches so PTR
-            // on those tabs actually pulls fresh server state (was showing
-            // stale localStorage until PTR hit a 30s threshold).
-            new Promise(r => { _loadParadeState({ force: true }); r(); }),
             new Promise(r => { _loadIncidents({ force: true }); r(); })
           ]);
+          if (bulk && typeof bulk === 'object' && bulk.ok !== false) {
+            _applyBulkSync(bulk);
+          } else {
+            // Fallback if bulkSync is unavailable / errored
+            await Promise.all([
+              syncMembers(), syncStatuses(),
+              new Promise(r => { _loadParadeState({ force: true }); r(); })
+            ]);
+          }
         });
       } catch {}
       toast('✓ Refreshed');
@@ -3383,29 +3476,20 @@ function applyTransportDrafts() {
   }
 }
 
-window.saveTransportProgress = function() {
+window.saveTransportProgress = async function() {
   const m = STATE.transportModal;
   if (!m) return;
+  const user = STATE.currentUser;
+  const actorName = user ? (user.shortName || user.name) : 'unknown';
   const remarks = (el('tmod-remarks')?.value || m.remarks || '').trim();
   const isCheckin = m.mode === 'checkin';
-  const savedBy = STATE.currentUser?.shortName || STATE.currentUser?.name || '';
-  const now = new Date().toISOString();
+  const op = isCheckin ? 'checkinBatch' : 'boardBatch';
 
-  // 1. Persist to localStorage (survives reload)
-  const drafts = _loadTransportDrafts();
-  drafts[m.vehicleId] = drafts[m.vehicleId] || {};
-  if (isCheckin) {
-    drafts[m.vehicleId].checkedInSyns  = m.selected.slice();
-    drafts[m.vehicleId].checkinRemarks = remarks;
-  } else {
-    drafts[m.vehicleId].boardedSyns    = m.selected.slice();
-    drafts[m.vehicleId].boardingRemarks= remarks;
-  }
-  drafts[m.vehicleId].savedAt = now;
-  drafts[m.vehicleId].savedBy = savedBy;
-  _saveTransportDrafts(drafts);
-
-  // 2. Apply to in-memory STATE.transport so render picks it up immediately
+  // Optimistic UI update — apply to local state + close modal immediately
+  // so the user sees their work reflected even on slow networks. Draft
+  // localStorage kept as OFFLINE FAILSAFE only: if the POST fails, the
+  // draft survives for next retry.
+  const priorState = STATE.transport ? JSON.parse(JSON.stringify(STATE.transport)) : {};
   if (!STATE.transport) STATE.transport = {};
   if (!STATE.transport[m.vehicleId]) STATE.transport[m.vehicleId] = { status:'idle', boardedSyns:[], driver:{} };
   const v = STATE.transport[m.vehicleId];
@@ -3416,15 +3500,45 @@ window.saveTransportProgress = function() {
     v.boardedSyns    = m.selected.slice();
     v.boardingRemarks= remarks;
   }
-  v._draftMode = true;
-  v._draftSavedAt = now;
-  v._draftSavedBy = savedBy;
+  // Cache draft in localStorage so if POST fails we can retry / survive reload
+  const drafts = _loadTransportDrafts();
+  drafts[m.vehicleId] = drafts[m.vehicleId] || {};
+  if (isCheckin) {
+    drafts[m.vehicleId].checkedInSyns  = m.selected.slice();
+    drafts[m.vehicleId].checkinRemarks = remarks;
+  } else {
+    drafts[m.vehicleId].boardedSyns    = m.selected.slice();
+    drafts[m.vehicleId].boardingRemarks= remarks;
+  }
+  drafts[m.vehicleId].savedAt = new Date().toISOString();
+  _saveTransportDrafts(drafts);
 
-  // 3. Close modal + redraw
   STATE.transportModal = null;
   const body = _transportHost();
   if (body) _redrawTransport(body);
-  toast('💾 Saved locally — tap Send SITREP to broadcast');
+
+  // Fire server sync in background
+  toast('💾 Saving…');
+  const resp = await API.postRaw('updateTransport', {
+    vehicleId: m.vehicleId,
+    op,
+    synLabels: m.selected,
+    remarks,
+    actorName
+  });
+  const okShape = resp && resp.ok && resp.data && typeof resp.data === 'object'
+                  && !resp.data.error
+                  && resp.data[m.vehicleId];
+  if (okShape) {
+    STATE.transport = resp.data;
+    _clearTransportDraft(m.vehicleId, m.mode);
+    if (body) _redrawTransport(body);
+    toast('✅ Saved');
+  } else {
+    // Draft is preserved in localStorage — user can retry later.
+    const err = (resp && resp.data && resp.data.error) || resp?.error || STATE.lastApiError || 'network error';
+    toast('⚠️ Saved locally — server sync failed (' + err + '). Will retry next save.');
+  }
 };
 
 // Send SITREP: saves state + sends Telegram to ops chat. Mode-aware — for
@@ -3716,21 +3830,15 @@ function _redrawTransport(container) {
       </span>`;
     }).join('');
 
-    const isDraft = !!v._draftMode;
-
     const bar = `
       <div style="margin:10px 0 4px;background:#e2e8f0;border-radius:6px;height:8px;overflow:hidden">
-        <div style="height:100%;width:${pct}%;background:${barColor};border-radius:6px;${isDraft ? 'opacity:.55;background-image:repeating-linear-gradient(45deg,transparent,transparent 4px,rgba(0,0,0,.2) 4px,rgba(0,0,0,.2) 8px);' : ''}"></div>
+        <div style="height:100%;width:${pct}%;background:${barColor};border-radius:6px"></div>
       </div>
-      <div style="font-size:11px;color:var(--text-3)">${boarded.length}/${veh.syns.length} groups confirmed · ${pct}%${isDraft ? ' · <span style="color:#b45309;font-weight:700">📝 Draft (not sent)</span>' : ''}</div>`;
+      <div style="font-size:11px;color:var(--text-3)">${boarded.length}/${veh.syns.length} groups confirmed · ${pct}%</div>`;
 
-    const draftBadge = isDraft
-      ? `<span style="font-size:10px;background:#fef3c7;color:#78350f;border:1px solid #fbbf24;padding:2px 7px;border-radius:10px;font-weight:700;margin-left:6px">📝 Draft</span>`
-      : '';
     const statusBadge = pushing
       ? `<span style="font-size:11px;background:#dbeafe;color:#1e40af;border:1px solid #bfdbfe;padding:2px 7px;border-radius:10px;font-weight:700;margin-left:6px">🚌 Pushing</span>`
-      : (allBoarded && !isDraft ? `<span style="font-size:11px;background:#dcfce7;color:#166534;border:1px solid #bbf7d0;padding:2px 7px;border-radius:10px;font-weight:700;margin-left:6px">All Boarded ✓</span>` : '')
-      + draftBadge;
+      : (allBoarded ? `<span style="font-size:11px;background:#dcfce7;color:#166534;border:1px solid #bbf7d0;padding:2px 7px;border-radius:10px;font-weight:700;margin-left:6px">All Boarded ✓</span>` : '');
 
     const driverSection = isExpand ? `
       <div class="transport-driver-section">
@@ -3765,14 +3873,11 @@ function _redrawTransport(container) {
       </div>` : '';
 
     const hasState = status !== 'idle' || boarded.length > 0;
-    const boardBtn = status === 'idle' ? `<button class="btn btn-sm" style="background:#eff6ff;color:#0369a1;border:1px solid #7dd3fc;font-size:13px" onclick="openTransportBoarding('${veh.id}',false)">${boarded.length ? (isDraft ? '✏️ Edit Draft' : '➕ Continue Boarding') : '🔲 Boarding?'}</button>` : '';
-    // Pushing / Dropped / Reset are gated on "no pending draft" — server state
-    // must be in sync before marking lifecycle transitions. When a draft exists,
-    // show a hint instead of the button.
-    const pushBtn  = canAdmin && !isDraft && status === 'idle' && allBoarded ? `<button class="btn btn-sm" style="background:#2563eb;color:#fff;font-size:13px" onclick="transportAction('pushing','${veh.id}')">🚌 Mark Pushing</button>` : '';
-    const dropBtn  = canAdmin && !isDraft && (pushing || boarded.length > 0) ? `<button class="btn btn-sm" style="background:#16a34a;color:#fff;font-size:13px" onclick="transportAction('dropped','${veh.id}')">✅ Dropped Off</button>` : '';
-    const resetBtn = canAdmin && !isDraft && hasState ? `<button class="btn btn-sm btn-outline" style="font-size:12px" onclick="transportAction('reset','${veh.id}')">↺ Reset</button>` : '';
-    const draftHint = isDraft ? `<div style="font-size:11px;color:#b45309;padding:6px 10px;background:#fef3c7;border:1px dashed #fbbf24;border-radius:6px;margin-top:6px">📝 Unsaved draft — tap <b>Edit Draft</b> → <b>Send SITREP</b> to sync to server. Pushing / Dropped unlock after Send.</div>` : '';
+    const boardBtn = status === 'idle' ? `<button class="btn btn-sm" style="background:#eff6ff;color:#0369a1;border:1px solid #7dd3fc;font-size:13px" onclick="openTransportBoarding('${veh.id}',false)">${boarded.length ? '➕ Continue Boarding' : '🔲 Boarding?'}</button>` : '';
+    const pushBtn  = canAdmin && status === 'idle' && allBoarded ? `<button class="btn btn-sm" style="background:#2563eb;color:#fff;font-size:13px" onclick="transportAction('pushing','${veh.id}')">🚌 Mark Pushing</button>` : '';
+    const dropBtn  = canAdmin && (pushing || boarded.length > 0) ? `<button class="btn btn-sm" style="background:#16a34a;color:#fff;font-size:13px" onclick="transportAction('dropped','${veh.id}')">✅ Dropped Off</button>` : '';
+    const resetBtn = canAdmin && hasState ? `<button class="btn btn-sm btn-outline" style="font-size:12px" onclick="transportAction('reset','${veh.id}')">↺ Reset</button>` : '';
+    const draftHint = '';
 
     return `
       <div class="transport-bus-card" style="border-left:4px solid ${pushing ? '#2563eb' : allBoarded ? '#16a34a' : '#e2e8f0'}">

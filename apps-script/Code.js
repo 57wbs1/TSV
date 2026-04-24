@@ -148,6 +148,13 @@ function doGet(e) {
         data = restoreDay1Preflight();
         break;
       case 'getAdminRequests': data = readSheet(SHEETS.ADMINREQ); break;
+      case 'bulkSync':
+        // One request, one cold-start tax. Returns the full set of
+        // read-only data the client needs for pull-to-refresh + initial
+        // load. Skip fields by passing ?skip=incidents,learnings (comma
+        // list). Reduces typical refresh from 7+ round-trips to 1.
+        data = bulkSync(e.parameter.skip || '');
+        break;
       case 'getTransport':    data = getTransportState(); break;
       case 'getForceInConfig': data = getForceInConfig(); break;
       case 'getParadeState':   data = readParadeState(); break;
@@ -4039,6 +4046,55 @@ function shareTsvCalendarWith(email) {
 // DIAGNOSTICS — read-only peek into trigger state + GCal status
 // GET  ?action=diagnose
 // ════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════
+// bulkSync — single-request aggregator for pull-to-refresh / init
+// LEAN by default to stay under the 30s GAS web-app timeout:
+//   members + statuses + transport + paradeState + synRemarks
+// Heavy datasets (calendar / learnings / reflections / incidents)
+// are opt-in via ?include=calendar,learnings,... — keeps the hot
+// path fast while still available in one trip when needed.
+// ════════════════════════════════════════════════════════════
+function bulkSync(includeCsv) {
+  const include = new Set(String(includeCsv || '').split(',').map(s => s.trim()).filter(Boolean));
+  const out = { ok: true, t: Date.now() };
+  try {
+    // Lean default payload — ~5-7s cold start, well under GAS 30s limit.
+    out.members     = readSheet(SHEETS.MEMBERS).filter(r => r.isDeleted !== 'true' && r.isDeleted !== true);
+    out.statuses    = readSheet(SHEETS.STATUS);
+    out.paradeState = readParadeState();
+    out.transport   = getTransportState();
+    try { out.synRemarks = readSynRemarks().remarks || {}; } catch(e) { out.synRemarks = {}; }
+
+    // Opt-in heavy fields
+    if (include.has('calendar')) {
+      out.calendar = readSheet(SHEETS.CALENDAR)
+        .filter(r => r.isDeleted !== 'true' && r.isDeleted !== true)
+        .map(r => ({
+          id:          String(r.id || ''),
+          day:         r.day,
+          startTime:   _normalizeHHmm(r.startTime),
+          endTime:     _normalizeHHmm(r.endTime),
+          title:       String(r.title || ''),
+          location:    String(r.location || ''),
+          category:    String(r.category || ''),
+          attire:      String(r.attire || ''),
+          remarks:     String(r.remarks || ''),
+          visitId:     String(r.visitId || ''),
+          synicReport: r.synicReport === 'true' || r.synicReport === true,
+          oics:        (() => { try { return JSON.parse(r.oicsJson || '{}'); } catch(e) { return {}; } })(),
+          isDeleted:   false
+        }));
+    }
+    if (include.has('learnings'))   out.learnings   = readSheet(SHEETS.LEARNINGS).filter(r => r.isDeleted !== 'true' && r.isDeleted !== true);
+    if (include.has('reflections')) out.reflections = readSheet(SHEETS.REFLECTIONS).filter(r => r.isDeleted !== 'true' && r.isDeleted !== true);
+    if (include.has('incidents'))   out.incidents   = getIncidents();
+  } catch (e) {
+    out.ok = false;
+    out.error = e.message;
+  }
+  return out;
+}
+
 function diagnose() {
   const out = { ok: true, now: new Date().toISOString(), bkkNow: Utilities.formatDate(bkkNow(), 'Asia/Bangkok', 'yyyy-MM-dd HH:mm:ss EEE') };
 
