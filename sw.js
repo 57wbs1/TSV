@@ -1,5 +1,5 @@
 // Bump this version number on every deploy to invalidate the cache.
-const CACHE_NAME = 'tsv-bkk-v87-' + '20260424v92-map-cache-speed';
+const CACHE_NAME = 'tsv-bkk-v87-' + '20260424v93-dead-code';
 
 const APP_SHELL = [
   './index.html',

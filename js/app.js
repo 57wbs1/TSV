@@ -570,8 +570,6 @@ function renderFxCard() {
     <span class="fx-ext">↗</span>
   </a>`;
 }
-function formatBKKTime(d = new Date()) { return d.toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit', hour12:false, timeZone:'Asia/Bangkok' }); }
-
 // Hero time block — BKK (K suffix, dominant) + SG (H suffix, secondary).
 // Uses a fresh Date each call and lets the runtime handle the timezone —
 // the old bkkNow() trick was producing a UTC-anchored Date that then
@@ -1075,7 +1073,6 @@ function saveIdentity(m) {
   STATE.currentUser = m;
   localStorage.setItem('tsv_user', JSON.stringify(m));
 }
-function showIdentityModal() { el('identity-modal').classList.remove('hidden'); renderMemberPicker(''); }
 function hideIdentityModal() { el('identity-modal').classList.add('hidden'); }
 
 function renderMemberPicker(q) {
@@ -1211,7 +1208,6 @@ window.submitSelfRegister = async function() {
 let _lastMembersHash = '';
 let _lastLearningsHash = '';
 let _lastCalendarHash = '';
-let _lastPingsHash = '';
 
 // Mutation-in-flight counters per data domain. A sync refuses to run while
 // a matching mutation is in flight to stop the server's pre-update response
@@ -2325,42 +2321,6 @@ window.showEventDetail = function(eventId) {
 };
 
 // Old overlay-modal renderer (unused, kept to avoid breakage if called)
-function _legacyShowEventDetail(eventId) {
-  const ev = CALENDAR_EVENTS.find(e => e.id === eventId);
-  if (!ev) return;
-  const cat = EVENT_CATEGORIES[ev.category] || EVENT_CATEGORIES.event;
-  const day = DAYS.find(d => d.day === ev.day);
-  const visit = ev.visitId ? getVisitById(ev.visitId) : null;
-
-  el('event-detail-title').textContent = ev.title;
-  el('event-detail-body').innerHTML = `
-    <div class="visit-hero" style="background:linear-gradient(135deg, ${cat.color}, ${cat.color}cc)">
-      <div class="visit-hero-icon">${cat.icon}</div>
-      <h3>${escapeHtml(ev.title)}</h3>
-      <div class="visit-hero-sub">${escapeHtml(ev.location || '')}</div>
-      <div class="visit-hero-meta">🗓 ${day ? 'Day '+day.day+' · '+day.date : ''} · ${ev.startTime}${ev.endTime !== ev.startTime ? '–'+ev.endTime : ''}</div>
-    </div>
-    ${ev.attire ? `<div class="info-block"><h4>👔 Attire</h4><p>${escapeHtml(ev.attire)}</p></div>` : ''}
-    ${ev.remarks ? `<div class="info-block"><h4>📝 Remarks</h4><p>${escapeHtml(ev.remarks)}</p></div>` : ''}
-    ${ev.oics && Object.keys(ev.oics).length ? `
-      <div class="info-block">
-        <h4>👥 Functional OICs</h4>
-        ${Object.entries(ev.oics).map(([k,v]) => v ? `<p><b>${oicLabel(k)}:</b> ${escapeHtml(v)}</p>` : '').join('')}
-      </div>` : ''}
-    ${visit ? `
-      <div class="info-block hypothesis-block" onclick="hideEventDetail(); openVisitDetail('${visit.id}')" style="cursor:pointer">
-        <h4>💡 Linked Learning Visit <span class="inline-edit">View →</span></h4>
-        <p><b>${escapeHtml(visit.title)}</b> — ${escapeHtml(visit.subtitle)}</p>
-      </div>` : ''}
-    ${isAdmin() ? `
-      <div style="display:flex;gap:8px;margin-top:16px">
-        <button class="btn btn-outline btn-block" onclick="hideEventDetail()">Close</button>
-        <button class="btn btn-primary btn-block" onclick="openEventEditor('${ev.id}')">✏️ Edit</button>
-      </div>` : ''}
-  `;
-  el('event-detail-modal').classList.remove('hidden');
-};
-
 window.hideEventDetail = function() { toggleEventExpand(null); };
 
 function oicLabel(k) {
@@ -6150,12 +6110,6 @@ function buildConsolidatedSITREP(groupKeys, options = {}) {
 
 // Back-compat: some callers still pass a single groupKey string.
 // Just delegates to the consolidated builder with a 1-element array.
-function buildSyndicateSITREP(groupKey, options = {}) {
-  const opts = { ...options };
-  if (options.forceAllIn) opts.forceAllInGroups = [groupKey];
-  return buildConsolidatedSITREP([groupKey], opts);
-}
-
 // Send a SITREP for a SINGLE syndicate (from per-group SITREP button).
 // The consolidated builder will include individual member locations.
 window.sendSyndicateSITREP = async function(groupKey, auto) {
