@@ -5227,3 +5227,105 @@ html:not(.no-polish) .btn-red {
 /* Kill switch — `html.no-polish` disables every rule above.
    Toggle via console: document.documentElement.classList.add('no-polish')
    Or persistently via localStorage flag (see app.js init hook if needed). */
+
+/* ══════════════════════════════════════════════════════════════
+   === CSS POLISH V2 — C2: Interaction + Scroll ===
+   Tap feel, focus accessibility, iOS scroll momentum.
+   Additive, reversible via `html.no-polish`.
+   ══════════════════════════════════════════════════════════════ */
+
+/* Extend button spring-press to every button variant + interactive card.
+   Existing .btn / .pin-key / .nav-btn / .login-*-card already have press
+   feedback; these fill the gaps (btn-sm, btn-xs, subtab, chips, sheet links
+   on contexts without one). Snappier 80ms transition so the press feels
+   like a physical click rather than a slow squish. */
+html:not(.no-polish) .btn-sm:active,
+html:not(.no-polish) .btn-xs:active,
+html:not(.no-polish) .btn-outline:active,
+html:not(.no-polish) .subtab-btn:active,
+html:not(.no-polish) .cat-chip:active,
+html:not(.no-polish) .day-tab:active,
+html:not(.no-polish) .transport-bus-header:active,
+html:not(.no-polish) .sop-card-header:active,
+html:not(.no-polish) .parade-card:active,
+html:not(.no-polish) .cal-event-card:active {
+  transform: scale(0.97);
+}
+html:not(.no-polish) .btn-sm,
+html:not(.no-polish) .btn-xs,
+html:not(.no-polish) .btn-outline,
+html:not(.no-polish) .subtab-btn,
+html:not(.no-polish) .cat-chip,
+html:not(.no-polish) .day-tab,
+html:not(.no-polish) .transport-bus-header,
+html:not(.no-polish) .sop-card-header,
+html:not(.no-polish) .parade-card,
+html:not(.no-polish) .cal-event-card {
+  transition: transform .08s cubic-bezier(.4, 0, 1, 1),
+              background-color .15s var(--ease-out),
+              box-shadow .15s var(--ease-out);
+}
+
+/* iOS-style tap scale for modal close buttons (current .close-btn on
+   members-modal / editor / visit-detail / etc. has no press feedback). */
+html:not(.no-polish) .close-btn,
+html:not(.no-polish) .sheet-close-btn {
+  transition: transform .08s cubic-bezier(.4, 0, 1, 1), background-color .15s var(--ease-out);
+}
+html:not(.no-polish) .close-btn:active,
+html:not(.no-polish) .sheet-close-btn:active {
+  transform: scale(0.88);
+}
+
+/* Focus-visible — only shows on keyboard navigation, invisible for touch.
+   2px solid + 2px offset matches WCAG 2.1 AA and feels iOS-native. */
+html:not(.no-polish) button:focus-visible,
+html:not(.no-polish) a:focus-visible,
+html:not(.no-polish) input:focus-visible,
+html:not(.no-polish) textarea:focus-visible,
+html:not(.no-polish) select:focus-visible,
+html:not(.no-polish) [tabindex]:focus-visible,
+html:not(.no-polish) .cal-event-card:focus-visible,
+html:not(.no-polish) .parade-card:focus-visible,
+html:not(.no-polish) .nav-btn:focus-visible,
+html:not(.no-polish) .subtab-btn:focus-visible {
+  outline: 2px solid var(--blue-500);
+  outline-offset: 2px;
+  border-radius: inherit;
+}
+
+/* iOS scroll momentum — any container that's overflow:auto should have
+   both flags for buttery deceleration + no rubber-band into the parent.
+   These properties are no-ops on non-WebKit so they're safe everywhere. */
+html:not(.no-polish) .editor-body,
+html:not(.no-polish) .members-list-container,
+html:not(.no-polish) .cal-event-expand,
+html:not(.no-polish) .visit-detail-body,
+html:not(.no-polish) .sop-card-body,
+html:not(.no-polish) #tab-calendar,
+html:not(.no-polish) #tab-location,
+html:not(.no-polish) #tab-home,
+html:not(.no-polish) #tab-sop,
+html:not(.no-polish) #tab-settings,
+html:not(.no-polish) .changelog-list,
+html:not(.no-polish) .learning-feed,
+html:not(.no-polish) .cal-event-list,
+html:not(.no-polish) .subtab-bar,
+html:not(.no-polish) .day-tabs,
+html:not(.no-polish) .category-filter {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
+/* Horizontal scroll rows (subtab bar, day tabs, category chips) — hide the
+   ugly default scrollbar on mobile since they scroll by gesture. */
+html:not(.no-polish) .subtab-bar::-webkit-scrollbar,
+html:not(.no-polish) .day-tabs::-webkit-scrollbar,
+html:not(.no-polish) .category-filter::-webkit-scrollbar {
+  display: none;
+}
+html:not(.no-polish) .subtab-bar,
+html:not(.no-polish) .day-tabs,
+html:not(.no-polish) .category-filter {
+  scrollbar-width: none;   /* Firefox */
+}
