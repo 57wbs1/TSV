@@ -5317,7 +5317,11 @@ window.renderMembersList = function() {
       </div>
       <div class="mgr-body ${isOpen?'open':''}" id="mgr-body-${safeId}" data-groupkey="${escapeHtml(gk)}">
         ${grp.map(m => {
-          const isAdm = (m.isAdmin === true || m.isAdmin === 'true' || m.isAdmin === 'TRUE');
+          // A member is admin if EITHER the Sheet flag is set OR they're
+          // in CONFIG.adminIds (hardcoded roster). Same two-path rule as
+          // hasAdminRights(). Previous check missed the CONFIG.adminIds
+          // path, so admins like Caspar/Dominic/Kenny showed no badge.
+          const isAdm = cBool(m.isAdmin) || (CONFIG.adminIds || []).includes(m.id);
           return `
           <div class="mgr-row">
             <div class="mgr-info">
@@ -5351,10 +5355,11 @@ window.openMemberEditor = function(memberId) {
   const adminRow = el('ed-admin-row');
   const adminSel = el('ed-admin');
   if (adminRow) adminRow.classList.toggle('hidden', !isSuperAdmin);
-  // Use cBool — Sheets sometimes writes 'TRUE' (uppercase) or 'true'
-  // (lowercase) depending on who set it. Previous check only matched
-  // lowercase, so admins stored as 'TRUE' showed as Non-Admin in editor.
-  if (adminSel) adminSel.value = (m && cBool(m.isAdmin)) ? 'true' : 'false';
+  // Two paths to admin: Sheet flag (m.isAdmin) OR hardcoded
+  // CONFIG.adminIds. Editor dropdown must reflect either source, else
+  // a member in adminIds shows as "Non-Admin" even though they ARE one.
+  const isAdm = m && (cBool(m.isAdmin) || (CONFIG.adminIds || []).includes(m.id));
+  if (adminSel) adminSel.value = isAdm ? 'true' : 'false';
   el('member-editor').classList.remove('hidden');
 };
 window.hideMemberEditor = function() { el('member-editor').classList.add('hidden'); _editingMemberId = null; };
