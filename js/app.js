@@ -6251,8 +6251,11 @@ window.setSettingsSubTab = function(sub) {
 // ── Settings: TELE-AUTO sub-tab (super-admin message preview/override) ──
 function _renderSettingsTeleAuto() {
   const rows = [
-    { key: 'A1_weather',  label: 'A1 · 0600H Weather Briefing',  hint: 'Live forecast + AQI + today\'s programme. Pulled fresh each preview.' },
-    { key: 'A2_reminder', label: 'A2 · 1900H Pre-trip Reminder', hint: 'Hardcoded per-date countdown messages. Preview the next trip-eve send.' }
+    { key: 'A1_weather',  label: 'A1 · 0600H Weather Briefing',         hint: 'Live forecast + AQI + today\'s programme. After 0600H BKK, preview shows tomorrow\'s next-fire content.' },
+    { key: 'A2_reminder', label: 'A2 · 1900H Pre-trip Reminder',        hint: 'Hardcoded per-date countdown. Pick the trip-eve target date below.' },
+    { key: 'A3_evening',  label: 'A3 · 2300H Evening SITREP',           hint: 'Live parade state + transport state. Renders for today\'s 2300H send.' },
+    { key: 'A4_midnight', label: 'A4 · 0200H Midnight SITREP',          hint: 'Live parade + force-in groups. Reports yesterday\'s closeout.' },
+    { key: 'A5_parade',   label: 'A5 · 0830H Parade State',             hint: 'Live parade state with non-Present remarks + syndicate notes.' }
   ];
   return `
     <div class="card" style="margin:12px">
@@ -6293,7 +6296,7 @@ async function _loadBroadcastOverrides() {
 
 function _paintOverrideStatus() {
   const map = STATE.broadcastOverrides || {};
-  ['A1_weather', 'A2_reminder'].forEach(key => {
+  ['A1_weather', 'A2_reminder', 'A3_evening', 'A4_midnight', 'A5_parade'].forEach(key => {
     const pill = el('ta-pill-' + key);
     const revertBtn = el('ta-clear-' + key);
     if (!pill) return;
@@ -6329,19 +6332,23 @@ window.openTeleAutoEditor = async function(key) {
   const modeOnce= modal.querySelector('.ta-mode-once');
   const modePer = modal.querySelector('.ta-mode-persistent');
 
-  titleEl.textContent = key === 'A1_weather' ? '👁 A1 · Weather Briefing' : '👁 A2 · Pre-trip Reminder';
+  const titleMap = {
+    A1_weather:  '👁 A1 · Weather Briefing',
+    A2_reminder: '👁 A2 · Pre-trip Reminder',
+    A3_evening:  '👁 A3 · 2300H Evening SITREP',
+    A4_midnight: '👁 A4 · 0200H Midnight SITREP',
+    A5_parade:   '👁 A5 · 0830H Parade State'
+  };
+  titleEl.textContent = titleMap[key] || ('👁 ' + key);
   bodyEl.value = 'Loading…';
   metaEl.textContent = 'Fetching live preview…';
   modal.classList.remove('hidden');
 
-  // A2 has a date picker; A1 does not (always "today")
+  // Only A2 needs a date picker (trip-eve target). A1/A3/A4/A5 are based on
+  // current time at fire — no user-selectable date.
   if (key === 'A2_reminder') {
     dateWrap.style.display = '';
     if (!dateInp.value) {
-      // Default: next message target date in BKK. A2 fires at 1900H BKK and
-      // the message is about "tomorrow" relative to fire time. If it's before
-      // 1900H BKK now, the next 1900H will target tomorrow BKK; if after
-      // 1900H, the next 1900H is tomorrow and targets day-after-tomorrow.
       const p = bkkParts();
       const addDays = p.hour < 19 ? 1 : 2;
       dateInp.value = bkkParts(new Date(Date.now() + addDays * 86400000)).dateStr;
@@ -6417,8 +6424,9 @@ async function _fetchTeleAutoPreview(key) {
     metaEl.textContent = `Queued override · ${existing.mode} · saved ${new Date(existing.savedAt).toLocaleString('en-GB', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit', timeZone:'Asia/Bangkok' })}`;
   } else {
     bodyEl.value = data.message || '';
+    const labelTxt = data.label ? `${data.label} · ` : '';
     const warn = data.warning ? ' · ⚠️ ' + data.warning : '';
-    metaEl.textContent = `Live preview · ${data.charCount || 0} chars${warn}`;
+    metaEl.textContent = `${labelTxt}${data.charCount || 0} chars${warn}`;
   }
 }
 
@@ -6443,9 +6451,9 @@ window.saveTeleAutoOverride = async function() {
   const date = modal.querySelector('.ta-modal-date').value;
   if (!text) return toast('❌ Text is empty — use Revert to clear instead');
   if (mode === 'once') {
-    // For A1 weather, there's no explicit date picker; lock to today BKK
-    // (the next 0600H fire is always "today" if called before 0600, else tomorrow)
-    const effectiveDate = key === 'A1_weather' ? _nextA1FireDate() : date;
+    // A2 has a user-picked date; A1/A3/A4/A5 compute the next fire's date
+    // automatically based on current BKK time.
+    const effectiveDate = key === 'A2_reminder' ? date : _nextOverrideDate(key);
     if (!effectiveDate) return toast('❌ Pick a date for one-shot');
     const resp = await API.postRaw('saveBroadcastOverride', {
       key, mode, text, date: effectiveDate,
@@ -6494,6 +6502,32 @@ function _nextA1FireDate() {
   const p = bkkParts();
   if (p.hour < 6) return p.dateStr;
   return bkkParts(new Date(Date.now() + 24 * 60 * 60 * 1000)).dateStr;
+}
+
+// Compute the override date that the server's _consumeBroadcastOverride()
+// will look for at next fire. Each cron stores under a different date key:
+//   A1 0600H → today/tomorrow at fire (BKK date of fire)
+//   A3 2300H → today/tomorrow at fire (BKK date of fire)
+//   A5 0830H → today/tomorrow at fire (BKK date of fire)
+//   A4 0200H → reports YESTERDAY relative to fire, so override date matches
+//              yesterday-of-fire-day. If it's before 0200H now, "today
+//              of fire" is today, "yesterday of fire" is yesterday. If
+//              after 0200H, fire is tomorrow, yesterday-of-fire is today.
+function _nextOverrideDate(key) {
+  const p = bkkParts();
+  const todayStr = p.dateStr;
+  const tmrStr = bkkParts(new Date(Date.now() + 86400000)).dateStr;
+  const ydyStr = bkkParts(new Date(Date.now() - 86400000)).dateStr;
+  if (key === 'A1_weather')   return p.hour < 6  ? todayStr : tmrStr;
+  if (key === 'A3_evening')   return p.hour < 23 ? todayStr : tmrStr;
+  if (key === 'A5_parade')    return p.hour < 8 || (p.hour === 8 && p.minute < 30) ? todayStr : tmrStr;
+  if (key === 'A4_midnight') {
+    // Fire happens at 0200H. If it's currently 00:00–01:59 BKK, fire is
+    // today and reports yesterday. After 02:00, fire is tomorrow and
+    // reports today.
+    return p.hour < 2 ? ydyStr : todayStr;
+  }
+  return todayStr;
 }
 
 function _ensureTeleAutoModal() {

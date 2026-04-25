@@ -2514,8 +2514,16 @@ function sendEveningSitrep(overrideChatId) {
   return _safeCron('sitrep_2300', () => {
     const bkk = bkkNow();
     const dateLabel = Utilities.formatDate(bkk, 'Asia/Bangkok', 'd MMM EEE').toUpperCase();
-    const data = _buildSitrepData([]);   // no forced all-in
-    const msg = _buildSitrepMessage(data, '2300H SITREP', dateLabel);
+    const today = Utilities.formatDate(bkk, 'Asia/Bangkok', 'yyyy-MM-dd');
+    let msg;
+    if (!overrideChatId) {
+      const ov = _consumeBroadcastOverride('A3_evening', today);
+      if (ov) msg = ov;
+    }
+    if (!msg) {
+      const data = _buildSitrepData([]);   // no forced all-in
+      msg = _buildSitrepMessage(data, '2300H SITREP', dateLabel);
+    }
     const sr3 = _tgSendRouted(msg, 'A3_evening', overrideChatId);
     if (sr3 === 'disabled') { logAction('sitrep_2300_disabled', 'server', ''); return 'A3 disabled'; }
     if (sr3 === 'killswitch-off') return 'A3 killswitch-off';
@@ -2523,7 +2531,7 @@ function sendEveningSitrep(overrideChatId) {
       logAction('sitrep_2300_fail', 'server', sr3.slice(0, 180));
       return sr3;
     }
-    logAction('sitrep_2300', 'server', data.totals.inC + '/' + data.totals.total);
+    logAction('sitrep_2300', 'server', 'sent · ' + dateLabel);
     return 'Sent 2300H';
   });
 }
@@ -2535,9 +2543,20 @@ function sendMidnightSitrep(overrideChatId) {
     const bkk = bkkNow();
     const yesterday = new Date(bkk.getTime() - 24*60*60*1000);
     const yLabel = Utilities.formatDate(yesterday, 'Asia/Bangkok', 'd MMM EEE').toUpperCase();
-    // Read from the same config the 0130H auto-force-in uses (super-admin configurable)
-    const data = _buildSitrepData(_getForceInGroups());
-    const msg = _buildSitrepMessage(data, '0200H SITREP', yLabel);
+    // Override key date matches yesterday (the day the report is FOR), since
+    // the cron fires at 0200H and reports the previous trip-day. Admin
+    // editing tonight's 0200H report uses ?date=2026-04-25 to override the
+    // 26 Apr 0200H send (which reports about 25 Apr).
+    const yyyy = Utilities.formatDate(yesterday, 'Asia/Bangkok', 'yyyy-MM-dd');
+    let msg;
+    if (!overrideChatId) {
+      const ov = _consumeBroadcastOverride('A4_midnight', yyyy);
+      if (ov) msg = ov;
+    }
+    if (!msg) {
+      const data = _buildSitrepData(_getForceInGroups());
+      msg = _buildSitrepMessage(data, '0200H SITREP', yLabel);
+    }
     const sr4 = _tgSendRouted(msg, 'A4_midnight', overrideChatId);
     if (sr4 === 'disabled') { logAction('sitrep_0200_disabled', 'server', ''); return 'A4 disabled'; }
     if (sr4 === 'killswitch-off') return 'A4 killswitch-off';
@@ -2545,7 +2564,7 @@ function sendMidnightSitrep(overrideChatId) {
       logAction('sitrep_0200_fail', 'server', sr4.slice(0, 180));
       return sr4;
     }
-    logAction('sitrep_0200', 'server', data.totals.inC + '/' + data.totals.total);
+    logAction('sitrep_0200', 'server', 'sent · ' + yLabel);
     return 'Sent 0200H';
   });
 }
@@ -2653,11 +2672,15 @@ function sendWeatherBriefing(overrideChatId) {
 
 // Pure builder — fetches live weather + programme + AQI and returns the
 // rendered HTML string. Never sends. Used by the cron, Tele-Auto preview,
-// and any admin audit path.
-function _buildWeatherMessage() {
+// and any admin audit path. dayOffset (default 0 = today, 1 = tomorrow)
+// lets Tele-Auto preview render the NEXT fire's content, e.g. when the
+// admin opens the preview at 12pm after the 0600H send already went out.
+function _buildWeatherMessage(dayOffset) {
+  dayOffset = parseInt(dayOffset) || 0;
   const bkk = bkkNow();
-  const dateLabel = Utilities.formatDate(bkk, 'Asia/Bangkok', 'EEEE, d MMM');
-  const today = Utilities.formatDate(bkk, 'Asia/Bangkok', 'yyyy-MM-dd');
+  const target = new Date(bkk.getTime() + dayOffset * 86400000);
+  const dateLabel = Utilities.formatDate(target, 'Asia/Bangkok', 'EEEE, d MMM');
+  const today = Utilities.formatDate(target, 'Asia/Bangkok', 'yyyy-MM-dd');
 
   // Pullman Bangkok (Silom). lat/lng matches CONFIG.hotel on client.
   const url = 'https://api.open-meteo.com/v1/forecast'
@@ -2683,20 +2706,21 @@ function _buildWeatherMessage() {
       curCode = body.current.weather_code;
     }
     if (body.daily) {
-      tMax     = body.daily.temperature_2m_max?.[0];
-      tMin     = body.daily.temperature_2m_min?.[0];
-      feelsMax = body.daily.apparent_temperature_max?.[0];
-      uvMax    = body.daily.uv_index_max?.[0];
-      rainSum  = body.daily.precipitation_sum?.[0] || 0;
-      rainProb = body.daily.precipitation_probability_max?.[0] || 0;
-      dailyCode= body.daily.weather_code?.[0];
-      tmrMax   = body.daily.temperature_2m_max?.[1] ?? null;
-      tmrMin   = body.daily.temperature_2m_min?.[1] ?? null;
-      tmrCode  = body.daily.weather_code?.[1] ?? null;
+      tMax     = body.daily.temperature_2m_max?.[dayOffset];
+      tMin     = body.daily.temperature_2m_min?.[dayOffset];
+      feelsMax = body.daily.apparent_temperature_max?.[dayOffset];
+      uvMax    = body.daily.uv_index_max?.[dayOffset];
+      rainSum  = body.daily.precipitation_sum?.[dayOffset] || 0;
+      rainProb = body.daily.precipitation_probability_max?.[dayOffset] || 0;
+      dailyCode= body.daily.weather_code?.[dayOffset];
+      tmrMax   = body.daily.temperature_2m_max?.[dayOffset + 1] ?? null;
+      tmrMin   = body.daily.temperature_2m_min?.[dayOffset + 1] ?? null;
+      tmrCode  = body.daily.weather_code?.[dayOffset + 1] ?? null;
     }
     if (body.hourly) {
-      noonT     = body.hourly.temperature_2m?.[12] ?? null;
-      noonFeels = body.hourly.apparent_temperature?.[12] ?? null;
+      const noonIdx = dayOffset * 24 + 12;
+      noonT     = body.hourly.temperature_2m?.[noonIdx] ?? null;
+      noonFeels = body.hourly.apparent_temperature?.[noonIdx] ?? null;
     }
   } catch (e) {
     logAction('weather_fail', 'server', e.message);
@@ -2851,10 +2875,14 @@ function _buildWeatherMessage() {
     else if (fPeak != null && fPeak >= 32)  soWhat = 'Hot day — dress light, top up water every 60 min.';
     msg += '💧 Feels like ' + feelsStr + ' at peak — ' + soWhat + '\n';
   }
-  if (curT != null)   msg += '⏱️ Now: ' + Math.round(curT) + '°C';
-  if (curRH != null)  msg += ' · ' + Math.round(curRH) + '% humidity';
-  if (curWind != null)msg += ' · ' + Math.round(curWind) + ' km/h';
-  msg += '\n';
+  // "Now: ..." is current conditions — only relevant when previewing today.
+  // Skip for tomorrow-preview to avoid mixing live data with forecast data.
+  if (dayOffset === 0) {
+    if (curT != null)   msg += '⏱️ Now: ' + Math.round(curT) + '°C';
+    if (curRH != null)  msg += ' · ' + Math.round(curRH) + '% humidity';
+    if (curWind != null)msg += ' · ' + Math.round(curWind) + ' km/h';
+    msg += '\n';
+  }
   if (rainProb)       msg += '🌧️ Rain: ' + rainProb + '% · ' + (Math.round(rainSum*10)/10) + 'mm\n';
   if (uvMax != null)  msg += '☀️ UV: ' + Math.round(uvMax) + '/11\n';
 
@@ -2892,7 +2920,10 @@ const BROADCAST_SCHEDULE_KEY = 'tsvBroadcastSchedule';
 // 'persistent' — sent every day until super-admin hits Revert.
 // ──────────────────────────────────────────────────────────────────────
 const BROADCAST_OVERRIDES_KEY = 'tsvBroadcastOverrides';
-const OVERRIDE_SUPPORTED_KEYS = { A1_weather: 1, A2_reminder: 1 };
+const OVERRIDE_SUPPORTED_KEYS = {
+  A1_weather: 1, A2_reminder: 1,
+  A3_evening: 1, A4_midnight: 1, A5_parade: 1
+};
 
 function _readBroadcastOverrides() {
   try { return JSON.parse(PropertiesService.getScriptProperties().getProperty(BROADCAST_OVERRIDES_KEY) || '{}'); }
@@ -2982,23 +3013,65 @@ function clearBroadcastOverride(body) {
 }
 
 // Read-only preview — runs the real builder so Tele-Auto shows exactly what
-// the cron would fire. For A2 (date-driven), accepts an optional dateStr.
+// the cron would fire NEXT. Each key has slightly different semantics:
+//   A1 weather: today before 0600H, else tomorrow (next fire)
+//   A2 reminder: optional ?date= override; default = next trip-eve target
+//   A3 evening sitrep: live parade state + transport, dated today
+//   A4 midnight sitrep: live + force-in groups, dated yesterday
+//   A5 / A5b parade: live parade state, today
 function previewBroadcast(key, dateStr) {
+  const bkk = bkkNow();
+  const hourBkk = parseInt(Utilities.formatDate(bkk, 'Asia/Bangkok', 'H'));
+
   if (key === 'A1_weather') {
-    const msg = _buildWeatherMessage();
-    return { ok: true, message: msg, charCount: msg.length };
+    // If past 0600H BKK now, today's send already fired — preview tomorrow.
+    const dayOffset = hourBkk >= 6 ? 1 : 0;
+    const msg = _buildWeatherMessage(dayOffset);
+    const target = new Date(bkk.getTime() + dayOffset * 86400000);
+    const targetStr = Utilities.formatDate(target, 'Asia/Bangkok', 'EEE d MMM');
+    return {
+      ok: true, message: msg, charCount: msg.length,
+      label: 'Next fire: ' + targetStr + ' 0600H',
+      dayOffset
+    };
   }
+
   if (key === 'A2_reminder') {
-    const bkk = bkkNow();
     const tmrDate = dateStr && /^\d{4}-\d{2}-\d{2}$/.test(dateStr)
       ? dateStr
-      : Utilities.formatDate(new Date(bkk.getTime() + 24*60*60*1000), 'Asia/Bangkok', 'yyyy-MM-dd');
+      : Utilities.formatDate(new Date(bkk.getTime() + 86400000), 'Asia/Bangkok', 'yyyy-MM-dd');
     const msg = _buildReminderMessage(tmrDate, false);
     return msg
-      ? { ok: true, message: msg, charCount: msg.length, date: tmrDate }
+      ? { ok: true, message: msg, charCount: msg.length, date: tmrDate, label: 'For trip-eve ' + tmrDate }
       : { ok: true, message: '', charCount: 0, date: tmrDate,
-          warning: 'No 1900H reminder is scheduled for ' + tmrDate + '. The cron would skip this date and log "reminder_skip".' };
+          warning: 'No 1900H reminder is scheduled for ' + tmrDate + '. Cron skips this date.' };
   }
+
+  if (key === 'A3_evening') {
+    const dateLabel = Utilities.formatDate(bkk, 'Asia/Bangkok', 'd MMM EEE').toUpperCase();
+    const data = _buildSitrepData([]);
+    const msg = _buildSitrepMessage(data, '2300H SITREP', dateLabel);
+    return { ok: true, message: msg, charCount: msg.length, label: 'Next fire: today 2300H · ' + dateLabel };
+  }
+
+  if (key === 'A4_midnight') {
+    // A4 fires at 0200H and reports YESTERDAY's date (the day people just left).
+    const yesterday = new Date(bkk.getTime() - 86400000);
+    const yLabel = Utilities.formatDate(yesterday, 'Asia/Bangkok', 'd MMM EEE').toUpperCase();
+    const data = _buildSitrepData(_getForceInGroups());
+    const msg = _buildSitrepMessage(data, '0200H SITREP', yLabel);
+    return { ok: true, message: msg, charCount: msg.length, label: 'Next fire: 0200H · ' + yLabel };
+  }
+
+  if (key === 'A5_parade' || key === 'A5b_gkscsc') {
+    const msg = _buildParadeStateMessage();
+    const todayStr = Utilities.formatDate(bkk, 'Asia/Bangkok', 'EEE d MMM');
+    return {
+      ok: true, message: msg, charCount: msg.length,
+      label: (key === 'A5b_gkscsc' ? 'GKSCSC mirror · ' : '') + 'Next fire: today 0830H · ' + todayStr
+    };
+  }
+
   return { ok: false, error: 'Preview not supported for ' + key };
 }
 
@@ -3308,7 +3381,13 @@ function _buildParadeStateMessage(options) {
 function sendParadeStateBroadcast(overrideChatId) {
   overrideChatId = _coerceChatId(overrideChatId);
   return _safeCron('parade_0830', () => {
-    const msg = _buildParadeStateMessage();
+    const today = Utilities.formatDate(bkkNow(), 'Asia/Bangkok', 'yyyy-MM-dd');
+    let msg;
+    if (!overrideChatId) {
+      const ov = _consumeBroadcastOverride('A5_parade', today);
+      if (ov) msg = ov;
+    }
+    if (!msg) msg = _buildParadeStateMessage();
     const sr = _tgSendRouted(msg, 'A5_parade', overrideChatId);
     if (sr === 'disabled') { logAction('parade_disabled', 'server', ''); return 'A5 disabled'; }
     if (sr === 'killswitch-off') return 'A5 killswitch-off';
