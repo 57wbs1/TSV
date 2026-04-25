@@ -1,5 +1,5 @@
 // Bump this version number on every deploy to invalidate the cache.
-const CACHE_NAME = 'tsv-bkk-v87-' + '20260425v96-teleauto-next-fire';
+const CACHE_NAME = 'tsv-bkk-v87-' + '20260425v97-routing-merged';
 
 const APP_SHELL = [
   './index.html',

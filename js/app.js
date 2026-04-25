@@ -6196,18 +6196,24 @@ function renderSettings() {
         _renderKillswitch(live);
       }
     }).catch(() => {});
-    // Load broadcast schedule for the time-editor card
-    fetch(`${CONFIG.apiUrl}?action=getBroadcastSchedule`).then(r => r.json()).then(resp => {
-      if (resp && resp.ok && resp.data && resp.data.schedule) {
-        _renderBroadcastSchedule(resp.data.schedule);
-      } else {
-        const c = el('broadcast-schedule-container');
-        if (c) c.innerHTML = `<div style="padding:12px 16px;color:#b91c1c;font-size:12px">⚠️ Could not load broadcast schedule.</div>`;
-      }
-    }).catch(() => {});
+    // Routing + Schedule are merged into one card now. Render from cached
+    // values instantly (if available), then refresh both in parallel and
+    // re-render once both land.
     const cachedTg = (() => { try { return JSON.parse(localStorage.getItem('tsv_tg_config') || 'null'); } catch { return null; } })();
-    if (cachedTg) _renderTelegramConfig(cachedTg, true);
-    API.get('getTelegramConfig').then(cfg => {
+    const cachedSched = (() => { try { return JSON.parse(localStorage.getItem('tsv_broadcast_schedule') || 'null'); } catch { return null; } })();
+    if (cachedTg) {
+      STATE.broadcastSchedule = cachedSched || STATE.broadcastSchedule || {};
+      _renderTelegramConfig(cachedTg, true);
+    }
+    Promise.all([
+      API.get('getTelegramConfig'),
+      fetch(`${CONFIG.apiUrl}?action=getBroadcastSchedule`).then(r => r.json()).catch(() => null)
+    ]).then(([cfg, schedResp]) => {
+      const schedule = (schedResp && schedResp.ok && schedResp.data && schedResp.data.schedule) || null;
+      if (schedule) {
+        STATE.broadcastSchedule = schedule;
+        try { localStorage.setItem('tsv_broadcast_schedule', JSON.stringify(schedule)); } catch {}
+      }
       if (!cfg) {
         if (!cachedTg) {
           const c = el('tg-config-container');
@@ -6758,26 +6764,17 @@ function _renderSettingsAdminTele(user, isSuperAdmin) {
     </div>
 
     <div class="settings-section">
-      <div class="settings-section-header">⏰ Broadcast Schedule</div>
+      <div class="settings-section-header">📡 Routing &amp; Schedule</div>
       <div style="padding:8px 16px 0;font-size:12px;color:var(--text-3);line-height:1.5">
-        When each A-cron fires (Bangkok time). Change a time and tap 💾 — the Apps Script trigger is re-created immediately.
-      </div>
-      <div id="broadcast-schedule-container">
-        <div style="padding:12px 16px;color:var(--text-3);font-size:12px">Loading…</div>
-      </div>
-    </div>
-
-    <div class="settings-section">
-      <div class="settings-section-header">📡 Telegram Chat Routing</div>
-      <div style="padding:8px 16px 0;font-size:12px;color:var(--text-3);line-height:1.5">
-        Each routing key controls a message type. Tick to <b>enable</b>, untick to <b>silence</b>.
-        Paste chat ID to override the default destination. 🧪 Test fires the actual template to verify.
+        Each row is one broadcast type. Tick to enable / untick to silence.
+        For A-series, the time picker controls when the cron fires (BKK time).
+        🧪 Test fires the actual template to verify the chat ID before saving.
       </div>
       <div id="tg-config-container">
         <div style="padding:12px 16px;color:var(--text-3);font-size:12px">Loading…</div>
       </div>
       <div style="padding:8px 16px 14px">
-        <button class="btn btn-primary btn-sm" style="width:100%" onclick="saveTelegramConfig()">💾 Save Routing Config</button>
+        <button class="btn btn-primary btn-sm" style="width:100%" onclick="saveTelegramConfig()">💾 Save All Chat IDs</button>
       </div>
     </div>`;
 }
@@ -6822,45 +6819,6 @@ window.setKillswitch = async function(on) {
 // minute) instead of <input type="time">. The time input works unreliably in
 // iOS standalone-mode PWAs (sometimes rendering as read-only text), whereas
 // native selects always open the iOS wheel.
-function _renderBroadcastSchedule(schedule) {
-  const host = el('broadcast-schedule-container');
-  if (!host) return;
-  const order = ['A1_weather','A2_reminder','A3_evening','A4_midnight','A5_parade'];
-  const hourOpts = Array.from({length: 24}, (_, i) =>
-    `<option value="${i}">${String(i).padStart(2,'0')}</option>`).join('');
-  // 5-minute step to keep the wheel short (Apps Script nearMinute rounds
-  // anyway, so finer granularity adds no real precision).
-  const minuteOpts = Array.from({length: 12}, (_, i) => {
-    const m = i * 5;
-    return `<option value="${m}">${String(m).padStart(2,'0')}</option>`;
-  }).join('');
-  const selectStyle =
-    'padding:10px 8px;border:1px solid var(--border);border-radius:8px;font-size:16px;font-weight:700;font-family:inherit;background:var(--card);color:var(--text);text-align:center;min-width:64px';
-  host.innerHTML = order.filter(k => schedule[k]).map(k => {
-    const s = schedule[k];
-    const hh = String(s.hour).padStart(2, '0');
-    const mm = String(s.minute).padStart(2, '0');
-    // Snap current minute to nearest 5 so the <select> shows a matching option.
-    const mmSnapped = Math.round(s.minute / 5) * 5 % 60;
-    const hourSelect = hourOpts.replace(`value="${s.hour}"`, `value="${s.hour}" selected`);
-    const minSelect  = minuteOpts.replace(`value="${mmSnapped}"`, `value="${mmSnapped}" selected`);
-    return `
-      <div style="padding:12px 16px;border-top:1px solid var(--border-2)">
-        <div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:8px">
-          <div style="font-size:13px;font-weight:700">${escapeHtml(s.label)}</div>
-          <div style="font-size:11px;color:var(--text-3)">Currently ${hh}${mm}H BKK</div>
-        </div>
-        <div style="display:flex;align-items:center;gap:6px">
-          <select id="sched-${k}-h" style="${selectStyle}">${hourSelect}</select>
-          <span style="font-size:18px;font-weight:700;color:var(--text-2)">:</span>
-          <select id="sched-${k}-m" style="${selectStyle}">${minSelect}</select>
-          <div style="flex:1"></div>
-          <button class="btn btn-primary btn-sm" onclick="saveBroadcastTime('${k}')">💾 Save</button>
-        </div>
-      </div>`;
-  }).join('');
-}
-
 window.saveBroadcastTime = async function(key) {
   const hEl = el('sched-' + key + '-h');
   const mEl = el('sched-' + key + '-m');
@@ -6877,9 +6835,14 @@ window.saveBroadcastTime = async function(key) {
   const inner = resp.data;
   if (!inner || inner.ok === false) return toast('❌ ' + (inner?.error || 'retry'));
   toast(`✅ ${key} → ${String(hour).padStart(2,'0')}${String(minute).padStart(2,'0')}H BKK`);
-  // Refresh the display so "Currently …" reflects the new value
+  // Refresh schedule + re-render the merged routing card so the "now HHMM"
+  // hint reflects the new value.
   fetch(`${CONFIG.apiUrl}?action=getBroadcastSchedule`).then(r => r.json()).then(r => {
-    if (r && r.ok && r.data && r.data.schedule) _renderBroadcastSchedule(r.data.schedule);
+    if (r && r.ok && r.data && r.data.schedule) {
+      STATE.broadcastSchedule = r.data.schedule;
+      try { localStorage.setItem('tsv_broadcast_schedule', JSON.stringify(r.data.schedule)); } catch {}
+      if (STATE.telegramConfig) _renderTelegramConfig(STATE.telegramConfig, false);
+    }
   }).catch(() => {});
 };
 
@@ -6961,16 +6924,55 @@ function _renderTelegramConfig(cfg, fromCache) {
   const keys = Object.keys(cfg);
   STATE.telegramConfigKeys = keys;
   STATE.telegramConfigFresh = !fromCache;
-  // Also update the live routing state so saves take effect without a reload
   STATE.telegramConfig = cfg;
+
+  // Pre-build hour/minute option strings for the inline time picker on
+  // A-series keys. Schedule is loaded into STATE.broadcastSchedule by the
+  // post-render hook (parallel fetch with getTelegramConfig).
+  const schedule = STATE.broadcastSchedule || {};
+  const hourOpts = Array.from({ length: 24 }, (_, i) =>
+    `<option value="${i}">${String(i).padStart(2,'0')}</option>`).join('');
+  const minuteOpts = Array.from({ length: 12 }, (_, i) => {
+    const m = i * 5;
+    return `<option value="${m}">${String(m).padStart(2,'0')}</option>`;
+  }).join('');
+  const selectStyle =
+    'padding:8px 6px;border:1px solid var(--border);border-radius:8px;font-size:15px;font-weight:700;font-family:inherit;background:var(--card);color:var(--text);text-align:center;min-width:54px';
+
   c.innerHTML = `
     ${fromCache ? `<div style="padding:4px 16px 8px;font-size:10px;color:var(--text-3)">Showing cached · refreshing from server…</div>` : ''}
     ${keys.map(k => {
       const entry = cfg[k];
       const enabled = entry.enabled !== false;
       const isCustom = entry.chatId !== entry.defaultId;
+      const sch = schedule[k];
+      const isAseries = /^A[0-9]/.test(k);
+
+      // Inline time-picker row — only for A-keys, only when we have schedule
+      let timeRow = '';
+      if (isAseries && sch) {
+        const hh = String(sch.hour).padStart(2,'0');
+        const mm = String(sch.minute).padStart(2,'0');
+        const mmSnap = Math.round(sch.minute / 5) * 5 % 60;
+        const hSel = hourOpts.replace(`value="${sch.hour}"`, `value="${sch.hour}" selected`);
+        const mSel = minuteOpts.replace(`value="${mmSnap}"`, `value="${mmSnap}" selected`);
+        timeRow = `
+          <div style="display:flex;align-items:center;gap:6px;margin-top:2px">
+            <span style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.04em;font-weight:700;min-width:42px">⏰ Time</span>
+            <select id="sched-${k}-h" style="${selectStyle}">${hSel}</select>
+            <span style="font-size:14px;font-weight:700;color:var(--text-2)">:</span>
+            <select id="sched-${k}-m" style="${selectStyle}">${mSel}</select>
+            <span style="font-size:10px;color:var(--text-3);margin-left:2px">BKK · now ${hh}${mm}H</span>
+            <div style="flex:1"></div>
+            <button class="btn btn-sm" style="font-size:11px;padding:5px 9px;background:var(--blue-600);color:#fff;border:0" onclick="saveBroadcastTime('${k}')">💾 Time</button>
+          </div>`;
+      } else if (isAseries) {
+        timeRow = `
+          <div style="font-size:10px;color:var(--text-3);font-style:italic">⏰ Schedule loading…</div>`;
+      }
+
       return `
-      <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:6px;${enabled ? '' : 'opacity:.55'}">
+      <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:8px;${enabled ? '' : 'opacity:.55'}">
         <div style="display:flex;gap:8px;align-items:center">
           <label class="tg-toggle" style="display:inline-flex;align-items:center;cursor:pointer;user-select:none;flex-shrink:0">
             <input type="checkbox" id="tgen-${k}" ${enabled ? 'checked' : ''} style="width:18px;height:18px;accent-color:var(--blue-600);margin-right:6px">
@@ -6978,17 +6980,18 @@ function _renderTelegramConfig(cfg, fromCache) {
           </label>
           ${enabled ? '' : `<span style="font-size:10px;background:#fee2e2;color:#991b1b;padding:1px 7px;border-radius:10px;font-weight:700">OFF</span>`}
         </div>
+        ${timeRow}
         <div style="display:flex;gap:6px;align-items:center">
+          <span style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.04em;font-weight:700;min-width:42px">💬 Chat</span>
           <input id="tgcfg-${k}" type="text" value="${escapeHtml(entry.chatId)}"
-            style="flex:1;border:1px solid var(--border);border-radius:7px;padding:6px 10px;font-size:12px;font-family:monospace;background:var(--card);color:var(--text)">
+            style="flex:1;min-width:0;border:1px solid var(--border);border-radius:7px;padding:6px 10px;font-size:12px;font-family:monospace;background:var(--card);color:var(--text)">
           <button class="btn btn-sm btn-outline" style="font-size:11px;padding:5px 8px;white-space:nowrap" onclick="testTelegramChat('${k}')">🧪 Test</button>
         </div>
-        <div style="font-size:10px;color:var(--text-3)">Default: ${escapeHtml(entry.defaultId)}${isCustom ? ' · <b style="color:var(--blue-500)">custom</b>' : ''}</div>
+        <div style="font-size:10px;color:var(--text-3);padding-left:48px">Default: ${escapeHtml(entry.defaultId)}${isCustom ? ' · <b style="color:var(--blue-500)">custom</b>' : ''}</div>
       </div>`;
     }).join('')}
-    <div style="padding:8px 16px 0;font-size:11px;color:var(--text-3)">
-      💡 Tick to <b>enable</b> a routing key. Untick to <b>silence</b> it (server skips sends for that key).
-      <br>🧪 Test fires the actual template to the current input value — verify before saving.
+    <div style="padding:8px 16px 0;font-size:11px;color:var(--text-3);line-height:1.5">
+      💡 Toggle = enable/silence · ⏰ = cron fire time (A-series only) · 💬 = destination chat ID · 🧪 = fire actual template now to QC the address. Save All Chat IDs at the bottom commits the chat-ID + enable changes; ⏰ Time saves per-row.
     </div>
   `;
 }
