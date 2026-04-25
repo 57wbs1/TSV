@@ -3048,27 +3048,47 @@ function previewBroadcast(key, dateStr) {
   }
 
   if (key === 'A3_evening') {
-    const dateLabel = Utilities.formatDate(bkk, 'Asia/Bangkok', 'd MMM EEE').toUpperCase();
+    // A3 fires at 2300H. If past 2300H now, next fire is tomorrow.
+    const fireToday = hourBkk < 23;
+    const fireDate = fireToday ? bkk : new Date(bkk.getTime() + 86400000);
+    const dateLabel = Utilities.formatDate(fireDate, 'Asia/Bangkok', 'd MMM EEE').toUpperCase();
     const data = _buildSitrepData([]);
     const msg = _buildSitrepMessage(data, '2300H SITREP', dateLabel);
-    return { ok: true, message: msg, charCount: msg.length, label: 'Next fire: today 2300H · ' + dateLabel };
+    return {
+      ok: true, message: msg, charCount: msg.length,
+      label: 'Next fire: ' + (fireToday ? 'today' : 'tomorrow') + ' 2300H · ' + dateLabel
+    };
   }
 
   if (key === 'A4_midnight') {
-    // A4 fires at 0200H and reports YESTERDAY's date (the day people just left).
-    const yesterday = new Date(bkk.getTime() - 86400000);
-    const yLabel = Utilities.formatDate(yesterday, 'Asia/Bangkok', 'd MMM EEE').toUpperCase();
+    // A4 fires at 0200H, reports YESTERDAY-of-fire. If now is 00:00–01:59
+    // BKK, next fire is today's 0200H, reports yesterday. Else next fire
+    // is tomorrow's 0200H, reports today.
+    const fireToday = hourBkk < 2;
+    const reportDate = fireToday
+      ? new Date(bkk.getTime() - 86400000)   // yesterday
+      : bkk;                                  // today (= fire's "yesterday")
+    const fireDate = fireToday ? bkk : new Date(bkk.getTime() + 86400000);
+    const yLabel = Utilities.formatDate(reportDate, 'Asia/Bangkok', 'd MMM EEE').toUpperCase();
+    const fireLbl = Utilities.formatDate(fireDate, 'Asia/Bangkok', 'EEE d MMM');
     const data = _buildSitrepData(_getForceInGroups());
     const msg = _buildSitrepMessage(data, '0200H SITREP', yLabel);
-    return { ok: true, message: msg, charCount: msg.length, label: 'Next fire: 0200H · ' + yLabel };
+    return {
+      ok: true, message: msg, charCount: msg.length,
+      label: 'Next fire: ' + fireLbl + ' 0200H · reports ' + yLabel
+    };
   }
 
   if (key === 'A5_parade' || key === 'A5b_gkscsc') {
-    const msg = _buildParadeStateMessage();
-    const todayStr = Utilities.formatDate(bkk, 'Asia/Bangkok', 'EEE d MMM');
+    // A5 fires at 0830H. Past 0830H now → preview tomorrow's send.
+    const minBkk = parseInt(Utilities.formatDate(bkk, 'Asia/Bangkok', 'm'));
+    const pastFire = hourBkk > 8 || (hourBkk === 8 && minBkk >= 30);
+    const fireDate = pastFire ? new Date(bkk.getTime() + 86400000) : bkk;
+    const fireLbl = Utilities.formatDate(fireDate, 'Asia/Bangkok', 'EEE d MMM');
+    const msg = _buildParadeStateMessage({ forceDate: fireDate });
     return {
       ok: true, message: msg, charCount: msg.length,
-      label: (key === 'A5b_gkscsc' ? 'GKSCSC mirror · ' : '') + 'Next fire: today 0830H · ' + todayStr
+      label: (key === 'A5b_gkscsc' ? 'GKSCSC mirror · ' : '') + 'Next fire: ' + (pastFire ? 'tomorrow' : 'today') + ' 0830H · ' + fireLbl
     };
   }
 
@@ -3320,8 +3340,10 @@ function _buildParadeStateMessage(options) {
   if (wantGroups) groups = groups.filter(g => wantGroups.has(g));
   if (!groups.length) groups = Object.keys(byGroup);   // safety fallback
 
-  const bkk = bkkNow();
-  const dateLabel = Utilities.formatDate(bkk, 'Asia/Bangkok', 'd MMM (EEE)').toUpperCase();
+  // forceDate (Date) lets callers (e.g. Tele-Auto preview after 0830H)
+  // render the message with tomorrow's date instead of today's.
+  const dateForHeader = opts.forceDate instanceof Date ? opts.forceDate : bkkNow();
+  const dateLabel = Utilities.formatDate(dateForHeader, 'Asia/Bangkok', 'd MMM (EEE)').toUpperCase();
 
   // Header varies: single-syn includes the syn label on line 2
   let msg = `<b>PARADE STATE FOR ${dateLabel}</b>\n`;
