@@ -1,5 +1,5 @@
 // Bump this version number on every deploy to invalidate the cache.
-const CACHE_NAME = 'tsv-bkk-v87-' + '20260425v97-routing-merged';
+const CACHE_NAME = 'tsv-bkk-v87-' + '20260425v98-mass-transport-hod-car';
 
 const APP_SHELL = [
   './index.html',

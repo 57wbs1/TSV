@@ -3339,12 +3339,13 @@ function renderVisitsSubTab() {
 
 // ═══════════ TRANSPORT SUB-TAB ═══════════════════════════════
 const TRANSPORT_BUSES = [
-  { id: 'bus1', label: 'Bus 1 · Group A',   pax: 'Syn 3 · 26E · 27E',                                          syns: ['Syn 3', '26E', '27E'] },
-  { id: 'bus2', label: 'Bus 2 · Group B',   pax: 'Syn 1 · Syn 4 · 25E',                                        syns: ['Syn 1', 'Syn 4', '25E'] },
-  { id: 'bus3', label: 'Bus 3 · Mini-Bus',  pax: 'DS 1 · DS 3 · DS 4 (PDS) · DS E · CXO · Staff 1 · Staff 2',  syns: ['DS1', 'DS3', 'DS4', 'DSE', 'CXO', 'Staff 1', 'Staff 2'] },
+  { id: 'bus1',     label: 'Bus 1 · Group A',     pax: 'Syn 3 · 26E · 27E',                                         syns: ['Syn 3', '26E', '27E'] },
+  { id: 'bus2',     label: 'Bus 2 · Group B',     pax: 'Syn 1 · Syn 4 · 25E',                                       syns: ['Syn 1', 'Syn 4', '25E'] },
+  { id: 'bus3',     label: 'Bus 3 · Mini-Bus',    pax: 'DS 1 · DS 3 · DS 4 (PDS) · DS E · CXO · Staff 1 · Staff 2', syns: ['DS1', 'DS3', 'DS4', 'DSE', 'CXO', 'Staff 1', 'Staff 2'] },
+  { id: 'hod_car',  label: '🚗 HOD Staff Car',     pax: 'HOD · Umbra',                                              syns: ['HOD', 'Umbra'] },
 ];
 // All syndicate labels that exist across all vehicles (for flight boarding picker)
-const ALL_TRANSPORT_SYNS = ['Syn 1','Syn 3','Syn 4','25E','26E','27E','DS1','DS3','DS4','DSE','CXO','Staff 1','Staff 2'];
+const ALL_TRANSPORT_SYNS = ['Syn 1','Syn 3','Syn 4','25E','26E','27E','DS1','DS3','DS4','DSE','CXO','Staff 1','Staff 2','HOD','Umbra'];
 
 // Returns the short syn label for the current user (for boarding affordance)
 function _mySynLabel(user) {
@@ -3935,10 +3936,57 @@ function _redrawTransport(container) {
       ${sectionHeader('buses', '🚌 Ground Transport', busesOpen)}
       ${busesOpen ? `
       <div style="display:flex;flex-direction:column;gap:10px;margin:0 12px">
+        ${canAdmin ? `
+          <button class="btn btn-primary" style="width:100%;font-size:13px;padding:10px;background:linear-gradient(135deg, #003580, #0056b3);color:#fff;border:0"
+            onclick="sendAllTransportSitrep()">📤 Send Mass SITREP — All Vehicles</button>` : ''}
         ${TRANSPORT_BUSES.map(b => busCard(b)).join('')}
       </div>` : ''}
     </div>`;
 }
+
+// Mass SITREP — one Telegram covering ALL ground vehicles in current state.
+// Includes per-vehicle boarded ✅ + pending ⧖, driver info if set, status
+// badges (Pushing / Dropped Off / All Boarded), and remarks. Single
+// readable message instead of 4 separate per-vehicle sends.
+window.sendAllTransportSitrep = async function() {
+  if (!isAdmin()) return toast('Admin only');
+  const ts = STATE.transport || {};
+  const lines = ['🚌 <b>Ground Transport SITREP</b>'];
+  const now = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  lines.push('🕐 ' + now + 'H');
+  lines.push('');
+
+  let allComplete = true;
+  TRANSPORT_BUSES.forEach(veh => {
+    const v = ts[veh.id] || { boardedSyns: [], driver: {}, status: 'idle' };
+    const boarded = (v.boardedSyns || []);
+    const pending = veh.syns.filter(s => !boarded.includes(s));
+    const pct = veh.syns.length ? Math.round(boarded.length / veh.syns.length * 100) : 0;
+    if (pending.length) allComplete = false;
+
+    let badge = '';
+    if (v.status === 'pushing')         badge = ' · <b>🚌 PUSHING</b>';
+    else if (v.lastDroppedAt)           badge = ' · ✅ Dropped';
+    else if (boarded.length === veh.syns.length && veh.syns.length > 0)
+                                        badge = ' · <b>✅ ALL BOARDED</b>';
+
+    lines.push(`📋 <b>${escapeHtml(veh.label)}</b> — ${boarded.length}/${veh.syns.length} (${pct}%)${badge}`);
+    if (boarded.length) lines.push('  ✅ ' + boarded.map(escapeHtml).join(', '));
+    if (pending.length) lines.push('  ⧖ Pending: ' + pending.map(escapeHtml).join(', '));
+    if (v.driver?.name) {
+      const phone = v.driver.phone ? ' · ' + escapeHtml(v.driver.phone) : '';
+      lines.push('  🚗 Driver: ' + escapeHtml(v.driver.name) + phone);
+    }
+    if (v.boardingRemarks) lines.push('  ⚠️ ' + escapeHtml(v.boardingRemarks));
+    lines.push('');
+  });
+
+  if (allComplete) lines.push('<b>✅ All vehicles fully boarded</b>');
+  const msg = lines.join('\n').trim();
+
+  const ok = await TELEGRAM.sendRouted('M2_bus_boarding', msg, 'HTML');
+  if (ok) toast('✅ Mass SITREP sent');
+};
 
 window.toggleTransportSection = function(key) {
   let state = {};
