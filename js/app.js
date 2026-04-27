@@ -3971,8 +3971,11 @@ window.sendAllTransportSitrep = async function() {
                                         badge = ' · <b>✅ ALL BOARDED</b>';
 
     lines.push(`📋 <b>${escapeHtml(veh.label)}</b> — ${boarded.length}/${veh.syns.length} (${pct}%)${badge}`);
-    if (boarded.length) lines.push('  ✅ ' + boarded.map(escapeHtml).join(', '));
-    if (pending.length) lines.push('  ⧖ Pending: ' + pending.map(escapeHtml).join(', '));
+    boarded.forEach(s => lines.push('  ✅ ' + escapeHtml(s)));
+    if (pending.length) {
+      lines.push('  ⧖ <i>Pending:</i>');
+      pending.forEach(s => lines.push('     • ' + escapeHtml(s)));
+    }
     if (v.boardingRemarks) lines.push('  ⚠️ ' + escapeHtml(v.boardingRemarks));
     lines.push('');
   });
