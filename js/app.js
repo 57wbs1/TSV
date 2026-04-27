@@ -2530,6 +2530,15 @@ function _renderLocationImpl() {
       <div class="team-stat out"><div class="ts-num ${outC>0?'red':'green'}">${outC}</div><div class="ts-label">Out</div></div>
       <div class="team-stat total"><div class="ts-num blue">${total}</div><div class="ts-label">Total</div></div>
     </div>
+    ${isAdmin() && STATE.membersSynced ? `
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:8px 12px 4px">
+        <button class="btn btn-sm" style="background:#dcfce7;color:#166534;border:1px solid #86efac;font-weight:700;padding:10px"
+          onclick="bulkMarkAllCohort('in')" ${outRaw === 0 ? 'disabled style="opacity:.4;cursor:not-allowed"' : ''}>🏨 ALL IN (${outRaw})</button>
+        <button class="btn btn-sm" style="background:#fef3c7;color:#78350f;border:1px solid #fcd34d;font-weight:700;padding:10px"
+          onclick="bulkMarkAllCohort('out')" ${inRaw === 0 ? 'disabled style="opacity:.4;cursor:not-allowed"' : ''}>🚶 ALL OUT (${inRaw})</button>
+      </div>
+      <div style="font-size:10px;color:var(--text-3);text-align:center;margin:0 12px 4px">⚠️ Cohort-wide — affects every visible member</div>
+    ` : ''}
     <div class="filter-bar">${filterChips}</div>
     <div class="section-title">Team Status</div>
     ${synGroups}
@@ -7607,6 +7616,51 @@ function renderPinnedActionBar() {
 // ═══════════ STOP TRACKING ═══════════════════════════════════
 // Admin: force a member's status back to In Hotel (for those without wifi/forgot to update)
 // Syn IC bulk action: mark every OUT member in a syndicate as IN.
+// Cohort-level mass mark — every visible member to in/out. Admin-only.
+// Operates on `visibleGroups()` so a non-admin (if this ever gets exposed)
+// is constrained to their own scope. With double-confirm because flipping
+// 85 statuses is a big move.
+window.bulkMarkAllCohort = async function(direction) {
+  if (!isAdmin()) return toast('Admin only');
+  if (direction !== 'in' && direction !== 'out') return;
+  const visibleGs = visibleGroups();
+  const inScope = MEMBERS.filter(m => visibleGs.includes(memberGroupKey(m)));
+  const targets = inScope.filter(m => {
+    const cur = getStatusOf(m.id).status;
+    return direction === 'in' ? cur === 'out' : cur !== 'out';
+  });
+  if (!targets.length) return toast(direction === 'in' ? 'Everyone is already in' : 'Everyone is already out');
+  const verb = direction === 'in' ? '🏨 IN HOTEL' : '🚶 OUT';
+  if (!confirm(`Mark ALL ${targets.length} of ${inScope.length} members as ${verb}?\n\nThis is cohort-wide. Use only for major movements (everyone deplaning, everyone back at hotel for the night).`)) return;
+  // Second confirm for OUT — bigger blast radius (parade state implications)
+  if (direction === 'out' && !confirm(`Final check: mark ${targets.length} people OUT?`)) return;
+
+  const now = new Date().toISOString();
+  // Optimistic local update
+  for (const m of targets) {
+    const cur = getStatusOf(m.id);
+    STATE.memberStatuses[m.id] = direction === 'in'
+      ? { ...cur, status: 'in_hotel', locationText: 'Hotel', buddyWith: '', lastUpdated: now }
+      : { ...cur, status: 'out', locationText: cur.locationText || 'Out of Hotel', lastUpdated: now };
+  }
+  renderLocation();
+  await withLoader(`Marking ${targets.length} as ${verb}…`, () =>
+    Promise.all(targets.map(m => {
+      const cur = getStatusOf(m.id);
+      return API.post('updateStatus', {
+        memberId: m.id, name: m.name, shortName: m.shortName,
+        role: m.role, syndicate: m.syndicate,
+        status: direction === 'in' ? 'in_hotel' : 'out',
+        locationText: direction === 'in' ? 'Hotel' : (cur.locationText || 'Out of Hotel'),
+        lat: cur.lat || '', lng: cur.lng || '',
+        buddyWith: direction === 'in' ? '' : (cur.buddyWith || ''),
+        roomNumber: cur.roomNumber || ''
+      });
+    }))
+  );
+  toast(`${verb} · ${targets.length} updated`);
+};
+
 window.bulkMarkAllIn = async function(groupKey) {
   const members = membersInGroup(groupKey).filter(m => getStatusOf(m.id).status === 'out');
   if (!members.length) return toast('Everyone in ' + formatGroupDisplay(groupKey) + ' is already in');
