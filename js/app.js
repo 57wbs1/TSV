@@ -3973,10 +3973,6 @@ window.sendAllTransportSitrep = async function() {
     lines.push(`📋 <b>${escapeHtml(veh.label)}</b> — ${boarded.length}/${veh.syns.length} (${pct}%)${badge}`);
     if (boarded.length) lines.push('  ✅ ' + boarded.map(escapeHtml).join(', '));
     if (pending.length) lines.push('  ⧖ Pending: ' + pending.map(escapeHtml).join(', '));
-    if (v.driver?.name) {
-      const phone = v.driver.phone ? ' · ' + escapeHtml(v.driver.phone) : '';
-      lines.push('  🚗 Driver: ' + escapeHtml(v.driver.name) + phone);
-    }
     if (v.boardingRemarks) lines.push('  ⚠️ ' + escapeHtml(v.boardingRemarks));
     lines.push('');
   });
