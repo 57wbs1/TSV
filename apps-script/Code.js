@@ -2695,7 +2695,6 @@ function _buildWeatherMessage(dayOffset) {
   let tMax = null, tMin = null, feelsMax = null, uvMax = null, rainSum = 0, rainProb = 0;
   let curT = null, curRH = null, curWind = null, curCode = null, dailyCode = null;
   let noonT = null, noonFeels = null;
-  let tmrMax = null, tmrMin = null, tmrCode = null;
   try {
     const res = UrlFetchApp.fetch(url, { method: 'get', muteHttpExceptions: true });
     const body = JSON.parse(res.getContentText());
@@ -2713,9 +2712,6 @@ function _buildWeatherMessage(dayOffset) {
       rainSum  = body.daily.precipitation_sum?.[dayOffset] || 0;
       rainProb = body.daily.precipitation_probability_max?.[dayOffset] || 0;
       dailyCode= body.daily.weather_code?.[dayOffset];
-      tmrMax   = body.daily.temperature_2m_max?.[dayOffset + 1] ?? null;
-      tmrMin   = body.daily.temperature_2m_min?.[dayOffset + 1] ?? null;
-      tmrCode  = body.daily.weather_code?.[dayOffset + 1] ?? null;
     }
     if (body.hourly) {
       const noonIdx = dayOffset * 24 + 12;
@@ -2781,7 +2777,10 @@ function _buildWeatherMessage(dayOffset) {
       if (cal.length) firstAttire = cal[0].attire || '';
 
       if (gist.length) {
-        programmeBlock = '\n<b>Today · Day ' + dayMeta.day + ' · ' + dayMeta.icon + ' ' + dayMeta.theme + '</b>\n';
+        // "Today" for a same-day briefing; "Tomorrow" when previewing the
+        // next-fire (dayOffset=1) so the programme isn't mislabelled.
+        const dayWord = dayOffset >= 1 ? 'Tomorrow' : 'Today';
+        programmeBlock = '\n<b>' + dayWord + ' · Day ' + dayMeta.day + ' · ' + dayMeta.icon + ' ' + dayMeta.theme + '</b>\n';
         gist.forEach(ev => {
           const t = (ev.startTime || '').replace(':','');
           programmeBlock += '• ' + (t ? t + 'H · ' : '') + (ev.title || '') + '\n';

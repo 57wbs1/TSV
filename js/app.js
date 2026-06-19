@@ -2432,8 +2432,9 @@ function _renderLocationImpl() {
   const user = STATE.currentUser;
   const myStatus = getStatusOf(user?.id || '');
   const visibleGs = visibleGroups();
-  // Counts are computed over VISIBLE scope only for non-admins
-  const visMembers = canSeeAllSyndicates() ? MEMBERS : MEMBERS.filter(m => visibleGs.includes(memberGroupKey(m)));
+  // Counts use the SAME scope helper as bulkMarkAllCohort so the ALL IN/OUT
+  // button count can't drift from the set it flips (review #5).
+  const visMembers = cohortScopeMembers();
   const totalRaw = visMembers.length;
   const outRaw = visMembers.filter(m => getStatusOf(m.id).status === 'out').length;
   const inRaw = totalRaw - outRaw;
@@ -3979,19 +3980,21 @@ window.sendAllTransportSitrep = async function() {
   let allComplete = true;
   TRANSPORT_BUSES.forEach(veh => {
     const v = ts[veh.id] || { boardedSyns: [], driver: {}, status: 'idle' };
-    const boarded = (v.boardedSyns || []);
-    const pending = veh.syns.filter(s => !boarded.includes(s));
-    const pct = veh.syns.length ? Math.round(boarded.length / veh.syns.length * 100) : 0;
+    // Intersect with veh.syns so stale labels (left over from a vehicle/roster
+    // reassignment) can't inflate the count past 100% or hide a real "pending".
+    const onBoard = (v.boardedSyns || []).filter(s => veh.syns.includes(s));
+    const pending = veh.syns.filter(s => !onBoard.includes(s));
+    const pct = veh.syns.length ? Math.round(onBoard.length / veh.syns.length * 100) : 0;
     if (pending.length) allComplete = false;
 
     let badge = '';
-    if (v.status === 'pushing')         badge = ' · <b>🚌 PUSHING</b>';
-    else if (v.lastDroppedAt)           badge = ' · ✅ Dropped';
-    else if (boarded.length === veh.syns.length && veh.syns.length > 0)
-                                        badge = ' · <b>✅ ALL BOARDED</b>';
+    if (v.status === 'pushing')      badge = ' · <b>🚌 PUSHING</b>';
+    else if (v.lastDroppedAt)        badge = ' · ✅ Dropped';
+    else if (pending.length === 0 && veh.syns.length > 0)
+                                     badge = ' · <b>✅ ALL BOARDED</b>';
 
-    lines.push(`📋 <b>${escapeHtml(veh.label)}</b> — ${boarded.length}/${veh.syns.length} (${pct}%)${badge}`);
-    boarded.forEach(s => lines.push('  ✅ ' + escapeHtml(s)));
+    lines.push(`📋 <b>${escapeHtml(veh.label)}</b> — ${onBoard.length}/${veh.syns.length} (${pct}%)${badge}`);
+    onBoard.forEach(s => lines.push('  ✅ ' + escapeHtml(s)));
     if (pending.length) {
       lines.push('  ⧖ <i>Pending:</i>');
       pending.forEach(s => lines.push('     • ' + escapeHtml(s)));
@@ -7636,36 +7639,30 @@ function renderPinnedActionBar() {
 // ═══════════ STOP TRACKING ═══════════════════════════════════
 // Admin: force a member's status back to In Hotel (for those without wifi/forgot to update)
 // Syn IC bulk action: mark every OUT member in a syndicate as IN.
-// Cohort-level mass mark — every visible member to in/out. Admin-only.
-// Operates on `visibleGroups()` so a non-admin (if this ever gets exposed)
-// is constrained to their own scope. With double-confirm because flipping
-// 85 statuses is a big move.
-window.bulkMarkAllCohort = async function(direction) {
-  if (!isAdmin()) return toast('Admin only');
-  if (direction !== 'in' && direction !== 'out') return;
-  const visibleGs = visibleGroups();
-  const inScope = MEMBERS.filter(m => visibleGs.includes(memberGroupKey(m)));
-  const targets = inScope.filter(m => {
-    const cur = getStatusOf(m.id).status;
-    return direction === 'in' ? cur === 'out' : cur !== 'out';
-  });
-  if (!targets.length) return toast(direction === 'in' ? 'Everyone is already in' : 'Everyone is already out');
-  const verb = direction === 'in' ? '🏨 IN HOTEL' : '🚶 OUT';
-  if (!confirm(`Mark ALL ${targets.length} of ${inScope.length} members as ${verb}?\n\nThis is cohort-wide. Use only for major movements (everyone deplaning, everyone back at hotel for the night).`)) return;
-  // Second confirm for OUT — bigger blast radius (parade state implications)
-  if (direction === 'out' && !confirm(`Final check: mark ${targets.length} people OUT?`)) return;
+// Single source of truth for "which members are in the viewer's scope" —
+// used by BOTH the Tracker count card and bulkMarkAllCohort so the ALL IN/OUT
+// button count can never diverge from the set it actually flips (review #5).
+// Admin sees everyone; non-admin is constrained to their visible groups.
+function cohortScopeMembers() {
+  if (canSeeAllSyndicates()) return MEMBERS;
+  const vis = visibleGroups();
+  return MEMBERS.filter(m => vis.includes(memberGroupKey(m)));
+}
 
+// Shared optimistic-update + parallel-POST for marking a list of members
+// in/out. Used by bulkMarkAllCohort, bulkMarkAllIn (review #8 — was 3 copies
+// of the same updateStatus payload).
+async function _pushMemberStatuses(members, direction) {
   const now = new Date().toISOString();
-  // Optimistic local update
-  for (const m of targets) {
+  for (const m of members) {
     const cur = getStatusOf(m.id);
     STATE.memberStatuses[m.id] = direction === 'in'
       ? { ...cur, status: 'in_hotel', locationText: 'Hotel', buddyWith: '', lastUpdated: now }
       : { ...cur, status: 'out', locationText: cur.locationText || 'Out of Hotel', lastUpdated: now };
   }
   renderLocation();
-  await withLoader(`Marking ${targets.length} as ${verb}…`, () =>
-    Promise.all(targets.map(m => {
+  await withLoader(`Marking ${members.length} ${direction === 'in' ? 'in hotel' : 'out'}…`, () =>
+    Promise.all(members.map(m => {
       const cur = getStatusOf(m.id);
       return API.post('updateStatus', {
         memberId: m.id, name: m.name, shortName: m.shortName,
@@ -7678,6 +7675,24 @@ window.bulkMarkAllCohort = async function(direction) {
       });
     }))
   );
+}
+
+// Cohort-level mass mark — every member in the viewer's scope to in/out.
+// Admin-only. Double-confirm for OUT (bigger blast radius). Uses the same
+// scope helper as the button count so the two can't disagree.
+window.bulkMarkAllCohort = async function(direction) {
+  if (!isAdmin()) return toast('Admin only');
+  if (direction !== 'in' && direction !== 'out') return;
+  const inScope = cohortScopeMembers();
+  const targets = inScope.filter(m => {
+    const cur = getStatusOf(m.id).status;
+    return direction === 'in' ? cur === 'out' : cur !== 'out';
+  });
+  if (!targets.length) return toast(direction === 'in' ? 'Everyone is already in' : 'Everyone is already out');
+  const verb = direction === 'in' ? '🏨 IN HOTEL' : '🚶 OUT';
+  if (!confirm(`Mark ALL ${targets.length} of ${inScope.length} members as ${verb}?\n\nThis is cohort-wide. Use only for major movements (everyone deplaning, everyone back at hotel for the night).`)) return;
+  if (direction === 'out' && !confirm(`Final check: mark ${targets.length} people OUT?`)) return;
+  await _pushMemberStatuses(targets, direction);
   toast(`${verb} · ${targets.length} updated`);
 };
 
@@ -7685,28 +7700,7 @@ window.bulkMarkAllIn = async function(groupKey) {
   const members = membersInGroup(groupKey).filter(m => getStatusOf(m.id).status === 'out');
   if (!members.length) return toast('Everyone in ' + formatGroupDisplay(groupKey) + ' is already in');
   if (!confirm(`Mark all ${members.length} OUT member${members.length>1?'s':''} of ${formatGroupDisplay(groupKey)} as IN HOTEL?`)) return;
-  const now = new Date().toISOString();
-  // Optimistic local update
-  for (const m of members) {
-    const cur = getStatusOf(m.id);
-    STATE.memberStatuses[m.id] = {
-      ...cur, status: 'in_hotel', locationText: 'Hotel',
-      buddyWith: '', lastUpdated: now
-    };
-  }
-  renderLocation();
-  await withLoader(`Marking ${members.length} back in hotel…`, () =>
-    Promise.all(members.map(m => {
-      const cur = getStatusOf(m.id);
-      return API.post('updateStatus', {
-        memberId: m.id, name: m.name, shortName: m.shortName,
-        role: m.role, syndicate: m.syndicate,
-        status: 'in_hotel', locationText: 'Hotel',
-        lat: cur.lat || '', lng: cur.lng || '',
-        buddyWith: '', roomNumber: cur.roomNumber || ''
-      });
-    }))
-  );
+  await _pushMemberStatuses(members, 'in');
   toast(`🏨 ${members.length} marked IN`);
 };
 
