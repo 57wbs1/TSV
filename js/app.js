@@ -1229,17 +1229,37 @@ async function mutateWithLock(domain, fn) {
 // Replaces 7+ separate GETs with one round-trip's worth of data. Each
 // field is optional; only those present cause state mutation. Uses the
 // same hash-dedup + render-guard logic as the individual sync functions.
+// Normalize raw Members-sheet rows into the canonical client shape. Sheets
+// coerces types on read ('0000'→0, '1234'→1234, 'TRUE'→string), so PIN must
+// be forced back to a 4-digit zero-padded string and bools re-derived. Shared
+// by syncMembers() AND _applyBulkSync() — both ingest the same raw rows, and
+// skipping this in either path silently breaks PIN login + admin detection.
+function _normalizeMemberRows(rows) {
+  return rows.map(row => ({
+    id: cStr(row.id),
+    name: cStr(row.name),
+    shortName: cStr(row.shortName, cStr(row.name)),
+    rank: cStr(row.rank),
+    role: cStr(row.role, 'Member'),
+    csc: cStr(row.csc),
+    syndicate: cStr(row.syndicate),
+    pin: cStr(row.pin, '0000').padStart(4, '0'),
+    isAdmin: cBool(row.isAdmin)
+  }));
+}
+
 function _applyBulkSync(bulk) {
   if (!bulk || typeof bulk !== 'object') return;
   try {
     if (Array.isArray(bulk.members) && bulk.members.length && !isSyncLocked('members')) {
-      const hash = JSON.stringify(bulk.members);
+      const normMembers = _normalizeMemberRows(bulk.members);
+      const hash = JSON.stringify(normMembers);
       if (hash !== _lastMembersHash) {
         _lastMembersHash = hash;
-        MEMBERS = bulk.members;
-        // Persist to localStorage so next app open renders instantly
-        // from cache before the network round-trip completes.
-        try { localStorage.setItem('tsv_members_cache', JSON.stringify(bulk.members)); } catch {}
+        MEMBERS = normMembers;
+        // Persist NORMALIZED rows so cold-start hydration gets the same
+        // PIN-padded / bool-coerced shape (raw rows broke PIN login).
+        try { localStorage.setItem('tsv_members_cache', hash); } catch {}
       }
       // Critical: must flip this flag or in/out count displays show '…'
       // forever. syncMembers() sets it; bulkSync used to forget.
@@ -1318,24 +1338,15 @@ async function syncMembers() {
   if (isSyncLocked('members')) return;
   const data = await API.get('getMembers');
   if (!data || !Array.isArray(data) || data.length === 0) return;
-  const hash = JSON.stringify(data);
+  // Hash the NORMALIZED rows (not raw) so this path and _applyBulkSync share
+  // one _lastMembersHash basis and don't ping-pong re-renders when both run.
+  const normMembers = _normalizeMemberRows(data);
+  const hash = JSON.stringify(normMembers);
   if (hash === _lastMembersHash) return;
   _lastMembersHash = hash;
 
-  MEMBERS = data.map(row => ({
-    id: cStr(row.id),
-    name: cStr(row.name),
-    shortName: cStr(row.shortName, cStr(row.name)),
-    rank: cStr(row.rank),
-    role: cStr(row.role, 'Member'),
-    csc: cStr(row.csc),
-    syndicate: cStr(row.syndicate),
-    // Sheets coerces '0000' → 0 and '1234' → 1234 — always force back to
-    // a 4-digit zero-padded string so PIN comparison (string) works.
-    pin: cStr(row.pin, '0000').padStart(4, '0'),
-    isAdmin: cBool(row.isAdmin)
-  }));
-  try { localStorage.setItem('tsv_members_cache', JSON.stringify(MEMBERS)); } catch {}
+  MEMBERS = normMembers;
+  try { localStorage.setItem('tsv_members_cache', hash); } catch {}
   STATE.membersSynced = true;
   if (STATE.currentUser) {
     const me = MEMBERS.find(m => m.id === STATE.currentUser.id);
