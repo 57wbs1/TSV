@@ -6310,9 +6310,21 @@ function renderSettings() {
   }
 
   // Tele-Auto post-render hook: fetch current overrides map so the status
-  // pills (Auto / Once / Persistent) are live.
+  // pills (Auto / Once / Persistent) are live. Also warm the broadcast
+  // schedule into STATE so the _nextOverrideDate fallback is schedule-aware
+  // even if the admin hasn't opened the Admin-Tele tab this session.
   if (sub === 'tele-auto' && isSuperAdmin) {
     _loadBroadcastOverrides();
+    if (!STATE.broadcastSchedule) {
+      const cachedSched = (() => { try { return JSON.parse(localStorage.getItem('tsv_broadcast_schedule') || 'null'); } catch { return null; } })();
+      if (cachedSched) STATE.broadcastSchedule = cachedSched;
+      fetch(`${CONFIG.apiUrl}?action=getBroadcastSchedule`).then(r => r.json()).then(r => {
+        if (r && r.ok && r.data && r.data.schedule) {
+          STATE.broadcastSchedule = r.data.schedule;
+          try { localStorage.setItem('tsv_broadcast_schedule', JSON.stringify(r.data.schedule)); } catch {}
+        }
+      }).catch(() => {});
+    }
   }
 }
 
@@ -6491,6 +6503,12 @@ async function _fetchTeleAutoPreview(key) {
 
   try { localStorage.setItem(cacheKey, data.message || ''); } catch {}
 
+  // Stash the server-authoritative override date key. The server computes
+  // this from the LIVE schedule (super-admin editable), so saving against it
+  // can't drift from what the cron will look for. Falls back to client calc
+  // only if the preview didn't return one (old server / error).
+  modal.dataset.overrideDate = data.overrideDate || '';
+
   const existing = (STATE.broadcastOverrides || {})[key];
   if (existing && existing.text) {
     bodyEl.value = existing.text;
@@ -6524,10 +6542,12 @@ window.saveTeleAutoOverride = async function() {
   const date = modal.querySelector('.ta-modal-date').value;
   if (!text) return toast('❌ Text is empty — use Revert to clear instead');
   if (mode === 'once') {
-    // A2 has a user-picked date; A1/A3/A4/A5 compute the next fire's date
-    // automatically based on current BKK time.
-    const effectiveDate = key === 'A2_reminder' ? date : _nextOverrideDate(key);
-    if (!effectiveDate) return toast('❌ Pick a date for one-shot');
+    // Prefer the server-authoritative override date from the last preview
+    // (schedule-aware, no drift). Fall back: A2 = user-picked date,
+    // others = client-side schedule calc (only if preview gave nothing).
+    const serverDate = modal.dataset.overrideDate || '';
+    const effectiveDate = serverDate || (key === 'A2_reminder' ? date : _nextOverrideDate(key));
+    if (!effectiveDate) return toast('❌ Reload preview first so the fire date is known');
     const resp = await API.postRaw('saveBroadcastOverride', {
       key, mode, text, date: effectiveDate,
       actor: STATE.currentUser?.id,
@@ -6568,39 +6588,28 @@ window.clearTeleAutoOverride = async function(key) {
   toast('✅ Reverted to auto-generated');
 };
 
-function _nextA1FireDate() {
-  // A1 fires at 0600H BKK daily. If it's before 0600H BKK now, the next fire
-  // is TODAY; else tomorrow. bkkParts handles the BKK TZ conversion so just
-  // add 24h to the instant and re-parse.
-  const p = bkkParts();
-  if (p.hour < 6) return p.dateStr;
-  return bkkParts(new Date(Date.now() + 24 * 60 * 60 * 1000)).dateStr;
-}
-
-// Compute the override date that the server's _consumeBroadcastOverride()
-// will look for at next fire. Each cron stores under a different date key:
-//   A1 0600H → today/tomorrow at fire (BKK date of fire)
-//   A3 2300H → today/tomorrow at fire (BKK date of fire)
-//   A5 0830H → today/tomorrow at fire (BKK date of fire)
-//   A4 0200H → reports YESTERDAY relative to fire, so override date matches
-//              yesterday-of-fire-day. If it's before 0200H now, "today
-//              of fire" is today, "yesterday of fire" is yesterday. If
-//              after 0200H, fire is tomorrow, yesterday-of-fire is today.
+// CLIENT-SIDE FALLBACK for the override date the server's
+// _consumeBroadcastOverride() will look for at next fire. Only used if the
+// preview didn't return an authoritative `overrideDate` (old server / error).
+// Reads the LIVE schedule (STATE.broadcastSchedule, super-admin editable) so
+// it tracks edited fire times instead of hardcoded constants. Defaults match
+// BROADCAST_DEFAULTS if the schedule isn't loaded.
 function _nextOverrideDate(key) {
+  const DEFAULTS = { A1_weather:[6,0], A2_reminder:[19,0], A3_evening:[23,0], A4_midnight:[2,0], A5_parade:[8,30] };
+  const sched = (STATE.broadcastSchedule || {})[key];
+  const [dh, dm] = DEFAULTS[key] || [0, 0];
+  const fh = sched && Number.isInteger(sched.hour)   ? sched.hour   : dh;
+  const fm = sched && Number.isInteger(sched.minute) ? sched.minute : dm;
   const p = bkkParts();
+  const nowMins = p.hour * 60 + p.minute;
+  const fireMins = fh * 60 + fm;
+  const fireToday = nowMins < fireMins;
   const todayStr = p.dateStr;
-  const tmrStr = bkkParts(new Date(Date.now() + 86400000)).dateStr;
-  const ydyStr = bkkParts(new Date(Date.now() - 86400000)).dateStr;
-  if (key === 'A1_weather')   return p.hour < 6  ? todayStr : tmrStr;
-  if (key === 'A3_evening')   return p.hour < 23 ? todayStr : tmrStr;
-  if (key === 'A5_parade')    return p.hour < 8 || (p.hour === 8 && p.minute < 30) ? todayStr : tmrStr;
-  if (key === 'A4_midnight') {
-    // Fire happens at 0200H. If it's currently 00:00–01:59 BKK, fire is
-    // today and reports yesterday. After 02:00, fire is tomorrow and
-    // reports today.
-    return p.hour < 2 ? ydyStr : todayStr;
-  }
-  return todayStr;
+  const tmrStr   = bkkParts(new Date(Date.now() + 86400000)).dateStr;
+  const ydyStr   = bkkParts(new Date(Date.now() - 86400000)).dateStr;
+  // A4 reports YESTERDAY-of-fire; its override key is the report date.
+  if (key === 'A4_midnight') return fireToday ? ydyStr : todayStr;
+  return fireToday ? todayStr : tmrStr;
 }
 
 function _ensureTeleAutoModal() {

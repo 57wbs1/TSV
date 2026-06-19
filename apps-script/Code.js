@@ -3019,20 +3019,43 @@ function clearBroadcastOverride(body) {
 //   A3 evening sitrep: live parade state + transport, dated today
 //   A4 midnight sitrep: live + force-in groups, dated yesterday
 //   A5 / A5b parade: live parade state, today
+// Look up a broadcast's CURRENT scheduled time (super-admin editable via the
+// schedule card) so preview "today vs tomorrow" and label HHMM track the real
+// trigger, not a hardcoded constant. A5b mirrors A5's time. Falls back to
+// BROADCAST_DEFAULTS if the schedule isn't readable.
+function _schedFireTime(key) {
+  const lookup = key === 'A5b_gkscsc' ? 'A5_parade' : key;
+  try {
+    const s = _readBroadcastSchedule()[lookup];
+    if (s && Number.isInteger(s.hour) && Number.isInteger(s.minute)) {
+      return { hour: s.hour, minute: s.minute };
+    }
+  } catch (e) {}
+  const d = BROADCAST_DEFAULTS[lookup] || { hour: 0, minute: 0 };
+  return { hour: d.hour, minute: d.minute };
+}
+function _fireHHMM(t) {
+  return String(t.hour).padStart(2, '0') + String(t.minute).padStart(2, '0') + 'H';
+}
+
 function previewBroadcast(key, dateStr) {
   const bkk = bkkNow();
-  const hourBkk = parseInt(Utilities.formatDate(bkk, 'Asia/Bangkok', 'H'));
+  const nowMins = parseInt(Utilities.formatDate(bkk, 'Asia/Bangkok', 'H')) * 60 +
+                  parseInt(Utilities.formatDate(bkk, 'Asia/Bangkok', 'm'));
 
   if (key === 'A1_weather') {
-    // If past 0600H BKK now, today's send already fired — preview tomorrow.
-    const dayOffset = hourBkk >= 6 ? 1 : 0;
+    // Past the scheduled time today → today's send already fired, preview tomorrow.
+    const ft = _schedFireTime('A1_weather');
+    const dayOffset = nowMins >= (ft.hour * 60 + ft.minute) ? 1 : 0;
     const msg = _buildWeatherMessage(dayOffset);
     const target = new Date(bkk.getTime() + dayOffset * 86400000);
     const targetStr = Utilities.formatDate(target, 'Asia/Bangkok', 'EEE d MMM');
     return {
       ok: true, message: msg, charCount: msg.length,
-      label: 'Next fire: ' + targetStr + ' 0600H',
-      dayOffset
+      label: 'Next fire: ' + targetStr + ' ' + _fireHHMM(ft),
+      dayOffset,
+      // Date key the cron will look for when consuming a once-override.
+      overrideDate: Utilities.formatDate(target, 'Asia/Bangkok', 'yyyy-MM-dd')
     };
   }
 
@@ -3042,53 +3065,54 @@ function previewBroadcast(key, dateStr) {
       : Utilities.formatDate(new Date(bkk.getTime() + 86400000), 'Asia/Bangkok', 'yyyy-MM-dd');
     const msg = _buildReminderMessage(tmrDate, false);
     return msg
-      ? { ok: true, message: msg, charCount: msg.length, date: tmrDate, label: 'For trip-eve ' + tmrDate }
-      : { ok: true, message: '', charCount: 0, date: tmrDate,
+      ? { ok: true, message: msg, charCount: msg.length, date: tmrDate, overrideDate: tmrDate, label: 'For trip-eve ' + tmrDate }
+      : { ok: true, message: '', charCount: 0, date: tmrDate, overrideDate: tmrDate,
           warning: 'No 1900H reminder is scheduled for ' + tmrDate + '. Cron skips this date.' };
   }
 
   if (key === 'A3_evening') {
-    // A3 fires at 2300H. If past 2300H now, next fire is tomorrow.
-    const fireToday = hourBkk < 23;
+    const ft = _schedFireTime('A3_evening');
+    const fireToday = nowMins < (ft.hour * 60 + ft.minute);
     const fireDate = fireToday ? bkk : new Date(bkk.getTime() + 86400000);
     const dateLabel = Utilities.formatDate(fireDate, 'Asia/Bangkok', 'd MMM EEE').toUpperCase();
     const data = _buildSitrepData([]);
-    const msg = _buildSitrepMessage(data, '2300H SITREP', dateLabel);
+    const msg = _buildSitrepMessage(data, _fireHHMM(ft) + ' SITREP', dateLabel);
     return {
       ok: true, message: msg, charCount: msg.length,
-      label: 'Next fire: ' + (fireToday ? 'today' : 'tomorrow') + ' 2300H · ' + dateLabel
+      label: 'Next fire: ' + (fireToday ? 'today' : 'tomorrow') + ' ' + _fireHHMM(ft) + ' · ' + dateLabel,
+      overrideDate: Utilities.formatDate(fireDate, 'Asia/Bangkok', 'yyyy-MM-dd')
     };
   }
 
   if (key === 'A4_midnight') {
-    // A4 fires at 0200H, reports YESTERDAY-of-fire. If now is 00:00–01:59
-    // BKK, next fire is today's 0200H, reports yesterday. Else next fire
-    // is tomorrow's 0200H, reports today.
-    const fireToday = hourBkk < 2;
-    const reportDate = fireToday
-      ? new Date(bkk.getTime() - 86400000)   // yesterday
-      : bkk;                                  // today (= fire's "yesterday")
-    const fireDate = fireToday ? bkk : new Date(bkk.getTime() + 86400000);
+    // A4 reports YESTERDAY-of-fire. Before scheduled time today → next fire
+    // is today, reports yesterday. After → next fire tomorrow, reports today.
+    const ft = _schedFireTime('A4_midnight');
+    const fireToday = nowMins < (ft.hour * 60 + ft.minute);
+    const reportDate = fireToday ? new Date(bkk.getTime() - 86400000) : bkk;
+    const fireDate   = fireToday ? bkk : new Date(bkk.getTime() + 86400000);
     const yLabel = Utilities.formatDate(reportDate, 'Asia/Bangkok', 'd MMM EEE').toUpperCase();
     const fireLbl = Utilities.formatDate(fireDate, 'Asia/Bangkok', 'EEE d MMM');
     const data = _buildSitrepData(_getForceInGroups());
-    const msg = _buildSitrepMessage(data, '0200H SITREP', yLabel);
+    const msg = _buildSitrepMessage(data, _fireHHMM(ft) + ' SITREP', yLabel);
     return {
       ok: true, message: msg, charCount: msg.length,
-      label: 'Next fire: ' + fireLbl + ' 0200H · reports ' + yLabel
+      label: 'Next fire: ' + fireLbl + ' ' + _fireHHMM(ft) + ' · reports ' + yLabel,
+      // A4 override is keyed by REPORT date (what the cron's _consumeBroadcastOverride looks up).
+      overrideDate: Utilities.formatDate(reportDate, 'Asia/Bangkok', 'yyyy-MM-dd')
     };
   }
 
   if (key === 'A5_parade' || key === 'A5b_gkscsc') {
-    // A5 fires at 0830H. Past 0830H now → preview tomorrow's send.
-    const minBkk = parseInt(Utilities.formatDate(bkk, 'Asia/Bangkok', 'm'));
-    const pastFire = hourBkk > 8 || (hourBkk === 8 && minBkk >= 30);
+    const ft = _schedFireTime('A5_parade');
+    const pastFire = nowMins >= (ft.hour * 60 + ft.minute);
     const fireDate = pastFire ? new Date(bkk.getTime() + 86400000) : bkk;
     const fireLbl = Utilities.formatDate(fireDate, 'Asia/Bangkok', 'EEE d MMM');
     const msg = _buildParadeStateMessage({ forceDate: fireDate });
     return {
       ok: true, message: msg, charCount: msg.length,
-      label: (key === 'A5b_gkscsc' ? 'GKSCSC mirror · ' : '') + 'Next fire: ' + (pastFire ? 'tomorrow' : 'today') + ' 0830H · ' + fireLbl
+      label: (key === 'A5b_gkscsc' ? 'GKSCSC mirror · ' : '') + 'Next fire: ' + (pastFire ? 'tomorrow' : 'today') + ' ' + _fireHHMM(ft) + ' · ' + fireLbl,
+      overrideDate: Utilities.formatDate(fireDate, 'Asia/Bangkok', 'yyyy-MM-dd')
     };
   }
 
